@@ -1,0 +1,146 @@
+{
+  "events": {
+    "event_ground": {
+      "Action": "Hustle",
+      "Entities": [
+        "player_137"
+      ],
+      "Location": [
+        "alley"
+      ],
+      "Timeframe": "evening",
+      "Properties": {
+        "archetype": {
+          "age": "young",
+          "gender": 1,
+          "attire": "athletic"
+        },
+        "role": "ground layer (lived action)",
+        "Name": "Darius \"Dash\" Ortiz",
+        "description": "Young athletic man in a red track jacket, black joggers, and worn running shoes; close-cropped fade and tape-wrapped fingers, eyes set with hustler’s focus."
+      }
+    },
+    "event_observe_document": {
+      "Action": "Broadcast",
+      "Entities": [
+        "player_192"
+      ],
+      "Location": [
+        "office_news"
+      ],
+      "Timeframe": "night",
+      "Properties": {
+        "archetype": {
+          "age": "middle-aged",
+          "gender": 2,
+          "attire": "formal_suits"
+        },
+        "role": "observer layer (documentation/editing)",
+        "Name": "Monica Valdez",
+        "description": "Middle-aged journalist in a tailored navy blazer and white blouse, neat bob haircut and headset, composed and incisive on-air presence."
+      }
+    },
+    "event_feedback": {
+      "Action": "Watch",
+      "Entities": [
+        "player_137"
+      ],
+      "Location": [
+        "house"
+      ],
+      "Timeframe": "late_night",
+      "Properties": {
+        "archetype": {
+          "age": "young",
+          "gender": 1,
+          "attire": "athletic"
+        },
+        "role": "feedback layer (self-consumption)",
+        "Name": "Darius \"Dash\" Ortiz",
+        "description": "Same young runner, now winded and hoodie-up, sneakers unlaced at the heel as he leans toward the flickering TV glow."
+      }
+    }
+  },
+  "temporal": {
+    "starting_actions": {
+      "starting_actions": {
+        "player_137": "event_ground",
+        "player_192": "event_observe_document"
+      },
+      "relations": null,
+      "next": null,
+      "type": null,
+      "source": null,
+      "target": null
+    },
+    "event_ground": {
+      "starting_actions": null,
+      "relations": [
+        "r_after_12"
+      ],
+      "next": "event_feedback",
+      "type": null,
+      "source": null,
+      "target": null
+    },
+    "event_observe_document": {
+      "starting_actions": null,
+      "relations": [
+        "r_after_12",
+        "r_after_23"
+      ],
+      "next": null,
+      "type": null,
+      "source": null,
+      "target": null
+    },
+    "event_feedback": {
+      "starting_actions": null,
+      "relations": [
+        "r_after_23"
+      ],
+      "next": null,
+      "type": null,
+      "source": null,
+      "target": null
+    },
+    "r_after_12": {
+      "starting_actions": null,
+      "relations": null,
+      "next": null,
+      "type": "after",
+      "source": "event_observe_document",
+      "target": "event_ground"
+    },
+    "r_after_23": {
+      "starting_actions": null,
+      "relations": null,
+      "next": null,
+      "type": "after",
+      "source": "event_feedback",
+      "target": "event_observe_document"
+    }
+  },
+  "spatial": {},
+  "semantic": {
+    "event_observe_document": {
+      "type": "documents",
+      "targets": [
+        "event_ground"
+      ]
+    },
+    "event_feedback": {
+      "type": "reads",
+      "targets": [
+        "event_observe_document"
+      ]
+    }
+  },
+  "camera": {
+    "event_observe_document": {
+      "action": "record"
+    }
+  },
+  "title": "Echo Loop: Alley Hustle \u0019a News Cut \u0019a Self-Watching",
+  "narrative": null
+}

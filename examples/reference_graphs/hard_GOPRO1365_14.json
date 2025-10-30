@@ -1,0 +1,649 @@
+{
+    "desk1": {
+        "Action": "Exists",
+        "Entities": ["desk1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Desk"}
+    },
+    "desk2": {
+        "Action": "Exists",
+        "Entities": ["desk2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Desk"}
+    },
+    "desk3": {
+        "Action": "Exists",
+        "Entities": ["desk3"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Desk"}
+    },
+    "desk4": {
+        "Action": "Exists",
+        "Entities": ["desk4"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Desk"}
+    },
+    "desk5": {
+        "Action": "Exists",
+        "Entities": ["desk5"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Desk"}
+    },
+    "desk6": {
+        "Action": "Exists",
+        "Entities": ["desk6"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Desk"}
+    },
+    "chair1": {
+        "Action": "Exists",
+        "Entities": ["chair1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair2": {
+        "Action": "Exists",
+        "Entities": ["chair2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair3": {
+        "Action": "Exists",
+        "Entities": ["chair3"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair4": {
+        "Action": "Exists",
+        "Entities": ["chair4"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair5": {
+        "Action": "Exists",
+        "Entities": ["chair5"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair6": {
+        "Action": "Exists",
+        "Entities": ["chair6"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair7": {
+        "Action": "Exists",
+        "Entities": ["chair7"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair8": {
+        "Action": "Exists",
+        "Entities": ["chair8"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair9": {
+        "Action": "Exists",
+        "Entities": ["chair9"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair10": {
+        "Action": "Exists",
+        "Entities": ["chair10"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair11": {
+        "Action": "Exists",
+        "Entities": ["chair11"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair12": {
+        "Action": "Exists",
+        "Entities": ["chair12"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair13": {
+        "Action": "Exists",
+        "Entities": ["chair13"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair14": {
+        "Action": "Exists",
+        "Entities": ["chair14"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair15": {
+        "Action": "Exists",
+        "Entities": ["chair15"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair16": {
+        "Action": "Exists",
+        "Entities": ["chair16"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair17": {
+        "Action": "Exists",
+        "Entities": ["chair17"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "chair18": {
+        "Action": "Exists",
+        "Entities": ["chair18"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Chair"}
+    },
+    "laptop1": {
+        "Action": "Exists",
+        "Entities": ["laptop1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Laptop"}
+    },
+    "laptop2": {
+        "Action": "Exists",
+        "Entities": ["laptop2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Laptop"}
+    },
+    "laptop3": {
+        "Action": "Exists",
+        "Entities": ["laptop3"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Laptop"}
+    },
+    "laptop4": {
+        "Action": "Exists",
+        "Entities": ["laptop4"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Laptop"}
+    },
+    "laptop5": {
+        "Action": "Exists",
+        "Entities": ["laptop5"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Laptop"}
+    },
+    "laptop6": {
+        "Action": "Exists",
+        "Entities": ["laptop6"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Laptop"}
+    },
+    "food_obj_1": {
+        "Action": "Exists",
+        "Entities": ["food_obj_1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Food"}
+    },
+    "food_obj_2": {
+        "Action": "Exists",
+        "Entities": ["food_obj_2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {"Type": "Food"}
+    },
+    "alice1": {
+        "Action": "Exists",
+        "Entities": ["alice1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {
+            "Gender": 2,
+            "Name": "Alice 15"
+        }
+    },
+    "alice2": {
+        "Action": "Exists",
+        "Entities": ["alice2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {
+            "Gender": 1,
+            "Name": "Bob2"
+        }
+    },
+    "alice3": {
+        "Action": "Exists",
+        "Entities": ["alice3"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {
+            "Gender": 1,
+            "Name": "Bob3"
+        }
+    },
+    "alice4": {
+        "Action": "Exists",
+        "Entities": ["alice4"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {
+            "Gender": 2,
+            "Name": "Alice4"
+        }
+    },
+    "alice5": {
+        "Action": "Exists",
+        "Entities": ["alice5"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {
+            "Gender": 2,
+            "Name": "Alice5"
+        }
+    },
+    "alice6": {
+        "Action": "Exists",
+        "Entities": ["alice6"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {
+            "Gender": 2,
+            "Name": "Alice6"
+        }
+    },
+    "alice7": {
+        "Action": "Exists",
+        "Entities": ["alice7"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {
+            "Gender": 1,
+            "Name": "Alice7"
+        }
+    },
+    "newcomer": {
+        "Action": "Exists",
+        "Entities": ["newcomer"],
+        "Location": ["hallway"],
+        "Timeframe": null,
+        "Properties": {
+            "Gender": 1,
+            "Name": "NewPerson"
+        }
+    },
+    "a1_sitdown": {
+        "Action": "SitDown",
+        "Entities": ["alice1", "chair2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a2_sitdown": {
+        "Action": "SitDown",
+        "Entities": ["alice2", "chair5"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a3_sitdown": {
+        "Action": "SitDown",
+        "Entities": ["alice3", "chair8"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a4_sitdown": {
+        "Action": "SitDown",
+        "Entities": ["alice4", "chair11"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a5_sitdown": {
+        "Action": "SitDown",
+        "Entities": ["alice5", "chair14"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a6_sitdown": {
+        "Action": "SitDown",
+        "Entities": ["alice6", "chair3"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a7_sitdown": {
+        "Action": "SitDown",
+        "Entities": ["alice7", "chair16"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a1_pickup_food": {
+        "Action": "PickUp",
+        "Entities": ["alice1", "food_obj_1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a1_eat": {
+        "Action": "Eat",
+        "Entities": ["alice1", "food_obj_1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a2_pickup_food": {
+        "Action": "PickUp",
+        "Entities": ["alice2", "food_obj_2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a2_eat": {
+        "Action": "Eat",
+        "Entities": ["alice2", "food_obj_2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a3_open_laptop": {
+        "Action": "OpenLaptop",
+        "Entities": ["alice3", "laptop1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a3_type": {
+        "Action": "TypeOnKeyboard",
+        "Entities": ["alice3", "laptop1"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a4_open_laptop": {
+        "Action": "OpenLaptop",
+        "Entities": ["alice4", "laptop2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a4_type": {
+        "Action": "TypeOnKeyboard",
+        "Entities": ["alice4", "laptop2"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a5_open_laptop": {
+        "Action": "OpenLaptop",
+        "Entities": ["alice5", "laptop3"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "a5_type": {
+        "Action": "TypeOnKeyboard",
+        "Entities": ["alice5", "laptop3"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "newcomer_enter": {
+        "Action": "Move",
+        "Entities": ["newcomer"],
+        "Location": ["hallway", "classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "stand_up": {
+        "Action": "StandUp",
+        "Entities": ["alice7", "chair16"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "handshake": {
+        "Action": "Handshake",
+        "Entities": ["newcomer", "alice7"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "handshake_back": {
+        "Action": "Handshake",
+        "Entities": ["alice7", "newcomer"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "newcomer_sitdown": {
+        "Action": "SitDown",
+        "Entities": ["newcomer", "chair17"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "alice7_sitbackdown": {
+        "Action": "SitDown",
+        "Entities": ["alice7", "chair16"],
+        "Location": ["classroom"],
+        "Timeframe": null,
+        "Properties": {}
+    },
+    "spatial": {
+        "chair16": {
+            "relations": [
+                {
+                    "type": "behind",
+                    "target": "desk6"
+                }
+            ]
+        },
+        "chair17": {
+            "relations": [
+                {
+                    "type": "behind",
+                    "target": "desk6"
+                },
+                {
+                    "type": "near",
+                    "target": "chair16"
+                }
+            ]
+        }
+    },
+    "temporal": {
+        "starting_actions": {
+            "alice1": "a1_sitdown",
+            "alice2": "a2_sitdown",
+            "alice3": "a3_sitdown",
+            "alice4": "a4_sitdown",
+            "alice5": "a5_sitdown",
+            "alice6": "a6_sitdown",
+            "alice7": "a7_sitdown",
+            "newcomer": "newcomer_enter"
+        },
+        "a1_sitdown": {
+            "relations": null,
+            "next": "a1_pickup_food"
+        },
+        "a1_pickup_food": {
+            "relations": null,
+            "next": "a1_eat"
+        },
+        "a1_eat": {
+            "relations": null,
+            "next": null
+        },
+        "a2_sitdown": {
+            "relations": null,
+            "next": "a2_pickup_food"
+        },
+        "a2_pickup_food": {
+            "relations": null,
+            "next": "a2_eat"
+        },
+        "a2_eat": {
+            "relations": null,
+            "next": null
+        },
+        "a3_sitdown": {
+            "relations": null,
+            "next": "a3_open_laptop"
+        },
+        "a3_open_laptop": {
+            "relations": null,
+            "next": "a3_type"
+        },
+        "a3_type": {
+            "relations": null,
+            "next": null
+        },
+        "a4_sitdown": {
+            "relations": null,
+            "next": "a4_open_laptop"
+        },
+        "a4_open_laptop": {
+            "relations": null,
+            "next": "a4_type"
+        },
+        "a4_type": {
+            "relations": null,
+            "next": null
+        },
+        "a5_sitdown": {
+            "relations": null,
+            "next": "a5_open_laptop"
+        },
+        "a5_open_laptop": {
+            "relations": null,
+            "next": "a5_type"
+        },
+        "a5_type": {
+            "relations": null,
+            "next": null
+        },
+        "a6_sitdown": {
+            "relations": null,
+            "next": null
+        },
+        "a7_sitdown": {
+            "relations": null,
+            "next": "stand_up"
+        },
+        "stand_up": {
+            "relations": ["after_newcomer_enter"],
+            "next": "handshake_back"
+        },
+        "after_newcomer_enter": {
+            "source": "stand_up",
+            "type": "after",
+            "target": "newcomer_enter"
+        },
+        "handshake_back": {
+            "relations": ["same_time_handshake"],
+            "next": "alice7_sitbackdown"
+        },
+        "alice7_sitbackdown": {
+            "relations": null,
+            "next": null
+        },
+        "newcomer_enter": {
+            "relations": [
+                "newcomer_after_seated",
+                "newcomer_after_seated2",
+                "newcomer_after_seated3",
+                "newcomer_after_seated4",
+                "newcomer_after_seated5",
+                "newcomer_after_seated6",
+                "newcomer_after_seated7"
+            ],
+            "next": "handshake"
+        },
+        "newcomer_after_seated": {
+            "source": "newcomer_enter",
+            "type": "after",
+            "target": "a1_sitdown"
+        },
+        "newcomer_after_seated2": {
+            "source": "newcomer_enter",
+            "type": "after",
+            "target": "a2_sitdown"
+        },
+        "newcomer_after_seated3": {
+            "source": "newcomer_enter",
+            "type": "after",
+            "target": "a3_sitdown"
+        },
+        "newcomer_after_seated4": {
+            "source": "newcomer_enter",
+            "type": "after",
+            "target": "a4_sitdown"
+        },
+        "newcomer_after_seated5": {
+            "source": "newcomer_enter",
+            "type": "after",
+            "target": "a5_sitdown"
+        },
+        "newcomer_after_seated6": {
+            "source": "newcomer_enter",
+            "type": "after",
+            "target": "a6_sitdown"
+        },
+        "newcomer_after_seated7": {
+            "source": "newcomer_enter",
+            "type": "after",
+            "target": "a7_sitdown"
+        },
+        "handshake": {
+            "relations": ["same_time_handshake"],
+            "next": "newcomer_sitdown"
+        },
+        "same_time_handshake": {
+            "type": "starts_with"
+        },
+        "newcomer_sitdown": {
+            "relations": null,
+            "next": null
+        }
+    },
+    "camera": {
+        "newcomer_enter": {
+            "action": "record"
+        }
+    }
+}

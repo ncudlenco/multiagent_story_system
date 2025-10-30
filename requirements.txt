@@ -1,0 +1,30 @@
+# Core LLM - OpenAI with structured outputs
+openai>=1.12.0
+
+# Data Validation and Schemas
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Configuration and I/O
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+
+# Process Management and System Utilities
+psutil>=5.9.0
+
+# Logging and Monitoring
+structlog>=24.1.0
+colorama>=0.4.6
+
+# Testing Framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# Type Checking (Development)
+mypy>=1.8.0
+types-PyYAML>=6.0.12
+
+# Code Quality (Development)
+black>=23.12.0
+ruff>=0.1.9

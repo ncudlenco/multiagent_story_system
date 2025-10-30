@@ -1,0 +1,64 @@
+# Multiagent Story Generation System - Configuration
+# Phase 0: Foundation + Phase 1: Preprocessing
+
+openai:
+  model: "gpt-5"  # Default model for all agents
+  # temperature: 1.0  # GPT-5 with structured outputs only supports 1 (omit to use default)
+  # max_tokens: null  # No limit - let GPT-5 decide output length
+  # api_key loaded from .env file (OPENAI_API_KEY)
+
+mta:
+  server_root: "z:\\More games\\GTA San Andreas\\MTA-SA1.6\\server"
+  resource_path: "mods/deathmatch/resources/sv2l"
+  server_executable: "MTA Server.exe"
+  client_shortcut: "Multi Theft Auto.exe - Shortcut.lnk"
+  client_executable: "Multi Theft Auto.exe"
+  server_log: "mods/deathmatch/logs/server.log"
+  client_log: "mods/deathmatch/logs/clientscript.log"
+  startup_wait_seconds: 20
+  shutdown_wait_seconds: 3
+
+paths:
+  game_capabilities: "data/game_capabilities.json"
+  game_capabilities_source: "../sv2l/game_capabilities.json"
+  game_capabilities_concept: "data/cache/game_capabilities_concept.json"
+  game_capabilities_full_indexed: "data/cache/game_capabilities_full_indexed.json"
+  output_dir: "output"
+  logs_dir: "logs"
+  cache_dir: "data/cache"
+  reference_graphs: "examples/reference_graphs"
+  documentation: "data/documentation"
+
+# Phase 1: Preprocessing agents configuration
+preprocessing:
+  # Whether to include episode summaries by default
+  include_episode_summaries: true
+
+  # Skin categorization agent
+  skin_categorization:
+    model: "gpt-5"  # Large context window for all 249 skins
+    # temperature: 1.0  # GPT-5 structured outputs only supports 1 (omit for default)
+    # max_tokens: null  # No limit - GPT-5 decides
+
+  # Episode summarization agent
+  episode_summarization:
+    model: "gpt-5"  # Large context window for all 13 episodes
+    # temperature: 1.0  # GPT-5 structured outputs only supports 1 (omit for default)
+    # max_tokens: null  # No limit - GPT-5 decides
+
+validation:
+  max_attempts: 3
+  simulation_timeout_seconds: 600
+  scene_1_max_retries: 2
+  require_video_output: false
+  error_patterns:
+    - "error"
+    - "failed"
+    - "exception"
+  success_patterns:
+    - "simulation complete"
+    - "story complete"
+
+logging:
+  level: "INFO"
+  format: "json"
