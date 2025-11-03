@@ -145,6 +145,194 @@ def place_episodes_node(state: DetailState) -> DetailState:
 
     return state
 
+
+def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int) -> GEST:
+    """Make all event and relation IDs unique by appending scene_id and index.
+
+    Comprehensively renames:
+    - All event IDs (except protagonist Exists with IsBackgroundActor=False)
+    - All temporal/semantic/logical relation IDs
+    - ALL references: Entities, source, target, next, relations, spatial keys, camera keys
+
+    Args:
+        gest: Expansion GEST with potentially duplicate IDs
+        scene_id: Scene identifier (e.g., "mix_compose")
+        scene_index: Global scene counter (0-based)
+
+    Returns:
+        GEST with globally unique IDs
+    """
+    suffix = f"_{scene_id}_{scene_index}"
+
+    # ========== PASS 1: Build ID Mappings ==========
+
+    # Event ID mapping
+    event_id_mapping = {}
+    protagonist_ids = set()  # Track protagonist IDs to skip in Entities references
+
+    for event_id, event in gest.events.items():
+        # Keep protagonist actor IDs unchanged (shared across scenes)
+        # Protagonists are actors (have Gender) that are not background actors
+        if (event.Action == "Exists" and
+            event.Properties.get('Gender') is not None and  # Is an actor, not an object
+            event.Properties.get('IsBackgroundActor') is not True):  # Not a background actor
+            event_id_mapping[event_id] = event_id
+            protagonist_ids.add(event_id)  # Track protagonist ID
+        # Keep scene event IDs unchanged (referenced across phases)
+        elif event.Properties and event.Properties.get('scene_type') in ['leaf', 'parent']:
+            event_id_mapping[event_id] = event_id
+        else:
+            # Rename: background actors, objects, actions
+            event_id_mapping[event_id] = f"{event_id}{suffix}"
+
+    # Temporal relation ID mapping
+    relation_id_mapping = {}
+    for rel_id in gest.temporal.keys():
+        if rel_id == 'starting_actions':
+            continue  # Special key, don't rename
+        elif rel_id in event_id_mapping:
+            # This temporal key IS an event ID - use event mapping
+            relation_id_mapping[rel_id] = event_id_mapping[rel_id]
+        else:
+            # Pure relation ID (talk_sync, give_sync, etc.) - append suffix
+            relation_id_mapping[rel_id] = f"{rel_id}{suffix}"
+
+    # Semantic/Logical relation ID mapping (same logic)
+    for rel_id in gest.semantic.keys():
+        if rel_id not in relation_id_mapping:
+            relation_id_mapping[rel_id] = f"{rel_id}{suffix}"
+
+    for rel_id in gest.logical.keys():
+        if rel_id not in relation_id_mapping:
+            relation_id_mapping[rel_id] = f"{rel_id}{suffix}"
+
+    # ========== PASS 2: Apply Mappings ==========
+
+    # Rename events and their Entities references
+    renamed_events = {}
+    for old_id, event in gest.events.items():
+        new_id = event_id_mapping[old_id]
+
+        # Rename Entities list (references to actors/objects)
+        # Skip renaming protagonist references to preserve casting IDs
+        if event.Entities:
+            event.Entities = [
+                event_id_mapping.get(entity_id, entity_id)
+                if entity_id not in protagonist_ids  # Skip protagonists
+                else entity_id  # Keep protagonist references unchanged
+                for entity_id in event.Entities
+            ]
+
+        # Rename child_events in Properties
+        if event.Properties and event.Properties.get('child_events'):
+            event.Properties['child_events'] = [
+                event_id_mapping.get(child_id, child_id)
+                for child_id in event.Properties['child_events']
+            ]
+
+        renamed_events[new_id] = event
+
+    # Rename temporal
+    renamed_temporal = {}
+    for old_rel_id, rel_data in gest.temporal.items():
+        if old_rel_id == 'starting_actions':
+            # Update starting_actions keys (actor IDs) and values (action IDs)
+            renamed_temporal['starting_actions'] = {
+                event_id_mapping.get(actor, actor): event_id_mapping.get(action_id, action_id)
+                for actor, action_id in rel_data.items()
+            }
+        elif isinstance(rel_data, dict):
+            # Rename the key
+            new_rel_id = relation_id_mapping.get(old_rel_id, old_rel_id)
+
+            # Update all references in relation data
+            renamed_rel_data = {}
+            for key, value in rel_data.items():
+                if key == 'source':
+                    renamed_rel_data['source'] = event_id_mapping.get(value, value)
+                elif key == 'target':
+                    renamed_rel_data['target'] = event_id_mapping.get(value, value)
+                elif key == 'next':
+                    renamed_rel_data['next'] = event_id_mapping.get(value, value) if value else None
+                elif key == 'relations' and value:
+                    # List of relation ID references
+                    renamed_rel_data['relations'] = [
+                        relation_id_mapping.get(r_id, r_id) for r_id in value
+                    ]
+                else:
+                    # type, etc. - keep as is
+                    renamed_rel_data[key] = value
+
+            renamed_temporal[new_rel_id] = renamed_rel_data
+        else:
+            # Fallback for unexpected structure
+            renamed_temporal[old_rel_id] = rel_data
+
+    # Rename semantic relations
+    renamed_semantic = {}
+    for old_rel_id, rel_data in gest.semantic.items():
+        new_rel_id = relation_id_mapping.get(old_rel_id, f"{old_rel_id}{suffix}")
+
+        renamed_rel_data = dict(rel_data)
+        if 'source' in rel_data:
+            renamed_rel_data['source'] = event_id_mapping.get(rel_data['source'], rel_data['source'])
+        if 'target' in rel_data:
+            renamed_rel_data['target'] = event_id_mapping.get(rel_data['target'], rel_data['target'])
+
+        renamed_semantic[new_rel_id] = renamed_rel_data
+
+    # Rename logical relations
+    renamed_logical = {}
+    for old_rel_id, rel_data in gest.logical.items():
+        new_rel_id = relation_id_mapping.get(old_rel_id, f"{old_rel_id}{suffix}")
+
+        renamed_rel_data = dict(rel_data)
+        if 'source' in rel_data:
+            renamed_rel_data['source'] = event_id_mapping.get(rel_data['source'], rel_data['source'])
+        if 'target' in rel_data:
+            renamed_rel_data['target'] = event_id_mapping.get(rel_data['target'], rel_data['target'])
+
+        renamed_logical[new_rel_id] = renamed_rel_data
+
+    # Rename spatial relations (both keys and nested keys)
+    renamed_spatial = {}
+    for event_id, spatial_data in gest.spatial.items():
+        new_event_id = event_id_mapping.get(event_id, event_id)
+        renamed_spatial[new_event_id] = {
+            event_id_mapping.get(other_id, other_id): relations
+            for other_id, relations in spatial_data.items()
+        }
+
+    # Rename camera commands (keys are event IDs)
+    renamed_camera = {
+        event_id_mapping.get(event_id, event_id): camera_cmd
+        for event_id, camera_cmd in gest.camera.items()
+    }
+
+    logger.info(
+        "renamed_all_ids_in_scene_expansion",
+        scene_id=scene_id,
+        scene_index=scene_index,
+        events_renamed=len([k for k, v in event_id_mapping.items() if k != v]),
+        relations_renamed=len([k for k, v in relation_id_mapping.items() if k != v]),
+        total_events=len(renamed_events),
+        total_temporal_keys=len(renamed_temporal),
+        total_semantic_keys=len(renamed_semantic),
+        total_logical_keys=len(renamed_logical),
+        total_spatial_keys=len(renamed_spatial),
+        total_camera_keys=len(renamed_camera)
+    )
+
+    return GEST(
+        temporal=renamed_temporal,
+        spatial=renamed_spatial,
+        semantic=renamed_semantic,
+        logical=renamed_logical,
+        camera=renamed_camera,
+        **renamed_events
+    )
+
+
 def expand_scenes_node_parallel(state: DetailState) -> DetailState:
     """Node that expands all leaf scenes and performs complete cross-scene merging.
 
@@ -269,6 +457,29 @@ def expand_scenes_node_parallel(state: DetailState) -> DetailState:
 
     logger.info("merging_parallel_expansions_in_order", count=len(ordered_expansions))
 
+    # Make all event and relation IDs unique across scenes
+    logger.info("making_event_ids_unique_across_scenes", scene_count=len(ordered_expansions))
+
+    unique_ordered_expansions = []
+    for idx, (scene_id, expansion_result) in enumerate(ordered_expansions):
+        # Comprehensively rename all IDs in this scene
+        unique_gest = make_event_ids_unique(
+            expansion_result.gest,
+            scene_id,
+            idx
+        )
+
+        # Create new DualOutput with renamed GEST
+        unique_ordered_expansions.append((
+            scene_id,
+            DualOutput(gest=unique_gest, narrative=expansion_result.narrative)
+        ))
+
+    # Replace with uniquified version
+    ordered_expansions = unique_ordered_expansions
+
+    logger.info("all_scene_ids_made_unique", scene_count=len(ordered_expansions))
+
     # STEP 2: Merge in order and track scene information
     scene_info_map = {}
 
@@ -349,8 +560,37 @@ def merge_expansion(
     # # Merge temporal relations (expansion adds new relations)
     # merged_temporal = {**current_gest_temporal, **expansion_gest_temporal}
 
-    # Expansion overwrites exists events from current
-    merged_events = {**current_gest.events, **expansion_gest.events}
+    # Merge events, preserving first occurrence of protagonist Exists
+    merged_events = dict(current_gest.events)  # Start with current (has first occurrences)
+
+    for event_id, event in expansion_gest.events.items():
+        if event_id in merged_events:
+            # Check if this is a protagonist Exists event collision
+            existing = merged_events[event_id]
+            if (existing.Action == "Exists" and
+                existing.Properties.get('Gender') is not None and  # Is an actor
+                existing.Properties.get('IsBackgroundActor') is not True):  # Is protagonist
+                # Check if existing has parent_scene (from scene expansion) or is from casting (no parent_scene)
+                existing_parent_scene = existing.Properties.get('parent_scene')
+                if existing_parent_scene is not None:
+                    # Existing is from a scene expansion - preserve first occurrence
+                    logger.info(
+                        "preserving_first_protagonist_exists",
+                        protagonist_id=event_id,
+                        first_scene=existing_parent_scene,
+                        skipped_scene=event.Properties.get('parent_scene')
+                    )
+                    continue  # Don't overwrite, keep first scene occurrence
+                else:
+                    # Existing is from casting (no parent_scene) - allow first scene expansion to overwrite
+                    logger.info(
+                        "replacing_casting_protagonist_with_first_scene",
+                        protagonist_id=event_id,
+                        first_scene=event.Properties.get('parent_scene')
+                    )
+
+        # Add new event or overwrite non-protagonist event
+        merged_events[event_id] = event
     # Expansion overwrites starting_actions in temporal from current
     merged_temporal = {**current_gest.temporal, **expansion_gest.temporal}
 

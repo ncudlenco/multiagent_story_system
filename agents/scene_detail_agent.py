@@ -691,7 +691,9 @@ Use these character names as entity IDs in all actions.
    - Appropriate SkinIds
    - Simple background activities
    - Complete temporal chains, synchronized with protagonists
-   - Simple actions in the background, either left in a loop (e.g. in the gym, jogging on a treadmill), or a simple routine
+   - Simple actions in the background, executed before the protagonists to be left in a loop (e.g. in the gym, jogging on a treadmill)
+   - No closing action is needed for background actors (e.g., no StandUp after SitDown)
+   - Make sure not to block or interfere with protagonists' actions (e.g., sit down the extra on a chair that a protagonist needs anytime in the whole narrative)
    - Properties indicating they are background actors (they will never get camera focus)
    - Example: "IsBackgroundActor": true
 
