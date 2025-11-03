@@ -513,12 +513,12 @@ class MTAController:
 
                 time.sleep(0.5)
 
-            # 5. Copy game_capabilities.json from sv2l to data/
+            # 5. Copy simulation_environment_capabilities.json from sv2l to data/
             logger.info("copying_game_capabilities_file")
 
             # Get paths from config
             source_path = Path(self.config['paths']['game_capabilities_source'])
-            dest_path = Path(self.config['paths']['game_capabilities'])
+            dest_path = Path(self.config['paths']['simulation_environment_capabilities'])
 
             # Resolve paths relative to project root (parent of utils/)
             project_root = Path(__file__).parent.parent

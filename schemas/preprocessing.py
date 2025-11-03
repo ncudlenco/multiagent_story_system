@@ -1,7 +1,7 @@
 """
 Preprocessing schemas for game capabilities transformation.
 
-This module defines Pydantic models for LLM-based preprocessing of game_capabilities.json,
+This module defines Pydantic models for LLM-based preprocessing of simulation_environment_capabilities.json,
 including player skin categorization and episode summarization.
 """
 
@@ -144,19 +144,21 @@ class EpisodeSummary(BaseModel):
         ...,
         description="Distinct object types found in this episode (Chair, Desk, etc.)"
     )
-    common_actions: List[str] = Field(
+    action_chains: List[str] = Field(
         ...,
-        description="Most common/important actions available in this episode"
+        description="The action chains available in this episode (interactions, spawnable_usage, observation_actions, etc.)"
+    ),
+    episode_links: List[str] = Field(
+        ...,
+        description="To what other episodes can this episode link (by name)"
     )
 
 
 class EpisodeSummariesOutput(BaseModel):
     """Complete output from episode summarization agent."""
-    episode_summaries: List[EpisodeSummary] = Field(
+    episode_summary: EpisodeSummary = Field(
         ...,
-        min_length=13,
-        max_length=13,
-        description="Summaries for all 13 episodes (~250 lines total)"
+        description="Summary of the episode for scene breakdown"
     )
 
 

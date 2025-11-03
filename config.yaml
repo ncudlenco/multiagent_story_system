@@ -19,8 +19,8 @@ mta:
   shutdown_wait_seconds: 3
 
 paths:
-  game_capabilities: "data/game_capabilities.json"
-  game_capabilities_source: "../sv2l/game_capabilities.json"
+  simulation_environment_capabilities: "data/simulation_environment_capabilities.json"
+  game_capabilities_source: "../sv2l/simulation_environment_capabilities.json"
   game_capabilities_concept: "data/cache/game_capabilities_concept.json"
   game_capabilities_full_indexed: "data/cache/game_capabilities_full_indexed.json"
   output_dir: "output"
@@ -46,6 +46,15 @@ preprocessing:
     # temperature: 1.0  # GPT-5 structured outputs only supports 1 (omit for default)
     # max_tokens: null  # No limit - GPT-5 decides
 
+# Phase 3: Detail workflow configuration
+detail:
+  # Whether to expand scenes in parallel using ThreadPoolExecutor
+  parallel_expansion: true
+
+  # Maximum number of scenes to expand concurrently (default: 5)
+  # Recommended: 3-5 for optimal balance between speed and API rate limits
+  max_parallel_scenes: 5
+
 validation:
   max_attempts: 3
   simulation_timeout_seconds: 600
@@ -60,5 +69,5 @@ validation:
     - "story complete"
 
 logging:
-  level: "INFO"
+  level: "DEBUG"
   format: "json"

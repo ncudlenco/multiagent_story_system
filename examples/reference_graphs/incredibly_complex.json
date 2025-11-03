@@ -448,7 +448,7 @@
         "Properties": {}
     },
     "a10": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": ["alice", "bob"],
         "Location": ["porch"],
         "Timeframe": null,
@@ -497,7 +497,7 @@
         "Properties": {}
     },
     "a15": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": ["alice", "TV"],
         "Location": ["livingroom"],
         "Timeframe": null,
@@ -721,14 +721,14 @@
         "Properties": {}
     },
     "m10": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": ["alice3", "TV"],
         "Location": ["livingroom"],
         "Timeframe": null,
         "Properties": {}
     },
     "d9": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": ["bod3", "TV"],
         "Location": ["livingroom"],
         "Timeframe": null,
@@ -1328,6 +1328,27 @@
         "m15": {
             "relations": null,
             "next": null
+        }
+    },
+    "camera": {
+        "a2": {
+            "action": "record"
+        },
+        "b5.2": {
+            "action": "stop"
+        },
+        "a4": {
+            "action": "record"
+        }
+    },
+    "spatial": {
+        "chair1": {
+            "relations": [
+                {
+                    "type": "near",
+                    "target": "chair2"
+                }
+            ]
         }
     }
 }

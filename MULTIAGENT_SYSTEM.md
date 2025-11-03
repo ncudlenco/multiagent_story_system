@@ -18,9 +18,9 @@ A complete multiagent system for generating executable story graphs for GTA San 
 │  • Scans all episodes, POIs, objects dynamically                 │
 │  • Builds action catalog from game data                          │
 │  • Documents action chains and constraints                       │
-│  • Exports to game_capabilities.json                             │
+│  • Exports to simulation_environment_capabilities.json                             │
 └───────────────────────┬─────────────────────────────────────────┘
-                        │ game_capabilities.json
+                        │ simulation_environment_capabilities.json
                         ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │           Python Multiagent System (GPT-5 + LangGraph)           │
@@ -85,7 +85,7 @@ A complete multiagent system for generating executable story graphs for GTA San 
    - `InferActionCategory()` - Categorizes actions by pattern matching
    - Exports episode links for meta-episode support
    - Exports interactionsOnly flags for interaction-specific POIs
-   - Outputs to: `sv2l/game_capabilities.json` (then copied to `multiagent_story_system/data/`)
+   - Outputs to: `sv2l/simulation_environment_capabilities.json` (then copied to `multiagent_story_system/data/`)
 
 **Key Features**:
 - ✅ Fully dynamic - scans actual game data, no hardcoded lists
@@ -125,7 +125,7 @@ multiagent_story_system/
 ├── schemas/                     # Pydantic schemas
 │   ├── __init__.py
 │   ├── gest_schemas.py          # 5-level GEST hierarchy
-│   └── game_capabilities.py     # Game world capabilities
+│   └── simulation_environment_capabilities.py     # Game world capabilities
 │
 ├── utils/                       # Utility modules
 │   ├── __init__.py
@@ -144,7 +144,7 @@ multiagent_story_system/
 │   └── copy_documentation.py
 │
 ├── data/                        # Data files
-│   ├── game_capabilities.json   # Exported from MTA
+│   ├── simulation_environment_capabilities.json   # Exported from MTA
 │   └── documentation/           # Copied .md files
 │
 ├── examples/                    # Example reference graphs
@@ -225,7 +225,7 @@ Defines all 5 GEST levels using Pydantic:
    - Stores all GEST versions
    - Accumulates validation errors
 
-**[schemas/game_capabilities.py](../multiagent_story_system/schemas/game_capabilities.py)** (~265 lines)
+**[schemas/simulation_environment_capabilities.py](../multiagent_story_system/schemas/simulation_environment_capabilities.py)** (~265 lines)
 
 Defines game world capability schemas matching the dynamic export format:
 - `ActionAtPOI` - Actions available at a specific POI with requirements
@@ -569,8 +569,8 @@ Action Chains: 8 defined
 Temporal Relations: 5 types
 Spatial Relations: 6 types
 
-Capabilities generated in: .../sv2l/game_capabilities.json
-Capabilities copied to: .../data/game_capabilities.json
+Capabilities generated in: .../sv2l/simulation_environment_capabilities.json
+Capabilities copied to: .../data/simulation_environment_capabilities.json
 ```
 
 ### Example 2: Generate Story (Creative Mode)
@@ -697,7 +697,7 @@ python main.py --thread-id story-001
 | [requirements.txt](../multiagent_story_system/requirements.txt) | Dependencies | 25 |
 | [config.yaml](../multiagent_story_system/config.yaml) | Configuration | ~200 |
 | [schemas/gest_schemas.py](../multiagent_story_system/schemas/gest_schemas.py) | 5 GEST levels | ~600 |
-| [schemas/game_capabilities.py](../multiagent_story_system/schemas/game_capabilities.py) | Capability schemas | ~265 |
+| [schemas/simulation_environment_capabilities.py](../multiagent_story_system/schemas/simulation_environment_capabilities.py) | Capability schemas | ~265 |
 | [utils/file_manager.py](../multiagent_story_system/utils/file_manager.py) | File I/O | ~350 |
 | [utils/mta_controller.py](../multiagent_story_system/utils/mta_controller.py) | MTA control | ~350 |
 | [utils/log_parser.py](../multiagent_story_system/utils/log_parser.py) | Log parsing | ~300 |

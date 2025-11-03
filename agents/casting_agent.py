@@ -7,7 +7,6 @@ This is the second stage of the story generation pipeline.
 Inputs:
 - Concept GEST (from recursive ConceptAgent) with parent + leaf scenes
 - Full indexed cache: includes player_skins_categorized
-- Filtered skins (based on archetypes from concept)
 
 Outputs:
 - GEST: Same structure with SkinIds assigned to all Exist events
@@ -32,9 +31,8 @@ class CastingAgent(BaseAgent):
     Key responsibilities:
     1. Maintain exact event structure from concept (same event IDs, actions, locations)
     2. Replace abstract actor IDs with specific player skin IDs
-    3. Filter skins by archetypes defined in concept
-    4. Ensure diversity (age, gender, attire)
-    5. Expand narrative with character names and descriptions
+    3. Ensure diversity (age, gender, attire)
+    4. Expand narrative with character names and descriptions
     """
 
     def __init__(self, config: Dict[str, Any]):
@@ -52,109 +50,6 @@ class CastingAgent(BaseAgent):
         )
         logger.info("casting_agent_initialized")
 
-    def filter_skins_by_archetypes(
-        self,
-        concept_gest: GEST,
-        player_skins_categorized: Dict[str, Any]
-    ) -> Dict[str, List[Dict]]:
-        """
-        Filter player skins based on archetypes defined in concept.
-
-        Extracts archetypes from concept event properties and returns
-        matching skins from categorized lists.
-
-        Args:
-            concept_gest: GEST from ConceptAgent with archetype definitions
-            player_skins_categorized: Categorized skins from full indexed cache
-
-        Returns:
-            Dict mapping abstract actor IDs to lists of matching skin dicts
-            {
-                "actor_protagonist": [
-                    {"id": 17, "description": "...", "tags": [...]},
-                    ...
-                ]
-            }
-        """
-        filtered_skins = {}
-
-        # Extract archetypes from Exist events
-        for event_id, event in concept_gest.events.items():
-            # Only look at Exist events
-            if event.Action == "Exists":
-                actor_id = event.Entities[0] if event.Entities else None
-                if actor_id:
-                    # Get archetype requirements from Properties
-                    gender = event.Properties.get('Gender', None)
-                    age = event.Properties.get('archetype_age', None)
-                    attire = event.Properties.get('archetype_attire', None)
-
-                    # Filter by gender first
-                    gender_key = 'male' if gender == 1 else 'female'
-                    gender_data = player_skins_categorized.get(gender_key, {})
-                    categories = gender_data.get('categories', [])
-
-                    # Normalize archetypes to match category naming
-                    # Categories use underscores (middle_aged) not hyphens (middle-aged)
-                    if age:
-                        age = age.replace('-', '_')
-                    # Categories use "formal" not "formal_suits"
-                    if attire:
-                        attire = attire.replace('_suits', '').replace('_wear', '')
-
-                    # Build filter key
-                    filter_key = []
-                    if age:
-                        filter_key.append(age)
-                    if attire:
-                        filter_key.append(attire)
-
-                    # Get matching skins from categories list
-                    matching_skins = []
-                    if filter_key:
-                        key_str = "_".join(filter_key)
-
-                        # Try exact match first
-                        for cat in categories:
-                            if cat.get('category_name') == key_str:
-                                matching_skins.extend(cat.get('skin_ids', []))
-                                break
-
-                        # If no exact match, try partial matches
-                        if not matching_skins:
-                            # Try just age
-                            if age:
-                                for cat in categories:
-                                    cat_name = cat.get('category_name', '')
-                                    if age in cat_name:
-                                        matching_skins.extend(cat.get('skin_ids', []))
-                            # Try just attire
-                            if not matching_skins and attire:
-                                for cat in categories:
-                                    cat_name = cat.get('category_name', '')
-                                    if attire in cat_name:
-                                        matching_skins.extend(cat.get('skin_ids', []))
-
-                        # Remove duplicates
-                        matching_skins = list(set(matching_skins))
-                    else:
-                        # No specific requirements, use all skins of gender
-                        for cat in categories:
-                            matching_skins.extend(cat.get('skin_ids', []))
-                        matching_skins = list(set(matching_skins))
-
-                    filtered_skins[actor_id] = matching_skins
-                    logger.info(
-                        "filtered_skins_for_actor",
-                        actor_id=actor_id,
-                        gender=gender_key,
-                        age=age,
-                        attire=attire,
-                        matching_count=len(matching_skins)
-                    )
-
-        return filtered_skins
-
     def build_system_prompt(self, context: Dict[str, Any]) -> str:
         """
         Build system prompt defining CastingAgent role.
@@ -171,11 +66,17 @@ class CastingAgent(BaseAgent):
         return """You are a casting agent for GTA San Andreas interactive narratives.
 
 YOUR ROLE:
-Take the concept-level GEST and assign specific player skin IDs to actors. You maintain the concept's event structure but:
+Take the concept-level GEST and assign specific player skin IDs to actors. Your task is to assign specific skin IDs based on
+the required archetypes, genders, and attire defined in the concept GEST that match the provided skin details.
+You need to ensure diversity among the assigned actors in terms of age, gender, race, and attire.
+Minimize discriminatory stereotypes.
+
+You maintain the concept's event structure but:
 1. Replace abstract actor names with character names
 2. Add integer SkinId to Exist events
 3. DO NOT add new events - maintain exact concept structure
-4. Minimize narrative expansion - only substitute character names
+4. ONLY replace names in the narrative, nothing else
+5. YOU will not summarize the narrative or reinterpret it
 
 CRITICAL GEST STRUCTURE REQUIREMENTS:
 
@@ -199,6 +100,8 @@ CRITICAL GEST STRUCTURE REQUIREMENTS:
    }
 
 2. TEMPORAL STRUCTURE (same as concept):
+  DO NOT MODIFY temporal structure from concept.
+
    Maintain flat temporal structure from concept:
    "temporal": {
        "starting_actions": {"actor1": "first_event_id"},
@@ -324,7 +227,7 @@ YOUR TASK:
 
 2. UPDATE EXIST EVENTS:
    - Replace abstract names (e.g., "runner") with real names (e.g., "Darius Ortiz")
-   - Add SkinId (integer from filtered skins list)
+   - Add SkinId (integer from available skins list)
    - Add Description (copy from skin description)
    - Keep archetype fields
 CRITICAL: the Exist event ID IS ALWAYS EQUAL to the Entity id. (That entity exists.) Fix that and all the references if this is not the case!
@@ -361,6 +264,8 @@ CRITICAL: the Exist event ID IS ALWAYS EQUAL to the Entity id. (That entity exis
    - NO unsimulatable descriptive details (no "smooths blazer", "steam fogs glasses", "fingers like conductor's baton")
    - NO new story beats or events in narrative
    - CRITICAL: Write in natural prose - NEVER mention event IDs (E1, E2, a1, b1, etc.)
+   - CRITICAL: DO NOT summarize or reinterpret the concept narrative
+   - CRITICAL: ONLY replace names in the narrative, nothing else
 
    EXAMPLE TRANSFORMATION:
 
@@ -414,35 +319,33 @@ REMEMBER:
 
     def build_user_prompt(self, context: Dict[str, Any]) -> str:
         """
-        Build user prompt with concept GEST and filtered skins.
+        Build user prompt with concept GEST and skins.
 
         Args:
             context: Must include:
                 - concept_gest: GEST from ConceptAgent
-                - filtered_skins: Dict mapping actor IDs to skin ID lists
                 - full_indexed_capabilities: Dict (optional, for reference)
+                - all_skins: Dict (for reference)
+                - categorized_skins: Dict (for reference)
 
         Returns:
             User prompt with task and data
         """
         # Extract parameters
         concept_gest = context.get('concept_gest')
-        filtered_skins = context.get('filtered_skins', {})
+        concept_narrative = context.get('concept_narrative')
+
+        # All skins is a dict of skin_id -> skin details
+        all_skins = json.dumps(context.get('all_skins', {}), indent=2)
+
+        # Skins categorized
+        categorized_skins = json.dumps(context.get('player_skins_categorized', {}), indent=2)
 
         # Convert concept GEST to JSON for display
         concept_gest_json = json.dumps(
             concept_gest.model_dump() if hasattr(concept_gest, 'model_dump') else concept_gest,
             indent=2
         )
-
-        # Format filtered skins for display
-        filtered_skins_str = ""
-        for actor_id, skin_ids in filtered_skins.items():
-            skin_count = len(skin_ids)
-            skin_sample = skin_ids[:10] if skin_count > 10 else skin_ids
-            filtered_skins_str += f"\n{actor_id}:\n"
-            filtered_skins_str += f"  Available skins: {skin_count} total\n"
-            filtered_skins_str += f"  Sample IDs: {', '.join([f'player_{sid}' for sid in skin_sample])}\n"
 
         # Build the prompt
         prompt = f"""
@@ -451,16 +354,21 @@ TASK: Assign specific player skins to abstract actors from concept
 CONCEPT GEST (maintain this exact structure):
 {concept_gest_json}
 
-FILTERED SKINS (choose from these for each abstract actor):
-{filtered_skins_str}
+CONCEPT NARRATIVE:
+{concept_narrative}
+
+CATEGORIZED SKINS (for reference):
+{categorized_skins}
+
+ALL AVAILABLE SKINS (choose from these for each abstract actor):
+{all_skins}
 
 INSTRUCTIONS:
-1. For each abstract actor ID in the concept (e.g., "actor_protagonist"), choose ONE specific player skin ID from the filtered list
-2. Replace the abstract ID with the specific ID (e.g., "player_17") CONSISTENTLY across ALL events
-3. Add character details to event Properties:
+1. For each abstract actor ID in the concept (e.g., "actor_protagonist"), choose ONE specific player skin ID from the skins list that matches it best
+2. Add character details to event Properties:
    - Name: A fitting name for the character
    - description: Brief appearance description (age, attire, distinguishing features)
-4. Maintain EXACT event structure:
+3. Maintain EXACT event structure:
    - Same event IDs (do not change "event_1", "event_teaching", etc.)
    - Same Actions (do not change action names)
    - Same Locations (do not change episode names)
@@ -471,12 +379,10 @@ If concept has:
   "actor_teacher" in "event_teaching"
   "actor_teacher" in "event_walking"
 
-And filtered skins for actor_teacher: [17, 24, 33, ...]
+You have multiple appropriate skin id for the actor_teacher: e.g., [17, 24, 33, ...]
 
-Choose ONE: "player_17"
-Use in BOTH events:
-  "event_teaching": {{"Entities": ["player_17"], ...}}
-  "event_walking": {{"Entities": ["player_17"], ...}}
+Choose ONE: "17"
+Use in actor_teacher Exists event as Properties.SkinId: 17
 
 CRITICAL: GEST Event Structure at Root Level
 
@@ -493,7 +399,7 @@ Each event must have this exact structure:
       "scene_type": "leaf or parent (required - keep from concept)",
       "Name": "string (character name - ADD for assigned actors)",
       "Gender": 1 or 2 (keep from concept Exist events),
-      "SkinId": "player_X (ADD for assigned actors)",
+      "SkinId": integer (Select from available skin IDs for this actor),
       "archetype_age": "string (keep from concept)",
       "archetype_attire": "string (keep from concept)",
       ...additional properties from concept GEST
@@ -524,7 +430,9 @@ CRITICAL: Narrative = Concept narrative with generic roles replaced by character
     def execute(
         self,
         concept_gest: GEST,
+        concept_narrative: str,
         full_indexed_capabilities: Dict[str, Any],
+        all_capabilities: Dict[str, Any],
         max_retries: int = 3
     ) -> DualOutput:
         """
@@ -533,6 +441,7 @@ CRITICAL: Narrative = Concept narrative with generic roles replaced by character
         Args:
             concept_gest: GEST from ConceptAgent
             full_indexed_capabilities: Full indexed cache with player_skins_categorized
+            all_capabilities: All game capabilities (not used directly here)
             max_retries: Maximum retry attempts
 
         Returns:
@@ -547,15 +456,20 @@ CRITICAL: Narrative = Concept narrative with generic roles replaced by character
             has_semantic_relations=len(concept_gest.semantic) > 0
         )
 
-        # Filter skins by archetypes from concept
         player_skins_categorized = full_indexed_capabilities.get('player_skins_categorized', {})
-        filtered_skins = self.filter_skins_by_archetypes(concept_gest, player_skins_categorized)
+        player_skins_summary = full_indexed_capabilities.get('player_skins_summary', {})
+        all_skins = all_capabilities.get('player_skins', {})
+
 
         # Build context
         context = {
+            'concept_narrative': concept_narrative,
             'concept_gest': concept_gest,
-            'filtered_skins': filtered_skins,
-            'full_indexed_capabilities': full_indexed_capabilities
+            'player_skins_categorized': player_skins_categorized,
+            'player_skins_summary': player_skins_summary,
+            'full_indexed_capabilities': full_indexed_capabilities,
+            'all_capabilities': all_capabilities,
+            'all_skins': all_skins
         }
 
         # Call parent execute (handles retry logic)

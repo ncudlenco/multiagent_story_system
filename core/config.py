@@ -45,8 +45,8 @@ class MTAConfig(BaseModel):
 
 class PathsConfig(BaseModel):
     """File paths configuration"""
-    game_capabilities: str = Field(default="data/game_capabilities.json", description="Game capabilities JSON file")
-    game_capabilities_source: str = Field(default="../sv2l/game_capabilities.json", description="Source file from MTA export")
+    simulation_environment_capabilities: str = Field(default="data/simulation_environment_capabilities.json", description="Game capabilities JSON file")
+    game_capabilities_source: str = Field(default="../sv2l/simulation_environment_capabilities.json", description="Source file from MTA export")
     game_capabilities_concept: str = Field(default="data/cache/game_capabilities_concept.json", description="Preprocessed concept cache")
     game_capabilities_full_indexed: str = Field(default="data/cache/game_capabilities_full_indexed.json", description="Preprocessed full indexed cache")
     output_dir: str = Field(default="output", description="Output directory")

@@ -56,8 +56,8 @@ python main.py --export-capabilities
 This will:
 - Start the MTA server in EXPORT_MODE
 - Extract all actions, objects, and regions from the game
-- Generate `game_capabilities.json` in the sv2l resource
-- Copy the file to `data/game_capabilities.json`
+- Generate `simulation_environment_capabilities.json` in the sv2l resource
+- Copy the file to `data/simulation_environment_capabilities.json`
 - Automatically shut down the server
 
 ### 2. Generate a Story
@@ -210,7 +210,7 @@ multiagent_story_system/
 │
 ├── schemas/                     # Pydantic schemas
 │   ├── gest_schemas.py          # 5-level GEST hierarchy
-│   └── game_capabilities.py     # Game world capabilities
+│   └── simulation_environment_capabilities.py     # Game world capabilities
 │
 ├── utils/                       # Utility modules
 │   ├── file_manager.py
@@ -221,7 +221,7 @@ multiagent_story_system/
 │   └── story_generation_graph.py
 │
 ├── data/                        # Data files
-│   ├── game_capabilities.json   # Exported from MTA
+│   ├── simulation_environment_capabilities.json   # Exported from MTA
 │   └── documentation/           # System documentation
 │
 ├── examples/                    # Example reference graphs
@@ -243,8 +243,8 @@ multiagent_story_system/
 Run `python main.py --export-capabilities` first.
 
 If the export completes but the file still isn't found:
-1. Check if the file exists in `../sv2l/game_capabilities.json`
-2. Manually copy it if needed: `cp ../sv2l/game_capabilities.json data/`
+1. Check if the file exists in `../sv2l/simulation_environment_capabilities.json`
+2. Manually copy it if needed: `cp ../sv2l/simulation_environment_capabilities.json data/`
 3. Verify the `paths.game_capabilities_source` setting in [config.yaml](config.yaml)
 
 ### OpenAI API errors

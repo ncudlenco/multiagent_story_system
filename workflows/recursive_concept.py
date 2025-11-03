@@ -6,7 +6,7 @@ Expands abstract scenes into sub-scenes until target scene count is reached.
 """
 
 from langgraph.graph import StateGraph, END
-from typing import TypedDict, List, Dict, Any
+from typing import TypedDict, List, Dict, Any, Tuple
 from pathlib import Path
 import json
 import uuid
@@ -21,6 +21,7 @@ logger = structlog.get_logger()
 class RecursiveConceptState(TypedDict):
     """State for recursive scene expansion"""
     story_id: str
+    narrative_seeds: List[str]
     current_gest: GEST
     target_scene_count: int
     current_scene_count: int
@@ -29,6 +30,9 @@ class RecursiveConceptState(TypedDict):
     leaf_scenes: List[str]
     parent_scenes: List[str]
     narrative: str
+    title: str
+    num_actors: int
+    num_distinct_actions: int
     concept_capabilities: Dict[str, Any]
     config: Dict[str, Any]
 
@@ -62,10 +66,10 @@ def get_expandable_scenes(gest: GEST) -> List[str]:
     expandable = []
     for event_id, event in gest.events.items():
         scene_type = event.Properties.get('scene_type')
-        if scene_type == 'parent':
-            expandable.append(event_id)
-        elif scene_type == 'leaf':
-            # Abstract leaf scenes can be expanded
+        child_scenes = event.Properties.get('child_scenes', []) or []
+
+        # Expandable if parent or leaf that has not been expanded yet
+        if (scene_type == 'parent' or scene_type == 'leaf') and len(child_scenes) == 0:
             expandable.append(event_id)
     return expandable
 
@@ -110,7 +114,7 @@ def save_concept_level_artifacts(
     # Save narrative
     narrative_path = level_dir / "narrative.txt"
     with open(narrative_path, 'w') as f:
-        f.write(state['narrative'])
+        f.write(f"{state['title']}\n{state['narrative']}")
 
     # Save metadata
     metadata = {
@@ -135,12 +139,24 @@ def save_concept_level_artifacts(
 
 def should_continue(state: RecursiveConceptState) -> str:
     """Decide whether to continue expansion"""
+    # Safety: max 20 iterations to prevent infinite loops
+    if state['iteration'] >= 20:
+        logger.error(
+            "max_iterations_reached",
+            iteration=state['iteration'],
+            current_count=state['current_scene_count'],
+            target=state['target_scene_count']
+        )
+        return "done"
+
     if state['current_scene_count'] >= state['target_scene_count']:
         logger.info("target_reached", count=state['current_scene_count'])
         return "done"
+
     if not state['expandable_scenes']:
         logger.warning("no_expandable_scenes", iteration=state['iteration'])
         return "done"
+
     return "expand"
 
 
@@ -159,16 +175,16 @@ def expand_scene_node(state: RecursiveConceptState) -> RecursiveConceptState:
     agent = ConceptAgent(state['config'])
 
     # Choose scene to expand (first expandable for now)
-    scene_to_expand = state['expandable_scenes'][0] if state['expandable_scenes'] else None
+    scenes_to_expand = state['expandable_scenes'] if state['expandable_scenes'] else []
 
-    if not scene_to_expand:
+    if not scenes_to_expand:
         logger.warning("no_scene_to_expand", iteration=state['iteration'])
         return state
 
     # Expand scene
     expansion_result = agent.expand_scene(
         current_gest=state['current_gest'],
-        scene_to_expand=scene_to_expand,
+        scenes_to_expand=scenes_to_expand,
         remaining_budget=state['target_scene_count'] - state['current_scene_count'],
         concept_capabilities=state['concept_capabilities']
     )
@@ -185,8 +201,12 @@ def expand_scene_node(state: RecursiveConceptState) -> RecursiveConceptState:
         'expandable_scenes': get_expandable_scenes(new_gest),
         'leaf_scenes': get_leaf_scenes(new_gest),
         'parent_scenes': get_parent_scenes(new_gest),
+        'title': state['title'],  # Preserve old title
         'narrative': expansion_result.narrative  # REPLACES old narrative
     }
+
+    if state['title'] == "" and expansion_result.title:
+        new_state['title'] = expansion_result.title
 
     # Save artifacts for this level
     output_dir = Path(state['config']['paths']['output_dir']) / f"story_{state['story_id']}"
@@ -219,9 +239,10 @@ def run_recursive_concept(
     config: Dict[str, Any],
     target_scene_count: int,
     num_actors: int,
+    num_distinct_actions: int,
     narrative_seeds: List[str],
     concept_capabilities: Dict[str, Any]
-) -> DualOutput:
+) -> Tuple[DualOutput, str]:
     """
     Run recursive scene expansion workflow.
 
@@ -229,11 +250,12 @@ def run_recursive_concept(
         config: Configuration dictionary
         target_scene_count: Target number of leaf scenes to generate
         num_actors: Number of actors in story
+        num_distinct_actions: Number of distinct actions to use
         narrative_seeds: Optional seed sentences
         concept_capabilities: Concept cache data
 
     Returns:
-        DualOutput with final GEST and narrative
+        Tuple of (DualOutput with final GEST and narrative, story_id string)
     """
     story_id = str(uuid.uuid4())[:8]
 
@@ -241,7 +263,8 @@ def run_recursive_concept(
         "starting_recursive_concept",
         story_id=story_id,
         target_scene_count=target_scene_count,
-        num_actors=num_actors
+        num_actors=num_actors,
+        num_distinct_actions=num_distinct_actions
     )
 
     # Create output directory
@@ -259,12 +282,16 @@ def run_recursive_concept(
             camera={}
         ),
         'target_scene_count': target_scene_count,
+        'num_actors': num_actors,
+        'num_distinct_actions': num_distinct_actions,
+        'narrative_seeds': narrative_seeds,
         'current_scene_count': 0,
         'iteration': 0,
         'expandable_scenes': ['initial'],  # Trigger first expansion
         'leaf_scenes': [],
         'parent_scenes': [],
         'narrative': "",
+        'title': "",
         'concept_capabilities': concept_capabilities,
         'config': config
     }
@@ -280,8 +307,11 @@ def run_recursive_concept(
         total_iterations=final_state['iteration']
     )
 
-    return DualOutput(
-        gest=final_state['current_gest'],
-        narrative=final_state['narrative'],
-        title=f"Story {story_id}"
+    return (
+        DualOutput(
+            gest=final_state['current_gest'],
+            narrative=final_state['narrative'],
+            title=final_state.get('title', '')  # Use title from state if set by agent
+        ),
+        story_id
     )

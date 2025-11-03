@@ -27,7 +27,7 @@
      "e4": {{"relations": ["r1"], "next": null}}  // actor2's last action (next=null)
 
    Rule B - CROSS-ACTOR RELATIONS USE "relations" FIELD:
-     * Use "before"/"after"/"concurrent" for events of DIFFERENT actors
+     * Use "before|after|same_time" for events of DIFFERENT actors
      * Add relation ID to BOTH events' "relations" arrays
      * NEVER use "next" to connect events of different actors
      * "next" is ONLY for same-actor sequential actions
@@ -37,9 +37,9 @@
      "r1": {{"type": "before", "source": "e2", "target": "e3"}},  // cross-actor relation
      "e3": {{"relations": ["r1"], "next": "e4"}}  // actor2's first action
 
-   Rule C - Exist Events Are Part of Action Chains:
-     * Exist events MUST be included in starting_actions
-     * Exist events MUST have "next" pointing to first action (or null if no actions)
+   Rule C - Exist Events Are NOT a Part of Action Chains:
+     * Exist events MUST NOT be included in starting_actions
+     * Exist events MUST NOT be included in temporal
 
      Example:
      "starting_actions": {{"writer": "writer"}},  // Exist event is the start

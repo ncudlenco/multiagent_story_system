@@ -119,7 +119,7 @@ Purpose: Extract all possible actions, locations, objects, and constraints from 
 Lua Exporter Module (src/export/GameWorldExporter.lua)
 Iterates through all DynamicEpisodes
 Extracts: Regions, POIs, Objects, Actions per POI, Supertemplates, Spawnable objects
-Outputs comprehensive JSON: data_out/game_capabilities.json
+Outputs comprehensive JSON: data_out/simulation_environment_capabilities.json
 Server Command (/export_capabilities)
 Triggers export in special validation-only mode
 No actors spawned, pure data extraction
@@ -159,19 +159,19 @@ Output: Scene-level breakdown (e.g., "John plans workout at laptop. In gym: trai
 Identifies major scenes and their high-level actions
 Level 1 → Level 2: Region Mapping Agent
 RegionMappingAgent (agents/region_mapping_agent.py)
-Input: Level 1 scene breakdown + game_capabilities.json
+Input: Level 1 scene breakdown + simulation_environment_capabilities.json
 Output: One GEST per region with clear delimiters
 Maps scenes to actual game regions (bedroom, kitchen, gym, etc.)
 Creates separate sub-GESTs for each region
 Level 2 → Level 3: Actor Action Agent
 ActorActionAgent (agents/actor_action_agent.py)
-Input: Level 2 region-level GESTs + game_capabilities.json
+Input: Level 2 region-level GESTs + simulation_environment_capabilities.json
 Output: Per-actor action summaries within each region
 For each region GEST, creates actor-specific action sequences
 Ensures actor consistency and logical flow
 Level 3 → Level 4: Game-Level GEST Generator
 GameGESTGeneratorAgent (agents/game_gest_generator.py)
-Input: Level 3 actor-level GESTs + game_capabilities.json + example graphs (incredibly_complex.json, hard_*.json)
+Input: Level 3 actor-level GESTs + simulation_environment_capabilities.json + example graphs (incredibly_complex.json, hard_*.json)
 Output: Full game-executable GEST JSON (like incredibly_complex.json)
 Generates complete graph with:
 All "Exists" events for actors and objects
@@ -273,7 +273,7 @@ multiagent_story_system/
 ├── schemas/
 │   ├── __init__.py
 │   ├── gest_schemas.py           # Pydantic models for all GEST levels
-│   ├── game_capabilities.py      # Game world schema
+│   ├── simulation_environment_capabilities.py      # Game world schema
 │   └── validation_results.py     # Validation output schema
 ├── prompts/
 │   ├── __init__.py
@@ -288,7 +288,7 @@ multiagent_story_system/
 │   ├── file_manager.py           # JSON read/write
 │   └── config.py                 # System configuration
 ├── examples/
-│   ├── game_capabilities.json    # Extracted from Lua
+│   ├── simulation_environment_capabilities.json    # Extracted from Lua
 │   ├── example_graphs/           # incredibly_complex.json, etc.
 │   └── sample_narratives.json    # Example inputs
 ├── tests/
@@ -317,7 +317,7 @@ function GameWorldExporter:ExportCapabilities()
     end
 
     -- Extract action catalog, object types, etc.
-    -- Write to data_out/game_capabilities.json
+    -- Write to data_out/simulation_environment_capabilities.json
 end
 
 -- Additional extraction methods...
@@ -325,7 +325,7 @@ Server Command: src/ServerCommands.lua (add new command)
 addCommandHandler("export_capabilities", function(player, command)
     local exporter = GameWorldExporter()
     exporter:ExportCapabilities()
-    outputChatBox("Capabilities exported to data_out/game_capabilities.json", player)
+    outputChatBox("Capabilities exported to data_out/simulation_environment_capabilities.json", player)
 end)
 Implementation Order
 Phase 1: Game World Extraction (Lua + Command)
@@ -350,7 +350,7 @@ openai:
   structured_output: true
 
 paths:
-  game_capabilities: "data_out/game_capabilities.json"
+  simulation_environment_capabilities: "data_out/simulation_environment_capabilities.json"
   example_graphs: "complex_graphs/"
   input_graphs: "input_graphs/"
   output_artifacts: "data_out/"

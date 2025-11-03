@@ -1,7 +1,7 @@
 """
 Tests for preprocessing functionality.
 
-Tests the preprocessing pipeline that transforms game_capabilities.json
+Tests the preprocessing pipeline that transforms simulation_environment_capabilities.json
 into optimized cache files using GPT-5.
 """
 
@@ -32,7 +32,7 @@ def config():
 def sample_capabilities():
     """Load sample game capabilities for testing."""
     config = Config.load('config.yaml')
-    cap_path = Path(config.paths.game_capabilities)
+    cap_path = Path(config.paths.simulation_environment_capabilities)
 
     if not cap_path.exists():
         pytest.skip(f"Game capabilities not found at {cap_path}")

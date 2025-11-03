@@ -1,11 +1,12 @@
 """
 Preprocessing agents for game capabilities transformation.
 
-This module contains LLM-based agents that preprocess game_capabilities.json
+This module contains LLM-based agents that preprocess simulation_environment_capabilities.json
 into optimized cache files for story generation.
 """
 
 from __future__ import annotations
+import json
 from typing import Dict, Any, List
 import structlog
 
@@ -23,11 +24,11 @@ class SkinCategorizationAgent(BaseAgent):
     """
     LLM agent for categorizing player skins.
 
-    Takes 249 player skin descriptions and categorizes them by age, attire,
-    and race using GPT-5. Produces both a high-level summary and full
+    Takes a list of player skin descriptions and categorizes them by age, attire,
+    and race using an llm. Produces both a high-level summary and full
     categorized lists.
 
-    Uses a single batched API call for all 249 skins.
+    Uses a single batched API call for all skins.
     Output schema: PlayerSkinsPreprocessingOutput
     """
 
@@ -48,7 +49,7 @@ class SkinCategorizationAgent(BaseAgent):
         return """You are a data categorization specialist for GTA San Andreas character skins.
 
 YOUR ROLE:
-Categorize 249 player skin descriptions into structured categories for efficient story generation.
+Categorize all player skin descriptions into structured categories for efficient story generation.
 
 CATEGORIZATION DIMENSIONS:
 1. **Age**: young (teens, 20s), middle-aged (30s-50s), old (60s+)
@@ -57,7 +58,8 @@ CATEGORIZATION DIMENSIONS:
    - formal_suits: business suits, formal attire
    - worker: labor clothing, uniforms
    - athletic: sportswear, gym clothing
-   - novelty: costumes, unusual outfits
+   - $insert_your_own: other
+   ...
 3. **Race**: black, white, asian, other
 4. **Gender**: male, female (already separated in input)
 
@@ -73,16 +75,17 @@ OUTPUT REQUIREMENTS:
    - Total counts per category
    - Example IDs for each category (3-5 representatives)
    - 10-15 diverse representative examples with tags
+   - Use the exact provided skin ids
 
 2. **Full Categorization** (~400 lines):
-   - All 249 skins organized by gender and age_attire combinations
+   - All skins organized by gender and age_attire combinations
    - Format: {"male": {"young_casual": [0, 2, 18, ...], "young_formal": [17, ...], ...}, "female": {...}}
    - Every skin must appear exactly once
 
 VALIDATION:
-- Ensure all 249 skins are categorized (no duplicates, no missing)
-- Category counts should sum to 249
-- Example IDs must be valid (0-248 for male, check actual ranges)
+- Ensure all skins are categorized (no duplicates, no missing)
+- Category counts should sum to the total number of skins
+- Example IDs must be valid
 
 Return structured JSON matching the PlayerSkinsPreprocessingOutput schema."""
 
@@ -178,7 +181,7 @@ YOUR ROLE:
 Create concise summaries of game episodes for efficient scene breakdown planning.
 
 SUMMARIZATION REQUIREMENTS:
-For each episode, extract:
+For the provided episode, extract:
 1. **name**: Episode identifier
 2. **region_count**: Number of regions in the episode
 3. **regions**: List of all region names
@@ -187,9 +190,10 @@ For each episode, extract:
    - "Chair (wooden chair)" → "Chair"
    - "Food (burger)" → "Food"
    - "Drinks (bottle of wine)" → "Drinks"
-5. **common_actions**: Most important/common actions available
+   - ALWAYS include the spawnable objects as they are always present (MobilePhone and Cigarette)
+5. **action_chains**: What action chains are available (chains are found in the actions catalog)
    - Based on POI types and object availability
-   - Include positional (SitDown, Move), object interaction (PickUp, Eat), equipment use (GetOn equipment)
+   - Include always the default actions: interactions, spawnable_usage, observation_actions
 
 OUTPUT FORMAT:
 Concise summary per episode (~20 lines each).
@@ -204,52 +208,29 @@ Return structured JSON matching the EpisodeSummariesOutput schema."""
 
     def build_user_prompt(self, context: Dict[str, Any]) -> str:
         """Provide the episode data and summarization task."""
-        episodes = context.get('episodes', [])
-        action_catalog = context.get('action_catalog', {})
+        episode = context.get('episode', [])
+        action_chains = context.get('action_chains', {})
 
         # Format episodes
-        episodes_section = "EPISODES:\n\n"
-        for idx, episode in enumerate(episodes, 1):
-            name = episode.get('name', f'episode_{idx}')
-            regions = episode.get('regions', [])
+        episodes_section = "EPISODE:\n\n"
+        episodes_section += f"{json.dumps(episode, indent=2)}\n"
+        # Format action chains summary
+        action_summary = "ACTION CHAINS (for reference):\n"
+        action_summary += f"{json.dumps(action_chains, indent=2)}\n"
 
-            episodes_section += f"EPISODE: {name}\n"
-            episodes_section += f"Regions ({len(regions)}):\n"
-
-            for region in regions:
-                region_name = region.get('name', 'unknown')
-                objects = region.get('objects', [])
-                pois = region.get('pois', [])
-
-                episodes_section += f"  - {region_name}:\n"
-                episodes_section += f"    Objects: {', '.join(objects[:10])}"  # Sample first 10
-                if len(objects) > 10:
-                    episodes_section += f" ... ({len(objects)} total)"
-                episodes_section += "\n"
-
-                if pois:
-                    episodes_section += f"    POIs: {len(pois)} points of interest\n"
-
-            episodes_section += "\n"
-
-        # Format action catalog summary
-        action_summary = "AVAILABLE ACTIONS (for reference):\n"
-        if isinstance(action_catalog, dict):
-            action_summary += ", ".join(list(action_catalog.keys())[:20])  # Sample
-            action_summary += f" ... ({len(action_catalog)} total)\n"
-
-        return f"""Summarize these {len(episodes)} episodes.
+        return f"""Summarize this episode.
 
 {episodes_section}
 
 {action_summary}
 
 TASK:
-For EACH episode:
+For the episode provided, extract:
 1. Count regions
 2. List region names
 3. Extract DISTINCT object types (base types only, e.g., "Chair" not "Chair (wooden chair)")
-4. Identify common/important actions based on available objects and POIs
+4. Identify all action categories from the actions catalog
+5. interactions, spawnable_usage, and observation_actions are always available
 
 FEW-SHOT EXAMPLE:
 Episode "classroom1" with regions [hallway, classroom, hallway2]:
@@ -261,25 +242,26 @@ Episode "classroom1" with regions [hallway, classroom, hallway2]:
   "region_count": 3,
   "regions": ["hallway", "classroom", "hallway2"],
   "object_types_present": ["Chair", "Desk", "Laptop", "Food", "Drinks"],
-  "common_actions": ["Move", "SitDown", "StandUp", "PickUp", "Eat", "Drink", "OpenLaptop", "TypeOnKeyboard", "LookAt"]
+  "episode_links": ["classroom2", "hallway3"],
+  "action_chains": ["interactions", "spawnable_usage", "observation_actions", "sitting", "music_player", "bed_usage"]
 }}
 
-Now summarize ALL {len(episodes)} episodes following this pattern.
+Now summarize the episode following this pattern.
 
 Return JSON matching EpisodeSummariesOutput schema."""
 
 
-def extract_player_skins(game_capabilities: Dict[str, Any]) -> tuple[List[Dict], List[Dict]]:
+def extract_player_skins(simulation_environment_capabilities: Dict[str, Any]) -> tuple[List[Dict], List[Dict]]:
     """
     Extract player skins from game capabilities.
 
     Args:
-        game_capabilities: Full game capabilities data
+        simulation_environment_capabilities: Full game capabilities data
 
     Returns:
         Tuple of (male_skins, female_skins) as lists of {id, description}
     """
-    player_skins = game_capabilities.get('player_skins', {})
+    player_skins = simulation_environment_capabilities.get('player_skins', {})
 
     male_skins = player_skins.get('male', [])
     female_skins = player_skins.get('female', [])
@@ -294,17 +276,17 @@ def extract_player_skins(game_capabilities: Dict[str, Any]) -> tuple[List[Dict],
     return male_skins, female_skins
 
 
-def extract_episodes(game_capabilities: Dict[str, Any]) -> List[Dict]:
+def extract_episodes(simulation_environment_capabilities: Dict[str, Any]) -> List[Dict]:
     """
     Extract episodes from game capabilities.
 
     Args:
-        game_capabilities: Full game capabilities data
+        simulation_environment_capabilities: Full game capabilities data
 
     Returns:
         List of episode definitions
     """
-    episodes = game_capabilities.get('episodes', [])
+    episodes = simulation_environment_capabilities.get('episodes', [])
 
     logger.info("extracted_episodes", count=len(episodes))
 

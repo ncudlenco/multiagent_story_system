@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Phase 1 successfully implements an intelligent preprocessing pipeline that transforms `game_capabilities.json` (14,178 lines) into optimized cache files using GPT-5. This achieves an **85% reduction in token usage** for story generation agents.
+Phase 1 successfully implements an intelligent preprocessing pipeline that transforms `simulation_environment_capabilities.json` (14,178 lines) into optimized cache files using GPT-5. This achieves an **85% reduction in token usage** for story generation agents.
 
 **Status:** ✅ **COMPLETE** - All deliverables implemented, tested, and documented.
 
@@ -359,7 +359,7 @@ tests/test_preprocessing.py::TestContentValidation::test_category_distributions_
 ```bash
 # Step 1: Export game capabilities from MTA (Phase 0)
 python main.py --export-capabilities
-# Generates: data/game_capabilities.json (14,178 lines)
+# Generates: data/simulation_environment_capabilities.json (14,178 lines)
 
 # Step 2: Preprocess capabilities with GPT-5 (Phase 1)
 python main.py --preprocess-capabilities
@@ -379,7 +379,7 @@ python main.py --preprocess-capabilities
 - Reuse for all story generation
 
 **Regenerate only if:**
-- `game_capabilities.json` changes (new MTA export)
+- `simulation_environment_capabilities.json` changes (new MTA export)
 - Categorization quality issues (rare)
 - Schema updates (future phases)
 
@@ -411,7 +411,7 @@ python main.py --preprocess-capabilities
 
 ### Challenges Overcome
 
-1. **List wrapping in game_capabilities.json:**
+1. **List wrapping in simulation_environment_capabilities.json:**
    - File is `[{...}]` not `{...}`
    - Added handling in all loaders
    - Now robust to both formats

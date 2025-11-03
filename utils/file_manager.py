@@ -219,7 +219,7 @@ class FileManager:
         Raises:
             FileNotFoundError: If capabilities file doesn't exist
         """
-        capabilities_path = self._get_path('game_capabilities')
+        capabilities_path = self._get_path('simulation_environment_capabilities')
 
         logger.info("loading_game_capabilities", path=str(capabilities_path))
 

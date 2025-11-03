@@ -1,14 +1,16 @@
 """
 Game capabilities preprocessor.
 
-This module orchestrates the preprocessing of game_capabilities.json into
+This module orchestrates the preprocessing of simulation_environment_capabilities.json into
 optimized cache files for story generation agents.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+import concurrent
 import structlog
 
 from core.config import Config
@@ -33,7 +35,7 @@ class CapabilitiesPreprocessor:
     """
     Orchestrates preprocessing of game capabilities.
 
-    Transforms game_capabilities.json (14,178 lines) into two optimized cache files:
+    Transforms simulation_environment_capabilities.json (14,178 lines) into two optimized cache files:
     1. game_capabilities_concept.json (~1,200 lines) - For ConceptAgent
     2. game_capabilities_full_indexed.json (~2,500 lines) - For CastingAgent/OutlineAgent
 
@@ -65,7 +67,7 @@ class CapabilitiesPreprocessor:
 
     def load_source_capabilities(self) -> Dict[str, Any]:
         """
-        Load source game_capabilities.json.
+        Load source simulation_environment_capabilities.json.
 
         Returns:
             Full game capabilities data
@@ -111,14 +113,11 @@ class CapabilitiesPreprocessor:
         if 'spatial_relations' in capabilities:
             static['spatial_relations'] = capabilities['spatial_relations']
         else:
-            # Default spatial relations
-            static['spatial_relations'] = ["near", "behind", "left_of", "right_of", "in_front_of", "above", "below", "inside"]
-
+            raise ValueError("Missing required 'spatial_relations' in capabilities")
         if 'temporal_relations' in capabilities:
             static['temporal_relations'] = capabilities['temporal_relations']
         else:
-            # Default temporal relations
-            static['temporal_relations'] = ["next", "after", "before", "starts_with", "concurrent"]
+            raise ValueError("Missing required 'temporal_relations' in capabilities")
 
         if 'camera_actions' in capabilities:
             static['camera_actions'] = capabilities['camera_actions']
@@ -145,12 +144,13 @@ class CapabilitiesPreprocessor:
 
         return static
 
-    def preprocess_player_skins(self, capabilities: Dict[str, Any]) -> Dict[str, Any]:
+    def preprocess_player_skins(self, capabilities: Dict[str, Any], invalidate_cache: bool = False) -> Dict[str, Any]:
         """
         Run skin categorization agent with GPT-5.
 
         Args:
             capabilities: Source game capabilities
+            invalidate_cache: Whether to invalidate existing cache files
 
         Returns:
             Dict with player_skins_summary and player_skins_categorized
@@ -159,7 +159,7 @@ class CapabilitiesPreprocessor:
 
         # Check for cached result first
         cache_file = Path("temp/preprocessing_cache_skins.json")
-        if cache_file.exists():
+        if cache_file.exists() and not invalidate_cache:
             logger.info("loading_cached_skin_categorization", cache_file=str(cache_file))
             with open(cache_file, 'r') as f:
                 cached_data = json.load(f)
@@ -213,12 +213,13 @@ class CapabilitiesPreprocessor:
 
         return result_data
 
-    def preprocess_episodes(self, capabilities: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def preprocess_episodes(self, capabilities: Dict[str, Any], invalidate_cache: bool = False) -> List[Dict[str, Any]]:
         """
         Run episode summarization agent with GPT-5.
 
         Args:
             capabilities: Source game capabilities
+            invalidate_cache: Whether to invalidate existing cache files
 
         Returns:
             List of episode summaries
@@ -227,7 +228,7 @@ class CapabilitiesPreprocessor:
 
         # Check for cached result first
         cache_file = Path("temp/preprocessing_cache_episodes.json")
-        if cache_file.exists():
+        if cache_file.exists() and not invalidate_cache:
             logger.info("loading_cached_episode_summaries", cache_file=str(cache_file))
             with open(cache_file, 'r') as f:
                 cached_data = json.load(f)
@@ -240,9 +241,9 @@ class CapabilitiesPreprocessor:
         if isinstance(capabilities, list):
             capabilities = capabilities[0] if capabilities else {}
 
-        # Extract episodes and action catalog
+        # Extract episodes and action chains
         episodes = extract_episodes(capabilities)
-        action_catalog = capabilities.get('action_catalog', {})
+        action_chains = capabilities.get('action_chains', {})
 
         # Add episode names if missing (from episode_catalog or generate)
         episode_catalog = capabilities.get('episode_catalog', {})
@@ -257,27 +258,17 @@ class CapabilitiesPreprocessor:
         # Initialize agent
         agent = EpisodeSummarizationAgent(self.config.to_dict())
 
-        # Build context
-        context = {
-            'episodes': episodes,
-            'action_catalog': action_catalog
-        }
-
-        # Execute (GPT-5 structured output)
-        logger.info("calling_episode_summarization_agent", total_episodes=len(episodes))
-
-        result = agent.execute(context, max_retries=3)
-
-        self.metrics['api_calls'] += 1
-        self.metrics['episode_summarization_time'] = time.time() - start_time
-
-        logger.info(
-            "episode_summarization_complete",
-            duration_seconds=self.metrics['episode_summarization_time'],
-            summaries_generated=len(result.episode_summaries)
-        )
-
-        result_data = [summary.model_dump() for summary in result.episode_summaries]
+        # In parallel, summarize each episode
+        result_data = []
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            future_to_episode = {executor.submit(agent.execute, {'episode': ep, 'action_chains': action_chains}, max_retries=3): ep for ep in episodes}
+            for future in as_completed(future_to_episode):
+                ep = future_to_episode[future]
+                try:
+                    result = future.result()
+                    result_data.append(result.episode_summary.model_dump())
+                except Exception as e:
+                    logger.error("episode_summarization_failed", episode=ep.get('name', 'unknown'), error=str(e))
 
         # Cache the result
         cache_file.parent.mkdir(exist_ok=True)
@@ -434,12 +425,13 @@ class CapabilitiesPreprocessor:
 
         return results
 
-    def run(self, include_episode_summaries: bool = True) -> PreprocessingReport:
+    def run(self, include_episode_summaries: bool = True, invalidate_cache: bool = False) -> PreprocessingReport:
         """
         Run full preprocessing pipeline.
 
         Args:
             include_episode_summaries: Whether to generate episode summaries (optional)
+            invalidate_cache: Whether to invalidate existing cache files before preprocessing
 
         Returns:
             Preprocessing report with metrics and validation results
@@ -460,13 +452,24 @@ class CapabilitiesPreprocessor:
             # Step 2: Extract static sections
             static_sections = self.extract_static_sections(capabilities)
 
+            # Run step 3 and 4 in parallel
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                futures = {
+                    'skins': executor.submit(self.preprocess_player_skins, capabilities, invalidate_cache),
+                }
+                if include_episode_summaries:
+                    futures['episodes'] = executor.submit(self.preprocess_episodes, capabilities, invalidate_cache)
+
+                results = {}
+                for key, future in futures.items():
+                    results[key] = future.result()
             # Step 3: Preprocess player skins (GPT-5)
-            skin_data = self.preprocess_player_skins(capabilities)
+            skin_data = results.get('skins')
 
             # Step 4: Preprocess episodes (GPT-5, optional)
             episode_summaries = None
             if include_episode_summaries:
-                episode_summaries = self.preprocess_episodes(capabilities)
+                episode_summaries = results.get('episodes')
             else:
                 logger.info("skipping_episode_summarization")
                 warnings.append("Episode summarization skipped (--skip-episodes flag)")

@@ -2,7 +2,7 @@
 FINAL CONVERSATION SUMMARY: Multiagent Story System Redesign
 Complete Specification for Implementation - FINAL VERSION
 Problem Statement
-Current system loads entire game_capabilities.json (14,178 lines) at once, causing token bloat. The file is too large to use for generating complex narratives that respect game constraints.
+Current system loads entire simulation_environment_capabilities.json (14,178 lines) at once, causing token bloat. The file is too large to use for generating complex narratives that respect game constraints.
 Solution: Top-Down Hierarchical Refinement with Progressive Information Loading
 Core Philosophy
 Mirror real filmmaking: Start with story concept → outline → scene details → production script. Feed minimal information at each level while maintaining grounding in game capabilities. Each level outputs both a GEST (progressively refined) and a narrative (progressively expanded).
@@ -334,7 +334,7 @@ Camera:
     }
 }
 Game Capabilities Analysis
-File Structure (game_capabilities.json - 14,178 lines total)
+File Structure (simulation_environment_capabilities.json - 14,178 lines total)
 Section	Lines	%	Load When
 action_chains	229	1.6%	Concept
 action_catalog	401	2.8%	Concept
@@ -353,7 +353,7 @@ Chair, Desk, Food, Drinks, Laptop, Treadmill, Barbell, etc.
 Actors: 249 skins (195 male, 54 female) Regions: 64 total across all episodes
 PREPROCESSING REQUIREMENTS ⚠️
 Critical: LLM-Only Preprocessing
-All preprocessing uses ONLY LLM (no regex/rule-based) Task 1: Player Skins Categorization Input: 249 skin descriptions from game_capabilities.json Process: Single batched LLM call with structured output
+All preprocessing uses ONLY LLM (no regex/rule-based) Task 1: Player Skins Categorization Input: 249 skin descriptions from simulation_environment_capabilities.json Process: Single batched LLM call with structured output
 # One API call for ALL 249 skins
 prompt = """
 Categorize these 249 player skins using structured output.
@@ -460,7 +460,7 @@ For Casting & Outline phases:
     "player_skins_categorized": {/* ~400 lines - PREPROCESSED */},
     "episode_summaries": [/* ~250 lines - OPTIONAL */]
 }
-3. Original: game_capabilities.json (14,178 lines)
+3. Original: simulation_environment_capabilities.json (14,178 lines)
 For Scene Detailing - load specific episodes on-demand (~930 lines per episode)
 Scene Parallelization & Aggregation
 Scene Definition
@@ -642,7 +642,7 @@ Identify reusable components:
 ✅ utils/mta_controller.py (MTA process control)
 ✅ utils/log_parser.py (log parsing)
 ✅ utils/file_manager.py (file I/O, may need updates)
-✅ schemas/game_capabilities.py (may need minor updates)
+✅ schemas/simulation_environment_capabilities.py (may need minor updates)
 ✅ agents/validation_agent.py (keep as-is)
 ✅ agents/error_corrector_agent.py (keep as-is)
 Identify obsolete code:
@@ -670,7 +670,7 @@ utils/
   └── ... (existing utils)
 
 data/
-  ├── game_capabilities.json (existing)
+  ├── simulation_environment_capabilities.json (existing)
   ├── game_capabilities_concept.json (generated)
   └── game_capabilities_full_indexed.json (generated)
 Update config.yaml structure:
@@ -846,7 +846,7 @@ data/documentation/gest_instructions.md - GEST theory (informational, from older
 Temporal/spatial relation types defined
 Hierarchical representation principle
 Game Capabilities:
-game_capabilities.json - 14,178 lines (original)
+simulation_environment_capabilities.json - 14,178 lines (original)
 13 episodes, 64 regions, 249 skins
 65 actions, 34 object types
 Success Criteria
@@ -924,7 +924,7 @@ Ready for Phase 1: ✅ YES
 
 ### What Was Built:
 - **LLM-Based Preprocessing Agents**: SkinCategorizationAgent, EpisodeSummarizationAgent
-- **85% Token Reduction**: game_capabilities.json (14,178 lines) → optimized caches (~1,200-2,500 lines)
+- **85% Token Reduction**: simulation_environment_capabilities.json (14,178 lines) → optimized caches (~1,200-2,500 lines)
 - **Cache Files**: concept cache + full indexed cache for different agent needs
 - **Comprehensive Testing**: 7 test classes, 20+ test methods, all validation passing
 

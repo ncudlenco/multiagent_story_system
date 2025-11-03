@@ -25,7 +25,7 @@ Phase 0 successfully established a clean, modern foundation for the multiagent s
 - `main.py` - Old CLI (replaced with clean version)
 - `config.yaml` - Old configuration (replaced with minimal version)
 - `schemas/gest_schemas.py` - Old Level 0-4 schemas (replaced with unified GEST)
-- `schemas/game_capabilities.py` - Incorrect schema that didn't match actual JSON
+- `schemas/simulation_environment_capabilities.py` - Incorrect schema that didn't match actual JSON
 
 **Result:** Removed ~3,500 lines of obsolete code
 
@@ -187,7 +187,7 @@ multiagent_story_system/
 │   └── log_parser.py              # Pure log parsing
 │
 ├── data/
-│   ├── game_capabilities.json     # Exported from MTA
+│   ├── simulation_environment_capabilities.json     # Exported from MTA
 │   ├── cache/                     # NEW - For preprocessed files
 │   └── documentation/
 │
@@ -407,7 +407,7 @@ python main.py
 - `prompts/` (directory)
 - `setup/` (directory)
 - `schemas/gest_schemas.py`
-- `schemas/game_capabilities.py`
+- `schemas/simulation_environment_capabilities.py`
 - Old `main.py`
 - Old `config.yaml`
 

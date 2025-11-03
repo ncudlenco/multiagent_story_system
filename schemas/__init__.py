@@ -3,6 +3,7 @@ Schemas
 
 Pydantic schemas for data validation:
 - GEST: Unified GEST structure used at all refinement levels
+- EpisodePlacementOutput: Episode placement mapping schema
 """
 
 from .gest import (
@@ -14,6 +15,7 @@ from .gest import (
     CameraCommand,
     DualOutput
 )
+from .episode_placement import EpisodePlacementOutput
 
 __all__ = [
     'GEST',
@@ -22,5 +24,6 @@ __all__ = [
     'SpatialRelation',
     'SemanticRelation',
     'CameraCommand',
-    'DualOutput'
+    'DualOutput',
+    'EpisodePlacementOutput'
 ]

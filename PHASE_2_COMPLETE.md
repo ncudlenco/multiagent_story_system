@@ -213,7 +213,7 @@ class GESTEvent(BaseModel):
 **New Story Generation Pipeline:**
 ```python
 # Phase 1: Recursive Scene Expansion
-concept_result = run_recursive_concept(
+concept_result, story_id = run_recursive_concept(
     config=config.to_dict(),
     target_scene_count=num_distinct_actions,
     num_actors=num_actors,
@@ -745,7 +745,7 @@ Recursive Concept (scenes) → Casting → Scene Detail (actions) → Aggregatio
 **Needed:**
 1. Full `expand_leaf_scenes()` implementation
 2. Leaf scene → concrete game action mapping
-3. Action chain selection from game_capabilities
+3. Action chain selection from simulation_environment_capabilities
 4. Object placement and spatial relations
 5. Detailed choreography generation
 

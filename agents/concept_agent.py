@@ -24,6 +24,7 @@ Outputs:
 - Narrative: Natural prose describing story structure (NO event IDs, NO descriptive details)
 """
 
+from random import random
 from typing import Dict, Any, List
 from core.base_agent import BaseAgent
 from schemas.gest import DualOutput
@@ -75,13 +76,13 @@ class ConceptAgent(BaseAgent):
         """
         return """You are a concept-level story generator for interactive narratives that will be cinematically produced in a 3D simulation environment.
 A concept represents:
-   * a narrative
+   * a complete narrative for the story concept
    * a set of scenes serialized as a GEST structure
 
 A narrative is composed of sentences about actors executing actions.
-A scene is an abstraction over concrete actions that can be executed in concrete locations with concrete objects in the simulation environment
+A scene is an abstraction over concrete actions that can be executed in concrete locations with concrete objects in the simulation environment + a narrative description of what happens in the scene (mappable to the concept narrative directly).
 
-DO NOT produce unsimulatable scenes or narratives.
+DO NOT produce unsimulatable scenes or narratives. Use the reference episode summaries, and action chains plus catalogues of actions, objects and locations to ground your concepts in what can be simulated (skin descriptions to not dictate what actions are possible but should be linked to what is possible in the environment).
 
 These narratives will be filmed as cinematic sequences in an artificial 3D environment with actors, locations, and actions. Your stories must be grounded in what can be simulated and captured cinematically in this production environment.
 
@@ -97,7 +98,7 @@ You create SCENE events representing story units. Scenes come in two types:
    - CAN have semantic relations (children is_part_of parent, discusses, contains_event)
    - CAN have logical relations (causes, enables, prevents)
    - CANNOT have temporal relations IF it has child scenes
-   - Properties: {"scene_type": "parent", "parent_scene": "parent scene ID or null", "child_scenes": ["list of child scene IDs"]}
+   - Properties: {"scene_type": "parent", "parent_scene": "parent scene ID or null", "child_scenes": ["list of child scene IDs"], "narrative": "narrative describing this scene"}
 
 2. LEAF SCENES: Concrete scenes at same hierarchical level
    - Have actors in Entities
@@ -105,13 +106,14 @@ You create SCENE events representing story units. Scenes come in two types:
    - Can have semantic and logical relations
    - Will be expanded to game actions later by SceneDetailAgent
    - CAN be expanded further into sub-scenes, in which case this becomes a parent scene
-   - Properties: {"scene_type": "leaf", "parent_scene": "parent scene ID", "child_scenes": null}
+   - Properties: {"scene_type": "leaf", "parent_scene": "parent scene ID", "child_scenes": null, "narrative": "narrative describing this scene"}
 
 CRITICAL GEST STRUCTURE REQUIREMENTS:
 
 1. EXIST EVENTS ARE MANDATORY:
    Every actor MUST have an "Exists" event BEFORE being used in any actions.
-   CRITICAL: the Exist event ID IS ALWAYS EQUAL to the Entity id. (That entity exists.)
+   CRITICAL: the Exists event ID IS ALWAYS EQUAL to the Entity id. (That entity exists.)
+   CRITICAL: Exists events are not scenes and do not have scene_type, parent_scene, or child_scenes properties.
 
    Example Exist event for an actor:
    "writer": {
@@ -131,16 +133,19 @@ CRITICAL GEST STRUCTURE REQUIREMENTS:
 
 The examples below demonstrate OUTPUT FORMAT and STRUCTURE ONLY.
 
-DO NOT generate over and over again the same concepts as shown in the examples.
+DO NOT generate over and over again the same concepts as shown in the examples but feel free to use the same themes.
 
 INSTEAD:
   ✓ Generate DIVERSE, ORIGINAL stories from the game capabilities provided
+  ✓ The stories should manage to convey a meaningful plot
+  ✓ Think cinematographically - what makes an interesting story to watch, with intrigue, culmination, falling action, conclusion
   ✓ Use the action_catalog, locations, and episodes to inspire varied themes
   ✓ Create stories spanning multiple genres
   ✓ Use diverse settings from available locations
   ✓ Invent unique scenarios - every story should be different
-  ✓ Generate nested story scenes (story-within-story)
-  ✓ Generate complex relations between scenes
+  ✓ Generate nested story scenes (story-within-story, story-about-story, inception-like-plots, scene-about-scene-within-scene)
+  ✓ Generate complex relations between scenes and actors
+  ✓ Generate complex semantic relations between envisioned scene events
 
 Examples are TEMPLATES for structure, NOT blueprints for content.
 Your stories should be as diverse as the game capabilities allow.
@@ -151,7 +156,7 @@ Example Parent Scene (NO temporal relations):
     "Entities": ["ceo", "journalist", "secretary"],
     "Location": ["office"],
     "Timeframe": "morning",
-    "Properties": {"scene_type": "parent", "child_scenes": ["office_intrigue", "wife_affair", "office_scandal"], "parent_scene": null}
+    "Properties": {"scene_type": "parent", "child_scenes": ["office_intrigue", "wife_affair", "office_scandal"], "parent_scene": null, "narrative": "A workplace scandal unfolds involving a CEO, a journalist, and a secretary, as the journalist overhears the CEOs private conversation and wishes to publish an article about it."}
 }
 
 Example Leaf Scenes (WITH temporal relations):
@@ -160,7 +165,7 @@ Example Leaf Scenes (WITH temporal relations):
     "Entities": ["ceo", "journalist"],
     "Location": ["office"],
     "Timeframe": "morning",
-    "Properties": {"scene_type": "leaf", "parent_scene": "workplace_scandal", "child_scenes": null}
+    "Properties": {"scene_type": "leaf", "parent_scene": "workplace_scandal", "child_scenes": null, "narrative": "The journalist overhears the CEO discussing sensitive information, and starts writing an article about it, setting off a chain of events."}
 }
 
 "wife_affair": {
@@ -168,7 +173,7 @@ Example Leaf Scenes (WITH temporal relations):
     "Entities": ["wife", "plumber"],
     "Location": ["house"],
     "Timeframe": "evening",
-    "Properties": {"scene_type": "leaf", "parent_scene": "workplace_scandal", "child_scenes": null}
+    "Properties": {"scene_type": "leaf", "parent_scene": "workplace_scandal", "child_scenes": null, "narrative": "The article written by the journalist reveals that the CEO's wife is having an affair with the plumber: they were seen by a neighbor kissing on the porch yesterday evening, and he promptly called the CEO to inform him."}
 }
 
 "office_scandal": {
@@ -176,7 +181,7 @@ Example Leaf Scenes (WITH temporal relations):
     "Entities": ["journalist", "secretary", "ceo"],
     "Location": ["office"],
     "Timeframe": "evening",
-    "Properties": {"scene_type": "leaf", "parent_scene": "workplace_scandal", "child_scenes": null}
+    "Properties": {"scene_type": "leaf", "parent_scene": "workplace_scandal", "child_scenes": null, "narrative": "The journalist gets caught by the CEO's secretary just after he finished writing the article, leading to a confrontation."}
 }
 
 Temporal structure (ONLY leaf scenes):
@@ -271,12 +276,15 @@ You will be called recursively to expand scenes. Each call:
    - Receive current GEST with existing scenes
    - Receive scene_to_expand (which scene to break down)
    - Receive expansion_budget (how many new scenes you can create)
-   - Expand the chosen scene into 2-5 sub-scenes
+   - Expand the chosen scene into 2-5 (up to how many were requested) complex sub-scenes (usually involves 2+ actors doing a few actions each and one story-within|about-story scene per story)
+   - Envision at least one interaction (either direct or complex, as defined in action chains) in the story
    - Original scene becomes PARENT (may keep actors)
    - New sub-scenes become CHILDREN (concrete details)
    - Add semantic relations: children is_part_of parent
    - Add temporal relations: ONLY between same-level leaves
    - Add properties: scene_type, parent_scene, child_scenes
+   - Expand the complete narrative for the story to describe ALL leaf scenes in the GEST
+   - CRITICAL: An expansion MUST ALWAYS ADD AT LEAST ONE new leaf scene
 
 EXPANSION EXAMPLE (Iteration 2):
 
@@ -371,6 +379,7 @@ Each event must have this exact structure:
       "scene_type": "leaf or parent (required for scene events)",
       "parent_scene": "string or null (required for scene events)",
       "child_scenes": ["array of strings or null (required for scene events)"],
+      "narrative": "string (required for scene events)",
       "Name": "string (required for Exist events)",
       "Gender": 1 or 2 (required for Exist events),
       "archetype_age": "string (required for Exist events)",
@@ -421,7 +430,7 @@ CRITICAL ACTOR NAMING RULES:
 
 At the concept level, you MUST use ABSTRACT, GENERIC role names. Think of these as placeholder roles for a film production - the CastingAgent will later assign specific character identities.
 
-GOOD role names (use these patterns):
+GOOD role names (use these patterns, not necessarily these exact names but feel free to reuse):
   - "courier", "witness", "observer", "writer", "runner", "plumber"
   - "friend_a", "friend_b", "colleague_a", "colleague_b"
   - "neighbor", "journalist", "ceo", "secretary", "security", "visitor"
@@ -546,6 +555,15 @@ CONSTRAINTS:
 - REMEMBER: No title or narrative IN the GEST JSON structure!
 - Output only ASCII characters - no special Unicode"""
 
+    def _getConceptObjectsSeed(self, concept_capabilities: Dict[str, Any]) -> List[str]:
+        """Get a seed list of objects or themes from concept capabilities to inspire concept generation"""
+
+        # Get a list of objects with actions from the object_catalog
+        object_catalog = [obj for obj in concept_capabilities.get('object_types', {}).keys() if concept_capabilities.get('object_types', {}).get(obj, {}).get('actions')]
+
+        # Pick at random 3 objects as seed
+        return random.sample(object_catalog, min(3, len(object_catalog)))
+
     def build_user_prompt(self, context: Dict[str, Any]) -> str:
         """
         Build user prompt for initial or expansion call.
@@ -571,11 +589,15 @@ CONSTRAINTS:
         # Extract parameters
         num_actors = context.get('num_actors', 2)
         num_distinct_actions = context.get('num_distinct_actions', 5)
+        num_scenes = context.get('num_scenes', 4)
         narrative_seeds = context.get('narrative_seeds', [])
         concept_capabilities = context.get('concept_capabilities', {})
 
+        # Seed concept idea with random objects or themes
+        seed_objects = self._getConceptObjectsSeed(concept_capabilities)
+
         # Format narrative seeds
-        seeds_str = ""
+        seeds_str = "\n".join([f"  - {obj}" for obj in seed_objects])
         if narrative_seeds:
             seeds_str = "\n".join([f"  - {seed}" for seed in narrative_seeds])
             seeds_section = f"""
@@ -587,47 +609,24 @@ Your concept should incorporate these seeds meaningfully. They may suggest:
 - Character roles or actions
 - Narrative structure or meta-references
 - Themes or relationships
+- Objects to include
 - Story complexity (e.g., nested observation, story-within-story)
 
 Interpret these seeds creatively to define your concept's meta-structure.
 """
         else:
-            seeds_section = """
+            seeds_section = f"""
 NARRATIVE SEEDS PROVIDED:
-No specific seeds provided. Generate a creative concept with story-within-story complexity.
+Generate a distinct creative concept with story-within-story complexity, unique every time I re-run this query.
+
+Use the following objects/themes to inspire your concept:
+{seeds_str}
 """
 
         str_capabilities = json.dumps(concept_capabilities, indent=0)
-        # # Format game capabilities (compact representation)
-        # episode_catalog = concept_capabilities.get('episode_catalog', {})
-        # if isinstance(episode_catalog, dict):
-        #     episodes = [ep['name'] if isinstance(ep, dict) else ep for ep in episode_catalog.get('episodes', [])]
-        # else:
-        #     episodes = []
-        # episodes_str = ", ".join(episodes[:15])  # Show first 15 episodes
-
-        # # Extract actual action names
-        # action_catalog = concept_capabilities.get('action_catalog', {})
-        # if isinstance(action_catalog, dict):
-        #     actions = [act['name'] if isinstance(act, dict) else act for act in action_catalog.get('actions', [])]
-        # else:
-        #     actions = []
-        # actions_str = ", ".join(actions[:20])  # Show first 20 actions
-
-        # # Extract regions (valid locations)
-        # all_regions = set()
-        # if isinstance(episode_catalog, dict):
-        #     for ep in episode_catalog.get('episodes', []):
-        #         if isinstance(ep, dict) and 'regions' in ep:
-        #             all_regions.update(ep['regions'])
-        # regions_str = ", ".join(sorted(list(all_regions))[:20])  # Show first 20 regions
 
         # Timeframes (hardcoded - always the same)
-        timeframes_str = "morning, noon, afternoon, evening, midnight, night"
-
-        # skins_summary = concept_capabilities.get('player_skins_summary', {})
-        # total_skins = skins_summary.get('total_count', 249)
-        # gender_counts = skins_summary.get('by_gender', {})
+        timeframes_str = concept_capabilities.get("timeframes", "morning, noon, afternoon, evening, midnight, night")
 
         # Build the prompt
         prompt = f"""
@@ -636,7 +635,8 @@ TASK: Generate a story concept for cinematic production in a 3D simulation envir
 CONSTRAINTS:
 - Number of actors: {num_actors}
 - Number of distinct action types: ~{num_distinct_actions}
-- Generate ~{num_distinct_actions} action events (PLUS Exist events for all actors)
+- Number of scenes after expansion: ~{num_scenes}
+- Envision ~{num_distinct_actions} action events used within the story (PLUS Exist events for all actors)
 
 {seeds_section}
 
@@ -653,22 +653,25 @@ Actor skin Archetype categories:
 YOUR TASK:
 1. Generate Exist events for all actors (MANDATORY - comes first)
    - Event ID MUST equal entity name (e.g., "writer": {{"Entities": ["writer"]}})
-2. Generate 1-2 action scenes abstracting over the whole story's structure
+2. Generate 1-2 action scenes abstracting over the whole story's structure (will be expanded recursively on later calls into number of scenes)
 3. Use ONLY valid actions, locations, and timeframes from lists above
 4. Define protagonist archetypes with GENERIC ROLE NAMES (e.g., 'courier', 'witness', 'friend_a') in Exist event Properties
    - DO NOT use specific names like "John", "Alice" - use role-based names only
    - The CastingAgent will later assign specific character names and skins
 5. Create semantic relations for meta-structure hints
 6. Write a movie-style title (3-7 words)
-7. Write a movie synopsis narrative (1-3 sentences) - simple plot description, NO meta-explanation
+7. Write a movie synopsis narrative (1-3 sentences, more when needed) - simple plot description, NO meta-explanation
    - CRITICAL: Generate DIVERSE, ORIGINAL stories from simulation environment capabilities
-   - DO NOT copy themes from examples
+   - DO NOT use the same themes from examples over and over
+   - Think cinematographically - what makes an interesting story to watch, with intrigue, culmination, falling action, conclusion
    - Use varied settings, genres, and character types
    - Every story should be unique
+   - Invent at least one nested story scene (story-within-story, inception-like-plot)
+   - Envision complex interactions between characters (as defined in action chains)
 
 OUTPUT FORMAT:
 Return a DualOutput with:
-- gest: GEST structure (Exist events + ~{num_distinct_actions} action scenes, NO title/narrative in GEST)
+- gest: GEST structure (Exist events +1-2 action scenes, NO title/narrative in GEST)
 - title: Short movie-style title
 - narrative: Movie synopsis (what happens in the story, not how it's structured)
 
@@ -722,17 +725,26 @@ VALIDATION CHECKLIST (verify before returning your output):
     def _build_expansion_prompt(self, context: Dict[str, Any]) -> str:
         """Build prompt for scene expansion"""
         current_gest = context['current_gest']
-        scene_to_expand = context['scene_to_expand']
+        scenes_to_expand = context['scenes_to_expand']
         remaining_budget = context['remaining_budget']
 
         current_gest_json = json.dumps(current_gest.model_dump(), indent=2)
-        scene_event = current_gest.events.get(scene_to_expand)
+        scene_events = {scene_id: current_gest.events.get(scene_id) for scene_id in scenes_to_expand}
+        # Handle both initial expansion (no existing scenes) and subsequent expansions (scenes exist)
+        str_scene_events = "\n----\n".join([
+            f"{scene_id}:\n" + (
+                json.dumps(scene_events[scene_id].model_dump(), indent=2)
+                if scene_events[scene_id] is not None
+                else "(No existing scene - generate initial structure)"
+            )
+            for scene_id in scenes_to_expand
+        ])
 
         str_capabilities = json.dumps(context['concept_capabilities'], indent=0)
         timeframes_str = "morning, noon, afternoon, evening, midnight, night"
 
         return f"""
-TASK: Expand scene '{scene_to_expand}' into sub-scenes
+TASK: Expand scenes {list(scenes_to_expand)} into sub-scenes. Choose only those scenes that can be meaningfully broken down into multiple sub-scenes with complex narratives and 2+ actions.
 
 AVAILABLE Simulation Environment CAPABILITIES:
 {str_capabilities}
@@ -747,8 +759,8 @@ Actor skin Archetype categories:
 CURRENT GEST:
 {current_gest_json}
 
-SCENE TO EXPAND:
-{scene_to_expand}: {json.dumps(scene_event.model_dump() if scene_event else {}, indent=2)}
+SCENES AVAILABLE TO EXPAND:
+{str_scene_events}
 
 EXPANSION BUDGET: {remaining_budget} new scenes maximum
 
@@ -758,7 +770,7 @@ Do not bias toward office/workplace/scandal stories shown in examples.
 Create varied, unique narrative scenarios.
 
 YOUR TASK:
-1. Keep '{scene_to_expand}' as PARENT scene (may keep actors)
+1. Keep expanded scenes as PARENT scene (may keep actors)
    - Set Properties.scene_type to "parent"
    - Set Properties.child_scenes to list of new child scene IDs
 
@@ -767,7 +779,7 @@ YOUR TASK:
    - Each child is still an abstraction over a set of concrete actions of 1+ actors
    - Set Properties.scene_type to "leaf"
    - Add Exist events for any new actors
-   - Set Properties.parent_scene to '{scene_to_expand}'
+   - Set Properties.parent_scene to 'event_id' of expanded parent scene
 
 3. Add semantic relations:
    - Each child: is_part_of parent
@@ -791,13 +803,21 @@ YOUR TASK:
 
 7. Each scene must use valid actions, locations, timeframes from capabilities
 
+8. When you introduce scene-about-scene (story-within-story), ONLY IF the 2 scenes are in different timeframes, THEN order the shooting of THOSE scenes (scene order) in reverse chronological order: e.g. 1. today, at noon: discussion_about, 2. yesterday night: story_being_discussed, even if 2 happened before 1 in time.
+   - CRITICAL: keep the scenes from the same timeframe in normal chronological order.
+   - CRITICAL: reverse only if it makes sense to illustrate cinematically the nested structure.
+
+9. Keep to a minimum jumps in timeframes between scenes (e.g. only story-within-story scenes can have big jumps, most scenes should happen in the same timeframe)
+
+10. Lead story concept based on available objects, actions, and locations (not based on actor archetypes)
+
 OUTPUT: DualOutput with expanded GEST and complete narrative describing all current scenes
 """
 
     def expand_scene(
         self,
         current_gest,
-        scene_to_expand: str,
+        scenes_to_expand: List[str],
         remaining_budget: int,
         concept_capabilities: Dict[str, Any]
     ) -> DualOutput:
@@ -806,34 +826,54 @@ OUTPUT: DualOutput with expanded GEST and complete narrative describing all curr
 
         Args:
             current_gest: Current GEST with existing scenes
-            scene_to_expand: Scene ID to expand
+            scenes_to_expand: List of Scene IDs to expand
             remaining_budget: How many new scenes can be created
             concept_capabilities: Concept cache data
 
         Returns:
             DualOutput with expanded GEST and narrative
         """
+        # Count current leaf scenes correctly
+        current_leaf_count = sum(
+            1 for event in current_gest.events.values()
+            if event.Properties.get('scene_type') == 'leaf'
+        )
+
         logger.info(
             "expanding_scene",
-            scene_id=scene_to_expand,
-            current_scene_count=len(current_gest.events),
+            scene_ids=scenes_to_expand,
+            current_scene_count=current_leaf_count,
             remaining_budget=remaining_budget
         )
 
         context = {
             'mode': 'expansion',
             'current_gest': current_gest,
-            'scene_to_expand': scene_to_expand,
+            'scenes_to_expand': scenes_to_expand,
             'remaining_budget': remaining_budget,
             'concept_capabilities': concept_capabilities
         }
 
         result = super().execute(context, max_retries=3)
 
+        # Count leaf scenes in result (not all events)
+        result_leaf_count = sum(
+            1 for event in result.gest.events.values()
+            if event.Properties.get('scene_type') == 'leaf'
+        )
+
+        # Count breakdown for debugging
+        total_events = len(result.gest.events)
+        exists_count = sum(1 for e in result.gest.events.values() if e.Action == 'Exists')
+        parent_count = sum(1 for e in result.gest.events.values() if e.Properties.get('scene_type') == 'parent')
+
         logger.info(
             "scene_expanded",
-            new_scene_count=len(result.gest.events),
-            new_scenes_added=len(result.gest.events) - len(current_gest.events)
+            total_events=total_events,
+            leaf_scenes=result_leaf_count,
+            parent_scenes=parent_count,
+            exists_events=exists_count,
+            new_leaf_scenes_added=result_leaf_count - current_leaf_count
         )
 
         return result

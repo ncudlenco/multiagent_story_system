@@ -6,7 +6,7 @@ No manual JSON parsing required - API returns validated Pydantic models directly
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, Type, TypeVar
+from typing import Dict, Any, Optional, Type, TypeVar, Generic
 from pydantic import BaseModel
 import structlog
 from openai import OpenAI
@@ -17,7 +17,7 @@ logger = structlog.get_logger()
 T = TypeVar('T', bound=BaseModel)
 
 
-class BaseAgent(ABC):
+class BaseAgent(ABC, Generic[T]):
     """
     Minimal base agent using OpenAI structured outputs.
 

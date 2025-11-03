@@ -42,7 +42,7 @@ This document provides comprehensive guidance for AI assistants (like Claude) wo
 **Phase 1: Preprocessing Layer** has been completed successfully.
 
 ### Key Achievements:
-- **85% Token Reduction**: game_capabilities.json (14,178 lines) → optimized caches (~1,200-2,500 lines)
+- **85% Token Reduction**: simulation_environment_capabilities.json (14,178 lines) → optimized caches (~1,200-2,500 lines)
 - **LLM-Based Preprocessing**: SkinCategorizationAgent, EpisodeSummarizationAgent using GPT-5
 - **Batched Processing**: Single API calls for 249 skins and 13 episodes
 - **Adaptive Preprocessing**: Optional --skip-episodes flag for faster processing
@@ -340,7 +340,7 @@ multiagent_story_system/
 │   └── log_parser.py            # Log parsing (~468 lines)
 │
 ├── data/                        # Data files (generated)
-│   ├── game_capabilities.json   # Exported from MTA
+│   ├── simulation_environment_capabilities.json   # Exported from MTA
 │   └── cache/                   # Cached/processed capabilities
 │
 ├── examples/                    # Example reference graphs
@@ -508,8 +508,8 @@ mta:
   shutdown_wait_seconds: 3
 
 paths:
-  game_capabilities: "data/game_capabilities.json"
-  game_capabilities_source: "../sv2l/game_capabilities.json"
+  simulation_environment_capabilities: "data/simulation_environment_capabilities.json"
+  game_capabilities_source: "../sv2l/simulation_environment_capabilities.json"
   output_dir: "output"
   logs_dir: "logs"
   cache_dir: "data/cache"
@@ -716,7 +716,7 @@ cat logs/*.log
 1. Server console appears with visible output
 2. Client window launches after 20 seconds
 3. Both processes execute and auto-shutdown
-4. `data/game_capabilities.json` created
+4. `data/simulation_environment_capabilities.json` created
 
 **Debug MTA issues:**
 
@@ -1030,9 +1030,9 @@ def export_game_capabilities(self) -> Tuple[bool, Optional[str]]:
     while self.is_running():
         time.sleep(0.5)
 
-    # 6. Copy game_capabilities.json from sv2l to data/
-    source = Path('../sv2l/game_capabilities.json')
-    dest = Path('data/game_capabilities.json')
+    # 6. Copy simulation_environment_capabilities.json from sv2l to data/
+    source = Path('../sv2l/simulation_environment_capabilities.json')
+    dest = Path('data/simulation_environment_capabilities.json')
     shutil.copy2(source, dest)
 
     # 7. Restore original config.json
@@ -1045,7 +1045,7 @@ def export_game_capabilities(self) -> Tuple[bool, Optional[str]]:
 ```python
 def load_game_capabilities(self) -> GameCapabilities:
     """Load and validate game capabilities"""
-    path = self._get_path('game_capabilities')  # data/game_capabilities.json
+    path = self._get_path('simulation_environment_capabilities')  # data/simulation_environment_capabilities.json
 
     with open(path, 'r') as f:
         data = json.load(f)
@@ -1057,9 +1057,9 @@ def load_game_capabilities(self) -> GameCapabilities:
 
 **Complete flow**:
 ```
-1. Lua exports → sv2l/game_capabilities.json
-2. Python copies → data/game_capabilities.json
-3. Python loads ← data/game_capabilities.json
+1. Lua exports → sv2l/simulation_environment_capabilities.json
+2. Python copies → data/simulation_environment_capabilities.json
+3. Python loads ← data/simulation_environment_capabilities.json
 
     # 2. Start MTA server
     self._start_server()
@@ -1164,7 +1164,7 @@ shutil.copy(video_path, f'output/videos/video_{timestamp}.avi')
 
 #### 1. "Game capabilities not found"
 
-**Cause:** `data/game_capabilities.json` doesn't exist
+**Cause:** `data/simulation_environment_capabilities.json` doesn't exist
 
 **Solution:**
 ```bash
@@ -1175,20 +1175,20 @@ python main.py --export-capabilities
 - MTA server path in config.yaml is correct
 - Lua exporter has write permissions in sv2l directory
 - Server starts without errors
-- File exists in `../sv2l/game_capabilities.json` after export
+- File exists in `../sv2l/simulation_environment_capabilities.json` after export
 
 **If automatic copy fails:**
 ```bash
 # Manually copy from sv2l to data/
-cp ../sv2l/game_capabilities.json data/
+cp ../sv2l/simulation_environment_capabilities.json data/
 
 # Or on Windows
-copy ..\sv2l\game_capabilities.json data\
+copy ..\sv2l\simulation_environment_capabilities.json data\
 ```
 
 **Verify paths in config.yaml:**
-- `paths.game_capabilities_source: "../sv2l/game_capabilities.json"` (where MTA exports)
-- `paths.game_capabilities: "data/game_capabilities.json"` (where system loads from)
+- `paths.game_capabilities_source: "../sv2l/simulation_environment_capabilities.json"` (where MTA exports)
+- `paths.simulation_environment_capabilities: "data/simulation_environment_capabilities.json"` (where system loads from)
 
 #### 2. "OpenAI API key not found"
 
@@ -1229,7 +1229,7 @@ cat output/generated_graphs/story_*_L4.json | jq .
 
 4. **Common validation errors:**
    - Missing objects: Add to Level 4 GEST
-   - Invalid action names: Check against game_capabilities.json
+   - Invalid action names: Check against simulation_environment_capabilities.json
    - Chain ID conflicts: Ensure unique chain IDs for objects
    - Missing constraints: Add temporal/spatial constraints
 
@@ -1523,7 +1523,7 @@ Main: main.py
 Core: core/*.py (config, base_agent)
 Schemas: schemas/gest.py
 Utils: utils/*.py (file_manager, mta_controller, log_parser)
-Capabilities: data/game_capabilities.json
+Capabilities: data/simulation_environment_capabilities.json
 MTA Config: ../sv2l/config.json (in MTA resource)
 Logs: logs/*.log
 ```
@@ -1538,8 +1538,8 @@ mta.server_root: "z:\\...\\server"
 mta.resource_path: "mods/deathmatch/resources/sv2l"
 mta.client_shortcut: "Multi Theft Auto.exe - Shortcut.lnk"
 mta.startup_wait_seconds: 20
-paths.game_capabilities: "data/game_capabilities.json"  # Where system loads from
-paths.game_capabilities_source: "../sv2l/game_capabilities.json"  # Where MTA exports to
+paths.simulation_environment_capabilities: "data/simulation_environment_capabilities.json"  # Where system loads from
+paths.game_capabilities_source: "../sv2l/simulation_environment_capabilities.json"  # Where MTA exports to
 validation.max_attempts: 3
 validation.simulation_timeout_seconds: 600
 logging.level: "INFO"

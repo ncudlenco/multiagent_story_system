@@ -201,7 +201,7 @@
         "Properties": {}
     },
     "d2": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": [
             "bod3",
             "laptop"
@@ -213,7 +213,7 @@
         "Properties": {}
     },
     "d3": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": [
             "bod3",
             "laptop"
@@ -225,7 +225,7 @@
         "Properties": {}
     },
     "d4": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": [
             "bod3",
             "laptop"
@@ -545,7 +545,7 @@
         "Properties": {}
     },
     "a6.1": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": [
             "alice",
             "bob"
@@ -698,7 +698,7 @@
         "Properties": {}
     },
     "j4": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": [
             "boj2",
             "TV"
@@ -722,7 +722,7 @@
         "Properties": {}
     },
     "n3": {
-        "Action": "LookAtObject",
+        "Action": "LookAt",
         "Entities": [
             "alice2",
             "TV"

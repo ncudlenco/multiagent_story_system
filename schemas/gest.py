@@ -138,17 +138,36 @@ class TemporalRelation(BaseModel):
     Temporal relation between events.
 
     Critical rules:
-    - 'next': ONLY between events of SAME actor (action chains)
-    - 'after', 'before', 'starts_with', 'concurrent': ONLY between DIFFERENT actors
+    - 'after', 'before', 'starts_with': ONLY between DIFFERENT actors
 
     NOTE: This class is kept for backwards compatibility but is now part of TemporalEntry.
     """
-    source: str = Field(description="Source event ID")
-    type: str = Field(
-        description="Relation type: 'after', 'before', 'starts_with', 'concurrent', 'next'"
-    )
-    target: str = Field(description="Target event ID")
+    source: Optional[str] = Field(description="Source event ID. Not used by 'starts_with'. Mandatory for 'after'/'before'.")
+    type: Literal["after", "before", "starts_with"] = Field(
+        description="""
+            1. **starts_with**
+            - Events begin simultaneously (synchronized start time)
+            - ALWAYS used for 2-actor interactions that must be coordinated
+            - Both events reference the same relation ID in their "relations" arrays
+            - Examples: Give↔INV-Give, Kiss, Hug, Talk, HandShake
+            - Optionally used for other simultaneous event actions across different actors
+            - ALL events that start at the same time reference the same relation ID in their "relations" arrays
+            - Examples: Sitting down together, standing up together.
 
+            2. **before**
+            - Source event must COMPLETE before target event BEGINS
+            - Used for sequential ordering across different actors
+            - Creates dependency: target cannot start until source finishes
+            - Example: "Bob finishes smoking BEFORE Alice stands up"
+
+            3. **after**
+            - Source event BEGINS after target event COMPLETES
+            - Inverse of "before" (semantically equivalent but different perspective)
+            - Used for sequential ordering across different actors
+            - Example: "Alice sits down AFTER Bob arrives"
+        """
+    )
+    target: Optional[str] = Field(description="Target event ID. Not used by 'starts_with'. Mandatory for 'after'/'before'.")
 
 class SpatialRelation(BaseModel):
     """Spatial relation between entities (objects or actors)"""
@@ -177,7 +196,7 @@ class SemanticRelation(BaseModel):
 
 class CameraCommand(BaseModel):
     """Camera command for an event"""
-    action: str = Field(
+    action: Literal["record", "stop"] = Field(
         description="Camera action: 'record' (start recording), 'stop' (pause recording)"
     )
 
@@ -215,7 +234,7 @@ class GEST(BaseModel):
         description="""Temporal relations structure with heterogeneous entries.
         Contains three types of entries (distinguished by key and structure, not by Pydantic model):
 
-        1. "starting_actions": Flat dict mapping actor IDs to their first event IDs
+        1. "starting_actions": Flat dict mapping actor IDs to their first event IDs [CRITICAL]
            Example: {"alice": "a1", "bob": "b1"}
 
         2. event_id entries: Dict with "relations" (list) and "next" (string or null)
@@ -378,4 +397,13 @@ class DualOutput(BaseModel):
         None,
         description="Optional movie-style title (populated by ConceptAgent only)"
     )
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> 'DualOutput':
+        """Create DualOutput from dict (e.g., loaded from JSON)"""
+        return DualOutput(
+            gest=GEST(**data['gest']),
+            narrative=data['narrative'],
+            title=data.get('title', None)
+        )
 
