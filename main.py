@@ -554,7 +554,8 @@ def generate_story(
     resume_story_id: Optional[str] = None,
     resume_from_phase: Optional[int] = None,
     # Generation parameters
-    num_actors: Optional[int] = None,
+    max_num_protagonists: Optional[int] = None,
+    max_num_extras: Optional[int] = None,
     num_distinct_actions: Optional[int] = None,
     narrative_seeds: Optional[list[str]] = None,
     scene_number: Optional[int] = None,
@@ -568,7 +569,8 @@ def generate_story(
         config: System configuration
         resume_story_id: If provided, resume this story (8-char UUID)
         resume_from_phase: Phase to resume from (1=concept, 2=casting, 3=detail)
-        num_actors: Number of actors (required for fresh, optional for resume)
+        num_protagonists: Number of protagonist actors (required for fresh, optional for resume)
+        num_extras: Number of background actors (required for fresh, optional for resume)
         num_distinct_actions: Target distinct actions (required for fresh)
         narrative_seeds: Seed sentences (optional)
         scene_number: Target scene count (optional)
@@ -626,8 +628,8 @@ def generate_story(
             start_phase = resume_from_phase
         else:
             # Fresh generation
-            if num_actors is None or num_distinct_actions is None or scene_number is None:
-                print("\n[ERROR] --num-actors, --num-actions, and --scene-number required")
+            if max_num_protagonists is None or num_distinct_actions is None or scene_number is None:
+                print("\n[ERROR] --max-num-protagonists, --num-actions, and --scene-number required")
                 return False
 
             narrative_seeds = narrative_seeds or []
@@ -638,7 +640,8 @@ def generate_story(
             print("\n" + "=" * 70)
             print("STORY GENERATION")
             print("=" * 70)
-            print(f"Actors: {num_actors}")
+            print(f"Max Protagonists: {max_num_protagonists}")
+            print(f"Max Extras: {max_num_extras}")
             print(f"Actions: {num_distinct_actions}")
             print(f"Scenes: {scene_number}")
             print(f"Seeds: {len(narrative_seeds)}\n")
@@ -653,7 +656,8 @@ def generate_story(
                 config=config.to_dict(),
                 target_scene_count=scene_number,
                 num_distinct_actions=num_distinct_actions,
-                num_actors=num_actors,
+                max_num_protagonists=max_num_protagonists,
+                max_num_extras=max_num_extras,
                 narrative_seeds=narrative_seeds,
                 concept_capabilities=concept_capabilities
             )
@@ -768,10 +772,17 @@ Examples:
     )
 
     parser.add_argument(
-        '--num-actors',
+        '--max-num-protagonists',
         type=int,
         default=2,
-        help='Number of actors in story (default: 2)'
+        help='Maximum number of protagonist actors (main characters). Recommended: 2-5. Use -1 for LLM to decide. (default: 2)'
+    )
+
+    parser.add_argument(
+        '--max-num-extras',
+        type=int,
+        default=0,
+        help='Maximum number of background actors (extras). Default: 0 (no extras). Use -1 for LLM to decide.'
     )
 
     parser.add_argument(
@@ -865,6 +876,13 @@ Examples:
         )
         logger.info("Verbose logging enabled")
 
+    # Validate actor count arguments
+    if args.max_num_protagonists < -1 or args.max_num_protagonists == 0:
+        parser.error("--max-num-protagonists must be positive or -1 (LLM decides)")
+
+    if args.max_num_extras < -1:
+        parser.error("--max-num-extras must be non-negative or -1 (LLM decides)")
+
     try:
         # Load configuration
         logger.info("Loading configuration", config_path=args.config)
@@ -902,7 +920,8 @@ Examples:
                 config=config,
                 resume_story_id=args.resume,  # None if --generate
                 resume_from_phase=args.from_phase,  # None if --generate
-                num_actors=args.num_actors,
+                max_num_protagonists=args.max_num_protagonists,
+                max_num_extras=args.max_num_extras,
                 num_distinct_actions=args.num_actions,
                 narrative_seeds=args.seeds,
                 scene_number=args.scene_number,

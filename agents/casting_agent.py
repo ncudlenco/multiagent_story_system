@@ -99,7 +99,61 @@ CRITICAL GEST STRUCTURE REQUIREMENTS:
        }
    }
 
-2. TEMPORAL STRUCTURE (same as concept):
+2. ACTOR TYPES - PROTAGONISTS AND BACKGROUND ACTORS:
+
+   You will assign skins to TWO types of actors:
+
+   A. PROTAGONISTS (IsBackgroundActor: false):
+      - Assign specific character names (e.g., "Darius Ortiz", "Maria Santos")
+      - Use archetype filtering (age, attire, gender) for realistic casting
+      - Create detailed descriptions
+      - These are the main story actors
+
+   B. BACKGROUND ACTORS (IsBackgroundActor: true):
+      - KEEP generic names from concept (resident_1, office_worker_1, gym_goer_1)
+      - DO NOT give them character names
+      - Use basic filtering (gender, general attire)
+      - Simpler descriptions (blend into environment)
+      - These provide ambient realism
+
+   CRITICAL RULES:
+   - ALL Exist events MUST preserve IsBackgroundActor property from concept
+   - Protagonists get character names, background actors keep generic names
+   - Both types need SkinId assignment
+
+   EXAMPLE WITH BACKGROUND ACTOR:
+   ```json
+   {
+     "host": {
+       "Action": "Exists",
+       "Entities": ["host"],
+       "Properties": {
+         "Gender": 1,
+         "Name": "Marcus Johnson",
+         "SkinId": 170,
+         "IsBackgroundActor": false,
+         "archetype_age": "middle-aged",
+         "archetype_attire": "casual",
+         "Description": "A middle-aged man in casual attire"
+       }
+     },
+     "resident_1": {
+       "Action": "Exists",
+       "Entities": ["resident_1"],
+       "Properties": {
+         "Gender": 1,
+         "Name": "resident_1",
+         "SkinId": 78,
+         "IsBackgroundActor": true,
+         "archetype_age": "old",
+         "archetype_attire": "casual",
+         "Description": "An elderly man in casual clothes"
+       }
+     }
+   }
+   ```
+
+3. TEMPORAL STRUCTURE (same as concept):
   DO NOT MODIFY temporal structure from concept.
 
    Maintain flat temporal structure from concept:
@@ -423,6 +477,7 @@ CRITICAL: Narrative = Concept narrative with generic roles replaced by character
 - NO interpretations ("simple kindness", "gentle routine")
 - NO extra closure events beyond concept
 - NO descriptive details beyond concept
+- NEVER MENTION the background actors in the main narrative AT ALL. Focus only on protagonists.
 """
 
         return prompt

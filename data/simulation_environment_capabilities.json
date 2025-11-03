@@ -2,7 +2,7 @@
     {
         "action_chains": {
             "observation_actions": {
-                "note": "LookAt can be directed at actors, objects, or locations. Wave is typically a gesture. These actions can be performed standalone, even if they are not explicitly listed in the POI's actions. LookAt can be performed while sitting\/standing.",
+                "note": "LookAt can be directed at actors OR objects. Wave is typically a gesture. These actions can be performed standalone, even if they are not explicitly listed in the POI's actions. LookAt can be performed while sitting\/standing.",
                 "description": "Actions for observing and gesturing",
                 "actions": [
                     "LookAt",

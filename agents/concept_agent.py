@@ -448,6 +448,78 @@ REMINDER: Character role examples above are FORMAT demonstrations.
 Do NOT bias toward office roles (CEO, journalist, secretary) or any specific professions.
 Use the full range of available skins and archetypes to create diverse characters.
 
+ACTOR TYPES - PROTAGONISTS AND BACKGROUND ACTORS:
+
+You will generate TWO types of actors in your story:
+
+1. PROTAGONISTS (Main Story Actors):
+   - Property: IsBackgroundActor: false (REQUIRED - must be explicitly set)
+   - Naming: Generic roles (friend, colleague, neighbor, roommate, courier, etc.)
+   - Purpose: Main story participants who drive the narrative
+   - Full narrative inclusion: Described in main story narrative
+
+2. BACKGROUND ACTORS (Extras):
+   - Property: IsBackgroundActor: true (REQUIRED - must be explicitly set)
+   - Naming: Descriptive with numbers (resident_1, pedestrian_1, office_worker_1, gym_goer_1, etc.)
+   - Purpose: Environmental realism, ambient presence in scenes
+   - Separate narratives: Stored in scene Properties.extra_narratives
+
+CRITICAL RULES FOR BOTH ACTOR TYPES:
+- ALL actors MUST have IsBackgroundActor property explicitly set (true or false)
+- Protagonists drive the story, background actors provide ambient realism
+- Background actors have simple, repetitive behaviors
+- Background actors can appear in multiple scenes with consistent roles
+- Main narrative focuses ONLY on protagonists
+- Each background actor gets a separate entry in extra_narratives
+
+BACKGROUND ACTOR GUIDELINES:
+- Keep their actions simple and repetitive (sitting, walking, typing, exercising)
+- They should NOT interact with protagonists unless story demands it
+- They enhance realism without dominating scenes
+- Example: "resident_1 sits in the living room watching television"
+- Example: "gym_goer_1 jogs on a treadmill in the background"
+
+EXAMPLE WITH BACKGROUND ACTORS:
+```json
+{
+  "livingroom_evening": {
+    "Action": "LivingroomEvening",
+    "Entities": ["host", "guest", "resident_1"],
+    "Properties": {
+      "narrative": "The host welcomes the guest into the living room and they have a conversation.",
+      "extra_narratives": {
+        "resident_1": "A resident sits in the corner watching television."
+      },
+      "scene_type": "leaf"
+    }
+  },
+  "host": {
+    "Action": "Exists",
+    "Entities": ["host"],
+    "Properties": {
+      "Gender": 1,
+      "IsBackgroundActor": false
+    }
+  },
+  "guest": {
+    "Action": "Exists",
+    "Entities": ["guest"],
+    "Properties": {
+      "Gender": 2,
+      "IsBackgroundActor": false
+    }
+  },
+  "resident_1": {
+    "Action": "Exists",
+    "Entities": ["resident_1"],
+    "Properties": {
+      "Gender": 1,
+      "IsBackgroundActor": true
+    }
+  }
+}
+```
+
 ABSTRACT EVENTS AT CONCEPT LEVEL:
 
 At concept level, use abstract actions that will be refined to concrete game actions in later stages.
@@ -480,6 +552,8 @@ TITLE AND NARRATIVE REQUIREMENTS:
 
    CRITICAL: Write in natural language prose. NEVER mention event IDs (E1, E2, a1, b1, etc.)
    Event IDs are internal to GEST structure only - narratives describe the story in human terms.
+
+   CRITICAL: Do not mention the background actors in the main narrative AT ALL. Focus only on protagonists.
 
    At each expansion, you must REWRITE the narrative to describe ALL scenes currently in the GEST.
    DO NOT just append - write a COMPLETE description of the entire story at this level of detail.
@@ -587,7 +661,8 @@ CONSTRAINTS:
     def _build_initial_prompt(self, context: Dict[str, Any]) -> str:
         """Build prompt for initial scene creation"""
         # Extract parameters
-        num_actors = context.get('num_actors', 2)
+        max_num_protagonists = context.get('max_num_protagonists', 2)
+        max_num_extras = context.get('max_num_extras', 0)
         num_distinct_actions = context.get('num_distinct_actions', 5)
         num_scenes = context.get('num_scenes', 4)
         narrative_seeds = context.get('narrative_seeds', [])
@@ -628,15 +703,38 @@ Use the following objects/themes to inspire your concept:
         # Timeframes (hardcoded - always the same)
         timeframes_str = concept_capabilities.get("timeframes", "morning, noon, afternoon, evening, midnight, night")
 
+        # Format actor count instructions (max-based flexible approach)
+        if max_num_protagonists > 0:
+            protagonist_instruction = f"Create {max_num_protagonists} protagonist actors (IsBackgroundActor: false) - range 2 to {max_num_protagonists}"
+            protagonist_guidance = f"GUIDANCE: It is RECOMMENDED to create all {max_num_protagonists} protagonists NOW (not in expansions)."
+        else:  # -1
+            protagonist_instruction = "Create an appropriate number of protagonist actors (IsBackgroundActor: false)"
+            protagonist_guidance = "GUIDANCE: Create protagonists based on story needs."
+
+        if max_num_extras > 0:
+            extras_instruction = f"Create NO background actors NOW (they will be added during scene expansion up to max {max_num_extras})"
+        elif max_num_extras == 0:
+            extras_instruction = "Create NO background actors (none allowed)"
+        else:  # -1
+            extras_instruction = "Create NO background actors NOW (they will be added during scene expansion as needed)"
+
         # Build the prompt
         prompt = f"""
 TASK: Generate a story concept for cinematic production in a 3D simulation environment.
 
-CONSTRAINTS:
-- Number of actors: {num_actors}
+CONSTRAINTS - INITIAL ACTOR CREATION:
+- Protagonists: {protagonist_instruction}
+- Background actors: {extras_instruction}
 - Number of distinct action types: ~{num_distinct_actions}
 - Number of scenes after expansion: ~{num_scenes}
 - Envision ~{num_distinct_actions} action events used within the story (PLUS Exist events for all actors)
+
+CRITICAL: All actors MUST have IsBackgroundActor property explicitly set.
+
+{protagonist_guidance}
+However, if you create fewer, expansion scenes can add more up to the maximum.
+
+{"CRITICAL: Maximum protagonist limit is " + str(max_num_protagonists) + ". DO NOT EXCEED this count." if max_num_protagonists > 0 else ""}
 
 {seeds_section}
 
@@ -651,16 +749,20 @@ Actor skin Archetype categories:
 - Attire: casual, formal_suits, worker, athletic, novelty
 
 YOUR TASK:
-1. Generate Exist events for all actors (MANDATORY - comes first)
+1. Generate Exist events for ALL actors (protagonists + background actors) (MANDATORY - comes first)
    - Event ID MUST equal entity name (e.g., "writer": {{"Entities": ["writer"]}})
+   - ALL Exist events MUST have IsBackgroundActor: false (protagonist) or true (background)
 2. Generate 1-2 action scenes abstracting over the whole story's structure (will be expanded recursively on later calls into number of scenes)
 3. Use ONLY valid actions, locations, and timeframes from lists above
 4. Define protagonist archetypes with GENERIC ROLE NAMES (e.g., 'courier', 'witness', 'friend_a') in Exist event Properties
    - DO NOT use specific names like "John", "Alice" - use role-based names only
    - The CastingAgent will later assign specific character names and skins
-5. Create semantic relations for meta-structure hints
-6. Write a movie-style title (3-7 words)
-7. Write a movie synopsis narrative (1-3 sentences, more when needed) - simple plot description, NO meta-explanation
+5. Define background actor names with DESCRIPTIVE NUMBERS (e.g., 'resident_1', 'office_worker_1', 'gym_goer_1')
+6. For each background actor, add entry to scene Properties.extra_narratives describing their simple background actions
+7. Create semantic relations for meta-structure hints
+8. Write a movie-style title (3-7 words)
+9. Write a movie synopsis narrative (1-3 sentences, more when needed) - simple plot description, NO meta-explanation
+   - Focus on PROTAGONISTS only (do NOT mention background actors in main narrative)
    - CRITICAL: Generate DIVERSE, ORIGINAL stories from simulation environment capabilities
    - DO NOT use the same themes from examples over and over
    - Think cinematographically - what makes an interesting story to watch, with intrigue, culmination, falling action, conclusion
@@ -691,7 +793,8 @@ VALIDATION CHECKLIST (verify before returning your output):
 
         Args:
             context: Must include:
-                - num_actors: int
+                - max_num_protagonists: int (maximum protagonist count)
+                - max_num_extras: int (maximum extras count)
                 - num_distinct_actions: int
                 - narrative_seeds: List[str]
                 - concept_capabilities: Dict (from concept cache)
@@ -701,11 +804,15 @@ VALIDATION CHECKLIST (verify before returning your output):
             DualOutput with concept GEST and narrative
 
         Raises:
-            Exception: If generation fails after retries
+            Exception: If generation fails after retries or exceeds max limits
         """
+        max_num_protagonists = context.get('max_num_protagonists', 2)
+        max_num_extras = context.get('max_num_extras', 0)
+
         logger.info(
             "executing_concept_agent",
-            num_actors=context.get('num_actors'),
+            max_num_protagonists=max_num_protagonists,
+            max_num_extras=max_num_extras,
             num_distinct_actions=context.get('num_distinct_actions'),
             narrative_seeds_count=len(context.get('narrative_seeds', []))
         )
@@ -713,12 +820,56 @@ VALIDATION CHECKLIST (verify before returning your output):
         # Call parent execute (handles retry logic)
         result = super().execute(context, max_retries)
 
+        # Count generated actors by type
+        protagonists = [e for e in result.gest.events.values()
+                        if e.Action == "Exists" and e.Properties.get('IsBackgroundActor') == False]
+        extras = [e for e in result.gest.events.values()
+                  if e.Action == "Exists" and e.Properties.get('IsBackgroundActor') == True]
+
         logger.info(
             "concept_generated",
             event_count=len(result.gest.events),
             has_semantic_relations=len(result.gest.semantic) > 0,
-            narrative_length=len(result.narrative)
+            narrative_length=len(result.narrative),
+            max_protagonists=max_num_protagonists,
+            max_extras=max_num_extras,
+            actual_protagonists=len(protagonists),
+            actual_extras=len(extras)
         )
+
+        # HARD validation: Never exceed max (only enforced constraint)
+        if max_num_protagonists > 0 and len(protagonists) > max_num_protagonists:
+            logger.error(
+                "exceeded_max_protagonists",
+                max=max_num_protagonists,
+                actual=len(protagonists)
+            )
+            raise ValueError(f"Exceeded max protagonists: {len(protagonists)} > {max_num_protagonists}")
+
+        if max_num_extras >= 0 and len(extras) > max_num_extras:  # Note: 0 is valid
+            logger.error(
+                "exceeded_max_extras",
+                max=max_num_extras,
+                actual=len(extras)
+            )
+            raise ValueError(f"Exceeded max extras: {len(extras)} > {max_num_extras}")
+
+        # SOFT validation: Log if under budget (not an error - expansion can add more)
+        if max_num_protagonists > 0 and len(protagonists) < max_num_protagonists:
+            logger.info(
+                "under_protagonist_budget",
+                max=max_num_protagonists,
+                actual=len(protagonists),
+                remaining=max_num_protagonists - len(protagonists)
+            )
+
+        if max_num_extras > 0 and len(extras) < max_num_extras:
+            logger.info(
+                "under_extras_budget",
+                max=max_num_extras,
+                actual=len(extras),
+                remaining=max_num_extras - len(extras)
+            )
 
         return result
 
@@ -727,6 +878,8 @@ VALIDATION CHECKLIST (verify before returning your output):
         current_gest = context['current_gest']
         scenes_to_expand = context['scenes_to_expand']
         remaining_budget = context['remaining_budget']
+        protagonist_budget = context.get('protagonist_budget', 0)
+        extras_budget = context.get('extras_budget', 0)
 
         current_gest_json = json.dumps(current_gest.model_dump(), indent=2)
         scene_events = {scene_id: current_gest.events.get(scene_id) for scene_id in scenes_to_expand}
@@ -742,6 +895,21 @@ VALIDATION CHECKLIST (verify before returning your output):
 
         str_capabilities = json.dumps(context['concept_capabilities'], indent=0)
         timeframes_str = "morning, noon, afternoon, evening, midnight, night"
+
+        # Format budget instructions
+        if protagonist_budget == -1:
+            protagonist_budget_str = "unlimited (LLM decides)"
+        elif protagonist_budget == 0:
+            protagonist_budget_str = "0 (no more allowed - DO NOT create any protagonist Exists)"
+        else:
+            protagonist_budget_str = f"{protagonist_budget} (you MAY add up to {protagonist_budget} more)"
+
+        if extras_budget == -1:
+            extras_budget_str = "unlimited (LLM decides)"
+        elif extras_budget == 0:
+            extras_budget_str = "0 (no background actors allowed - DO NOT create any background Exists)"
+        else:
+            extras_budget_str = f"{extras_budget} (you MAY add up to {extras_budget} background actors)"
 
         return f"""
 TASK: Expand scenes {list(scenes_to_expand)} into sub-scenes. Choose only those scenes that can be meaningfully broken down into multiple sub-scenes with complex narratives and 2+ actions.
@@ -764,6 +932,16 @@ SCENES AVAILABLE TO EXPAND:
 
 EXPANSION BUDGET: {remaining_budget} new scenes maximum
 
+ACTOR BUDGET FOR THIS EXPANSION:
+- Remaining protagonist budget: {protagonist_budget_str}
+- Remaining extras budget: {extras_budget_str}
+
+CRITICAL BUDGET RULES:
+- NEVER exceed protagonist budget (remaining: {protagonist_budget})
+- NEVER exceed extras budget (remaining: {extras_budget})
+- Count your new Exist events before returning
+- You MAY add fewer than the budget allows or none at all
+
 CRITICAL DIVERSITY REMINDER:
 Generate original scenarios from game capabilities, NOT from example themes.
 Do not bias toward office/workplace/scandal stories shown in examples.
@@ -778,7 +956,11 @@ YOUR TASK:
    - Each child is LEAF scene with actors
    - Each child is still an abstraction over a set of concrete actions of 1+ actors
    - Set Properties.scene_type to "leaf"
-   - Add Exist events for any new actors
+   - Add Exist events for new actors ONLY if budget allows:
+     * Protagonist Exists: Only if protagonist_budget > 0 or -1
+     * Background Exists: Only if extras_budget > 0 or -1
+     * Count carefully - do not exceed budgets!
+   - For background actors: Add extra_narratives to scene Properties (simple ambient behaviors)
    - Set Properties.parent_scene to 'event_id' of expanded parent scene
 
 3. Add semantic relations:
@@ -819,7 +1001,9 @@ OUTPUT: DualOutput with expanded GEST and complete narrative describing all curr
         current_gest,
         scenes_to_expand: List[str],
         remaining_budget: int,
-        concept_capabilities: Dict[str, Any]
+        concept_capabilities: Dict[str, Any],
+        protagonist_budget: int = 0,
+        extras_budget: int = 0
     ) -> DualOutput:
         """
         Expand a single scene into sub-scenes.
@@ -829,6 +1013,8 @@ OUTPUT: DualOutput with expanded GEST and complete narrative describing all curr
             scenes_to_expand: List of Scene IDs to expand
             remaining_budget: How many new scenes can be created
             concept_capabilities: Concept cache data
+            protagonist_budget: How many more protagonists can be created (0 = none, -1 = unlimited)
+            extras_budget: How many more extras can be created (0 = none, -1 = unlimited)
 
         Returns:
             DualOutput with expanded GEST and narrative
@@ -843,7 +1029,9 @@ OUTPUT: DualOutput with expanded GEST and complete narrative describing all curr
             "expanding_scene",
             scene_ids=scenes_to_expand,
             current_scene_count=current_leaf_count,
-            remaining_budget=remaining_budget
+            remaining_budget=remaining_budget,
+            protagonist_budget=protagonist_budget,
+            extras_budget=extras_budget
         )
 
         context = {
@@ -851,7 +1039,9 @@ OUTPUT: DualOutput with expanded GEST and complete narrative describing all curr
             'current_gest': current_gest,
             'scenes_to_expand': scenes_to_expand,
             'remaining_budget': remaining_budget,
-            'concept_capabilities': concept_capabilities
+            'concept_capabilities': concept_capabilities,
+            'protagonist_budget': protagonist_budget,
+            'extras_budget': extras_budget
         }
 
         result = super().execute(context, max_retries=3)

@@ -31,7 +31,8 @@ class RecursiveConceptState(TypedDict):
     parent_scenes: List[str]
     narrative: str
     title: str
-    num_actors: int
+    max_num_protagonists: int
+    max_num_extras: int
     num_distinct_actions: int
     concept_capabilities: Dict[str, Any]
     config: Dict[str, Any]
@@ -171,6 +172,41 @@ def expand_scene_node(state: RecursiveConceptState) -> RecursiveConceptState:
         target=state['target_scene_count']
     )
 
+    # Calculate actor budgets
+    max_protagonists = state['max_num_protagonists']
+    max_extras = state['max_num_extras']
+
+    # Count currently created actors in the GEST
+    protagonists_created = sum(
+        1 for e in state['current_gest'].events.values()
+        if e.Action == "Exists" and e.Properties.get('IsBackgroundActor') == False
+    )
+    extras_created = sum(
+        1 for e in state['current_gest'].events.values()
+        if e.Action == "Exists" and e.Properties.get('IsBackgroundActor') == True
+    )
+
+    # Calculate remaining budgets (-1 means unlimited)
+    if max_protagonists == -1:
+        protagonist_budget = -1
+    else:
+        protagonist_budget = max(0, max_protagonists - protagonists_created)
+
+    if max_extras == -1:
+        extras_budget = -1
+    else:
+        extras_budget = max(0, max_extras - extras_created)
+
+    logger.info(
+        "actor_budget_for_expansion",
+        max_protagonists=max_protagonists,
+        max_extras=max_extras,
+        protagonists_created=protagonists_created,
+        extras_created=extras_created,
+        protagonist_budget=protagonist_budget,
+        extras_budget=extras_budget
+    )
+
     # Initialize agent
     agent = ConceptAgent(state['config'])
 
@@ -181,12 +217,14 @@ def expand_scene_node(state: RecursiveConceptState) -> RecursiveConceptState:
         logger.warning("no_scene_to_expand", iteration=state['iteration'])
         return state
 
-    # Expand scene
+    # Expand scene with budgets
     expansion_result = agent.expand_scene(
         current_gest=state['current_gest'],
         scenes_to_expand=scenes_to_expand,
         remaining_budget=state['target_scene_count'] - state['current_scene_count'],
-        concept_capabilities=state['concept_capabilities']
+        concept_capabilities=state['concept_capabilities'],
+        protagonist_budget=protagonist_budget,
+        extras_budget=extras_budget
     )
 
     # Merge expansion
@@ -238,7 +276,8 @@ workflow.add_conditional_edges(
 def run_recursive_concept(
     config: Dict[str, Any],
     target_scene_count: int,
-    num_actors: int,
+    max_num_protagonists: int,
+    max_num_extras: int,
     num_distinct_actions: int,
     narrative_seeds: List[str],
     concept_capabilities: Dict[str, Any]
@@ -249,7 +288,8 @@ def run_recursive_concept(
     Args:
         config: Configuration dictionary
         target_scene_count: Target number of leaf scenes to generate
-        num_actors: Number of actors in story
+        max_num_protagonists: Maximum number of protagonist actors in story
+        max_num_extras: Maximum number of background actors (extras) in story
         num_distinct_actions: Number of distinct actions to use
         narrative_seeds: Optional seed sentences
         concept_capabilities: Concept cache data
@@ -263,7 +303,8 @@ def run_recursive_concept(
         "starting_recursive_concept",
         story_id=story_id,
         target_scene_count=target_scene_count,
-        num_actors=num_actors,
+        max_num_protagonists=max_num_protagonists,
+        max_num_extras=max_num_extras,
         num_distinct_actions=num_distinct_actions
     )
 
@@ -282,7 +323,8 @@ def run_recursive_concept(
             camera={}
         ),
         'target_scene_count': target_scene_count,
-        'num_actors': num_actors,
+        'max_num_protagonists': max_num_protagonists,
+        'max_num_extras': max_num_extras,
         'num_distinct_actions': num_distinct_actions,
         'narrative_seeds': narrative_seeds,
         'current_scene_count': 0,

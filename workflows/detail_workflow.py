@@ -168,21 +168,20 @@ def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int) -> GEST:
 
     # Event ID mapping
     event_id_mapping = {}
-    protagonist_ids = set()  # Track protagonist IDs to skip in Entities references
+    actor_ids = set()  # Track ALL actor IDs to skip in Entities references (protagonists + background actors)
 
     for event_id, event in gest.events.items():
-        # Keep protagonist actor IDs unchanged (shared across scenes)
-        # Protagonists are actors (have Gender) that are not background actors
+        # Keep ALL actor IDs unchanged (shared across scenes)
+        # Actors are any Exists events with Gender property (protagonists + background actors)
         if (event.Action == "Exists" and
-            event.Properties.get('Gender') is not None and  # Is an actor, not an object
-            event.Properties.get('IsBackgroundActor') is not True):  # Not a background actor
+            event.Properties.get('Gender') is not None):  # Is an actor (protagonist or background)
             event_id_mapping[event_id] = event_id
-            protagonist_ids.add(event_id)  # Track protagonist ID
+            actor_ids.add(event_id)  # Track actor ID (both types)
         # Keep scene event IDs unchanged (referenced across phases)
         elif event.Properties and event.Properties.get('scene_type') in ['leaf', 'parent']:
             event_id_mapping[event_id] = event_id
         else:
-            # Rename: background actors, objects, actions
+            # Rename: objects and actions only (NOT actors)
             event_id_mapping[event_id] = f"{event_id}{suffix}"
 
     # Temporal relation ID mapping
@@ -214,12 +213,12 @@ def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int) -> GEST:
         new_id = event_id_mapping[old_id]
 
         # Rename Entities list (references to actors/objects)
-        # Skip renaming protagonist references to preserve casting IDs
+        # Skip renaming ALL actor references to preserve casting IDs (protagonists + background actors)
         if event.Entities:
             event.Entities = [
                 event_id_mapping.get(entity_id, entity_id)
-                if entity_id not in protagonist_ids  # Skip protagonists
-                else entity_id  # Keep protagonist references unchanged
+                if entity_id not in actor_ids  # Skip all actors
+                else entity_id  # Keep actor references unchanged
                 for entity_id in event.Entities
             ]
 
@@ -372,13 +371,24 @@ def expand_scenes_node_parallel(state: DetailState) -> DetailState:
             **{k: v for k, v in state['casting_gest'].events.items()}
         )
 
-    # Extract protagonist Exists events from casting GEST (preserve identities)
-    protagonist_exists_events = {}
+    # Extract ALL actor Exists events from casting GEST (protagonists + background actors)
+    all_actor_exists_events = {}
     for event_id, event in state['casting_gest'].events.items():
         if event.Action == 'Exists' and event.Properties.get('Gender') is not None:
-            protagonist_exists_events[event_id] = event
+            all_actor_exists_events[event_id] = event
 
-    logger.info("extracted_protagonist_exists", count=len(protagonist_exists_events))
+    # Log separate counts for protagonists vs background actors
+    protagonist_count = sum(1 for e in all_actor_exists_events.values()
+                           if e.Properties.get('IsBackgroundActor') == False)
+    background_count = sum(1 for e in all_actor_exists_events.values()
+                          if e.Properties.get('IsBackgroundActor') == True)
+
+    logger.info(
+        "extracted_actor_exists_events",
+        total_actors=len(all_actor_exists_events),
+        protagonists=protagonist_count,
+        background_actors=background_count
+    )
 
     # Prepare expansion tasks
     expansion_tasks = []
@@ -386,10 +396,11 @@ def expand_scenes_node_parallel(state: DetailState) -> DetailState:
         scene_event = state['casting_gest'].events[scene_id]
         episode_name = state['episode_mapping'][scene_id]
         episode_data = get_episode_for_scene(episode_name, state['full_capabilities'])
-        scene_protagonist_exists_events = {
-            k: v for k, v in protagonist_exists_events.items() if k in scene_event.Entities
+        # Get ALL actors (protagonists + background actors) for this scene
+        scene_actor_exists_events = {
+            k: v for k, v in all_actor_exists_events.items() if k in scene_event.Entities
         }
-        protagonist_names = [event.Properties['Name'] for event in scene_protagonist_exists_events.values()]
+        actor_names = [event.Properties['Name'] for event in scene_actor_exists_events.values()]
 
         expansion_tasks.append({
             'scene_id': scene_id,
@@ -398,9 +409,9 @@ def expand_scenes_node_parallel(state: DetailState) -> DetailState:
             'casting_narrative': state['casting_narrative'],
             'episode_name': episode_name,
             'episode_data': episode_data,
-            'protagonist_names': protagonist_names,
+            'protagonist_names': actor_names,  # Keep this key name for backward compatibility
             'full_capabilities': state['full_capabilities'],
-            'protagonist_exists_events': scene_protagonist_exists_events,
+            'protagonist_exists_events': scene_actor_exists_events,  # Keep this key name for backward compatibility
             'use_cached': state['use_cached']
         })
 
@@ -560,36 +571,41 @@ def merge_expansion(
     # # Merge temporal relations (expansion adds new relations)
     # merged_temporal = {**current_gest_temporal, **expansion_gest_temporal}
 
-    # Merge events, preserving first occurrence of protagonist Exists
+    # Merge events, preserving first occurrence of ALL actor Exists (protagonists + background actors)
     merged_events = dict(current_gest.events)  # Start with current (has first occurrences)
 
     for event_id, event in expansion_gest.events.items():
         if event_id in merged_events:
-            # Check if this is a protagonist Exists event collision
+            # Check if this is an actor Exists event collision (protagonist or background)
             existing = merged_events[event_id]
             if (existing.Action == "Exists" and
-                existing.Properties.get('Gender') is not None and  # Is an actor
-                existing.Properties.get('IsBackgroundActor') is not True):  # Is protagonist
+                existing.Properties.get('Gender') is not None):  # Is an actor (any type)
                 # Check if existing has parent_scene (from scene expansion) or is from casting (no parent_scene)
                 existing_parent_scene = existing.Properties.get('parent_scene')
                 if existing_parent_scene is not None:
                     # Existing is from a scene expansion - preserve first occurrence
+                    is_background = existing.Properties.get('IsBackgroundActor') == True
+                    actor_type = "background_actor" if is_background else "protagonist"
                     logger.info(
-                        "preserving_first_protagonist_exists",
-                        protagonist_id=event_id,
+                        f"preserving_first_{actor_type}_exists",
+                        actor_id=event_id,
+                        actor_type=actor_type,
                         first_scene=existing_parent_scene,
                         skipped_scene=event.Properties.get('parent_scene')
                     )
                     continue  # Don't overwrite, keep first scene occurrence
                 else:
                     # Existing is from casting (no parent_scene) - allow first scene expansion to overwrite
+                    is_background = existing.Properties.get('IsBackgroundActor') == True
+                    actor_type = "background_actor" if is_background else "protagonist"
                     logger.info(
-                        "replacing_casting_protagonist_with_first_scene",
-                        protagonist_id=event_id,
+                        f"replacing_casting_{actor_type}_with_first_scene",
+                        actor_id=event_id,
+                        actor_type=actor_type,
                         first_scene=event.Properties.get('parent_scene')
                     )
 
-        # Add new event or overwrite non-protagonist event
+        # Add new event or overwrite non-actor event
         merged_events[event_id] = event
     # Expansion overwrites starting_actions in temporal from current
     merged_temporal = {**current_gest.temporal, **expansion_gest.temporal}

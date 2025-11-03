@@ -284,6 +284,7 @@ Given the narrative of the whole story and a single abstract scene:
   to illustrate the appropriate part of the narrative for that scene, all actors are preset in the correct state, with the correct objects.
   e.g., if an actor needs to be holding a phone at the start of the scene, you must first have them TakeOut the phone before starting the recording of the scene.
   e.g., if you introduce a background actor that needs to be sitting at the start of the scene, you must first have them SitDown before starting the recording of the scene.
+  e.g., if you introduce an action to Give an object, you must first have the giver PickUp the object before starting the recording of the scene (you cannot give what you don't have).
 - You will also ensure temporal coherence between same actor actions and cross-actor actions, indirectly controlling the timeline of the recording, such that the recorded scenes best illustrate the intended narrative.
 - All while grounding what needs to be illustrated in concrete bounds of the simulation environment (available actions, objects, locations).
 - The output GEST expanded for the scene must be directly executable in the simulation engine (all expanded scenes will be stitched together later).
@@ -328,6 +329,7 @@ Expand the leaf scene into:
 - **Concrete actions** (as many as needed - NO LIMIT)
 ----These will be split into actions needed to set the scene before recording starts,
 ----and actions that happen during the recorded scene itself that illustrate the narrative.
+----CRITICAL: ALWAYS first PREPARE the scene when needed (e.g., PickUp all objects that need to be handed over during the recorded scene, SitDown background actors that need to be sitting at the start of the recorded scene, etc.)
 ----Multiple groups of set scene -> recorded actions are possible if needed for the same scene.
 - **Exists events** for ALL actors (protagonists + extras) and objects - the protagonist's Exists events are provided and MUST be copied EXACTLY
 - **Complete temporal chains** for every actor: temporal.starting_actions, + for each action event, of each actor - complete chains of constraints using "next" for same-actor sequences and "relations" for cross-actor constraints
@@ -350,86 +352,94 @@ Use these as reference patterns when expanding the scene in addition to the ones
 
 THE RULES DEFINED HERE ARE CRITICAL. THE SIMULATION ENVIRONMENT WILL NOT ACCEPT GESTS THAT VIOLATE THEM.
 {action_chains_rules}
+
+**CRITICAL ADDITIONAL NOTES:**
+- NEVER execute directly a Give action without first having the giver PickUp the object to be given (e.g. in the setting the scene phase)
 ---
 
-## BACKGROUND ACTORS (OPTIONAL - ENHANCE REALISM):
+## SETTING THE SCENE BEFORE RECORDING:
+Before starting the recorded actions that illustrate the scene narrative, ensure that:
+- All actors are in the correct initial state
+e.g., SitDown actors that need to be sitting at the start of the recorded actions
+- All objects needed for the recorded actions are in the correct possession/location
+- You are allowed to first PickUp objects from other locations / other linked episodes, then move the actors to the initial location according to your narrative
+- ONLY add actions for background actors that involve something additional to only looking at something: e.g., sit down, then look at something.
+- DO NOT add strangers / neighbours on the property of the protagonists unless the narrative explicitly requires it. E.g., there is only one porch in the episode, and the protagonist does something there: the neighbour has no business on being on their porch
 
-You MAY create background actors (extras) to make scenes more realistic:
+## BACKGROUND ACTORS:
 
-**When to Add Extras:**
-- Office scenes: Other workers typing, on phone calls
-- Gym scenes: Other people exercising on available equipment
-- Classroom scenes: Other students sitting in available seats
-- Public places, indoor events like parties, indoor events that allow according to social norms for more people
+Background actors (extras) are created in the CONCEPT phase and assigned skins in the CASTING phase.
+You MUST handle them like protagonists:
 
-** When NOT to Add Extras:**
-- Insufficient resources (chairs, desks, equipment)
-- Overcrowding (too many actors for scene size)
-- Narrative focus (if scene is intimate/personal)
+**CRITICAL RULES:**
+1. **Background actors are provided in protagonist_exists_events**
+   - Distinguish by IsBackgroundActor property (true = background, false = protagonist)
+   - All actors (both types) are in the same protagonist_exists_events dictionary
 
-**Naming Convention:**
-- Use generic names: gym_goer_1, office_worker_2, student_3, pedestrian_4
-- NO character names - these are nameless background actors
-- The Gender is required
+2. **ONLY expand actions for background actors if they appear in scene Entities**
+   - Check scene_event.Entities for background actor IDs
+   - If background actor NOT in Entities: Do NOT create actions for them
+   - If background actor IS in Entities: Create full expansion with temporal chains
 
-**CRITICAL - Resource Validation:**
-Before creating extras, you MUST validate resources:
+3. **Read background actor narratives from scene Properties**
+   - Scene event has Properties.extra_narratives dictionary
+   - Format: {{"resident_1": "narrative text", "office_worker_1": "narrative text"}}
+   - Expand these narratives to concrete actions (like protagonists)
 
-1. **Count Available Objects:**
-   - Example: Episode has 8 chairs, 4 desks
+4. **Copy Exists events EXACTLY (like protagonists)**
+   - ALL properties must be preserved (Gender, Name, SkinId, IsBackgroundActor, etc.)
+   - Only set Location property for this scene
+   - Background actors keep generic names (resident_1, office_worker_1)
 
-2. **Count Protagonist Usage:**
-   - Example: 2 protagonists need 2 chairs, 2 desks
+5. **Create complete temporal chains**
+   - Include in starting_actions
+   - Full "next" chains until null
+   - Cross-actor relations if needed
+   - Keep actions simple and repetitive (background presence)
 
-3. **Calculate Remaining:**
-   - Example: 6 chairs, 2 desks available for extras
-
-4. **Add Extras (if space permits):**
-   - Example: Can add 2 extras (limited by desks)
-
-5. **DO NOT Add Extras if insufficient space:**
-   - Example: 4 chairs, 4 protagonists → NO extras
-
-**Example Resource Validation:**
+**EXAMPLE:**
 ```
-Episode: office2
-Objects: 8x Chair, 4x Desk, 4x Laptop, 2x Food, 2x Drinks
+Scene Entities: ["host", "guest", "resident_1"]
+→ Expand actions for: host (protagonist), guest (protagonist), resident_1 (background)
 
-Protagonists need:
-- colleague_a: 1 chair, 1 desk, 1 laptop, 1 food
-- colleague_b: 1 chair, 1 desk, 1 laptop, 1 food
+Scene Entities: ["host", "guest"]
+→ Expand only: host, guest
+→ Do NOT expand: resident_1 (even if exists in protagonist_exists_events)
 
-Remaining:
-- 6 chairs, 2 desks, 2 laptops, 0 food, 0 drinks
-
-Can add: Up to 2 extras (limited by desks) doing laptop work
-Cannot add: Extras eating (no food left)
+Scene Properties.extra_narratives:
+{{
+  "resident_1": "A resident sits in the corner watching television."
+}}
+→ Expand to: SitDown(chair1), LookAt(tv1), etc.
 ```
-
-**Background Actor Requirements:**
-- Full Exists events with Properties (Gender, generic Name)
-- Complete temporal chains (Exists → Actions → null)
-- Simple, non-intrusive background activities
-- Independent temporal chains (usually concurrent with protagonists)
-- DO NOT dominate the scene (protagonists are the focus)
 
 ---
 
 ## EXIST EVENTS:
 
-Create Exists events for EVERY added entity (actors and objects). Copy protagonist Exists events EXACTLY and add the IsBackgroundActor property and the Location.
-If a protagonist is not present in the scene (not part of the Entities of the scene event), do NOT include their Exists event or actions with them in this scene.
+Create Exists events for ALL actors in the scene (both protagonists and background actors).
+ALL actors are provided in protagonist_exists_events - distinguish by IsBackgroundActor property.
 
-**Actor Exists:**
+**CRITICAL:**
+- Copy ALL actor Exists events EXACTLY from protagonist_exists_events
+- Only set Location property (region for this scene)
+- Preserve ALL other properties (Gender, Name, SkinId, IsBackgroundActor, archetype_age, archetype_attire, Description)
+- Create Exists for objects (not provided, must create new)
+
+**Actor Exists (Protagonist or Background):**
 ```json
-"colleague_a": {{
+"actor_id": {{
   "Action": "Exists",
-  "Entities": ["colleague_a"],
-  "Location": ["office"], <-- region where the actor is inintially located
+  "Entities": ["actor_id"],
+  "Location": ["office"], <-- set appropriate region for this scene
   "Properties": {{
-    "Gender": 1 - male; 2 - female,
-    "Name": "colleague_a",
-    "IsBackgroundActor": true | false  <-- set true for extras
+    "Gender": 1,
+    "Name": "...",  <-- character name for protagonist, generic name for background
+    "SkinId": 123,
+    "IsBackgroundActor": false | true,  <-- preserve from casting
+    "archetype_age": "...",
+    "archetype_attire": "...",
+    "Description": "..."
   }}
 }}
 ```
@@ -439,11 +449,23 @@ If a protagonist is not present in the scene (not part of the Entities of the sc
 "chair1": {{
   "Action": "Exists",
   "Entities": ["chair1"],
-  "Location": ["office"],
+  "Location": ["bedroom"], <-- copied exactly from the provided episode.objects.region, OR set to action region for spawnable objects. NEVER invent new regions
   "Properties": {{
-    "Type": "Chair", <-- exactly as in episode object list
+    "Type": "Chair", <-- copied exactly from the provided episode.objects.type or the list of spawnable objects, NEVER invent new types
   }}
 }}
+```
+
+Example matching object in the episode objects list:
+```json "objects": [
+...,
+{{
+    "type": "Chair",
+    "description": "chair",
+    "region": "bedroom"
+}},
+...
+]
 ```
 
 **Background Actor Exists:**
@@ -568,6 +590,7 @@ Before returning, verify:
 ✓ Exists events for all entities?
 ✓ Narrative coherence maintained?
 ✓ Original narrative style preserved (no bloat)?
+✓ Did you properly set the scene? e.g.: No Give actions without prior PickUp of the object?
 
 ---
 
@@ -595,6 +618,8 @@ YOU ARE READY. Expand the scene with precision and creativity regarding conveyin
         full_capabilities = context['full_capabilities']
         protagonist_names = context['protagonist_names']
         protagonist_exists_events = context['protagonist_exists_events']
+
+        spawnable_objects = ', '.join(full_capabilities.get('spawnable_objects', []))
 
         # Minimize the size of the linked episodes data by removing POIs and stripping down regions
         episodes_data_without_pois = [{
@@ -652,27 +677,37 @@ YOU ARE READY. Expand the scene with precision and creativity regarding conveyin
 {episode_json}
 ```
 
+**Spawnable Objects in Episode**: {spawnable_objects}
+
 ---
 
-## PROTAGONISTS (Main Actors from Casting Phase):
+## ALL ACTORS (Protagonists and Background Actors from Casting Phase):
 
-**Names**: {protagonist_list}
+**All Actors in THIS Scene**: {protagonist_list}
 
-**CRITICAL - Protagonist Exists Events (COPY EXACTLY):**
+**CRITICAL - Actor Exists Events (COPY EXACTLY):**
 
-The following Exists events MUST be copied EXACTLY into your output.
-DO NOT regenerate, modify, or alter ANY properties EXCEPT IsBackgroundActor and Location.
-Use these character names as entity IDs in all actions.
+The following Exists events include BOTH protagonists and background actors (if any).
+Distinguish by IsBackgroundActor property (false = protagonist, true = background).
+ALL must be copied EXACTLY into your output.
+DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
 
 ```json
 {protagonist_exists_json}
 ```
 
 **Instructions**:
-- COPY these Exists events EXACTLY as provided above
-- Use same entity IDs from Exists events in all actions (also equal to the Exists' event IDs)
-- Preserve ALL properties: Name, Gender, archetype_age, archetype_attire, SkinId, Description
-- These are the ONLY correct Exists events for protagonists
+- COPY all actor Exists events EXACTLY as provided above
+- Protagonists have character names (e.g., "Marcus Johnson")
+- Background actors have generic names (e.g., "resident_1")
+- Use same entity IDs from Exists events in all actions
+- Preserve ALL properties: Name, Gender, SkinId, IsBackgroundActor, archetype_age, archetype_attire, Description
+- ONLY set Location property for this scene
+
+**Background Actor Narratives** (if any background actors in scene):
+```json
+{json.dumps(scene_event.Properties.get('extra_narratives', {}), indent=2)}
+```
 
 ---
 
@@ -680,17 +715,17 @@ Use these character names as entity IDs in all actions.
 
 1. **Expand the scene** "{scene_id}" using ONLY actions and objects from episode "{episode_name}" + interactions, Wave, LookAt, and actions that involve spawnable objects (Cigarette or MobilePhone) - TakeOut -> chain of actions with the spawned objects -> Stash
 
-2. **Count available resources** (chairs, desks, equipment, etc.) in the episode
+2. **Expand actions for ALL actors in scene Entities**:
+   - For protagonists (IsBackgroundActor: false): Use main scene narrative
+   - For background actors (IsBackgroundActor: true): Use extra_narratives[actor_id]
+   - Do NOT expand actions for actors not in scene Entities
 
 3. **Plan protagonist actions** - Expand abstract actions into concrete sequences
 
-4. **Validate space for extras** - Calculate remaining resources after protagonist usage
-
-5. **Add background actors (optional)** - If space permits, add 1-4 extras with:
-   - Generic names (office_worker_1, gym_goer_2, etc.)
-   - Appropriate SkinIds
-   - Simple background activities
-   - Complete temporal chains, synchronized with protagonists
+4. **Plan background actor actions** (if any in scene):
+   - Read their narratives from extra_narratives above
+   - Expand to simple, repetitive concrete actions
+   - Keep them in background (not main focus)
    - Simple actions in the background, executed before the protagonists to be left in a loop (e.g. in the gym, jogging on a treadmill)
    - No closing action is needed for background actors (e.g., no StandUp after SitDown)
    - Make sure not to block or interfere with protagonists' actions (e.g., sit down the extra on a chair that a protagonist needs anytime in the whole narrative)
