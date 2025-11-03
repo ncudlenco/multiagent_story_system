@@ -14,7 +14,9 @@ from core.config import Config
 from utils.file_manager import FileManager
 from utils.mta_controller import MTAController
 from utils.preprocess_capabilities import CapabilitiesPreprocessor
-from workflows.story_generation import generate_concept_and_casting, print_story_summary
+from workflows.recursive_concept import run_recursive_concept
+from agents.casting_agent import CastingAgent
+from agents.scene_detail_agent import SceneDetailAgent
 
 
 # Configure structured logging
@@ -191,12 +193,25 @@ def generate_story(
     narrative_seeds: list[str]
 ) -> bool:
     """
-    Generate story through Concept → Casting pipeline (Phase 2).
+    Generate story through recursive scene expansion pipeline.
+
+    New Architecture:
+    Phase 1: Recursive Scene Expansion (ConceptAgent)
+    - Recursively expands abstract scenes into sub-scenes
+    - Target: num_distinct_actions leaf scenes
+    - Saves artifacts at each recursion level (concept_0, concept_1, etc.)
+
+    Phase 2: Casting (CastingAgent)
+    - Assigns SkinIds to all actors
+    - Minimal narrative expansion (name substitution only)
+
+    Phase 3: Scene Detail (SceneDetailAgent) - Not yet fully implemented
+    - Expands leaf scenes to concrete game actions
 
     Args:
         config: System configuration
         num_actors: Number of actors in story
-        num_distinct_actions: Approximate number of distinct action types
+        num_distinct_actions: Target number of leaf SCENES (not actions)
         narrative_seeds: List of narrative seed sentences
 
     Returns:
@@ -238,19 +253,61 @@ def generate_story(
                 print(f"    {i}. {seed}")
         print()
 
-        print("Generating story (this may take 1-3 minutes)...\n")
+        print("Generating story (this may take 2-5 minutes)...\n")
 
-        results = generate_concept_and_casting(
+        # Load capabilities
+        concept_capabilities = file_manager.load_concept_cache()
+        full_indexed_capabilities = file_manager.load_full_indexed_cache()
+
+        # Phase 1: Recursive Scene Expansion
+        print("Phase 1: Recursive Scene Expansion...")
+        concept_result = run_recursive_concept(
+            config=config.to_dict(),
+            target_scene_count=num_distinct_actions,  # num_actions now means scene count
             num_actors=num_actors,
-            num_distinct_actions=num_distinct_actions,
             narrative_seeds=narrative_seeds,
-            config=config,
-            file_manager=file_manager,
-            story_id=None  # Always generate new story
+            concept_capabilities=concept_capabilities
         )
 
+        story_id = concept_result.title.split()[-1] if concept_result.title else "unknown"
+        story_dir = Path(config.paths.output_dir) / f"story_{story_id}"
+        print(f"  [OK] Generated {story_dir}")
+
+        # Phase 2: Casting
+        print("\nPhase 2: Casting...")
+        casting_agent = CastingAgent(config.to_dict())
+        casting_result = casting_agent.execute(
+            concept_gest=concept_result.gest,
+            full_indexed_capabilities=full_indexed_capabilities
+        )
+
+        # Save casting artifacts
+        import json
+        with open(story_dir / "casting_gest.json", 'w') as f:
+            json.dump(casting_result.gest.model_dump(), f, indent=2)
+        with open(story_dir / "casting_narrative.txt", 'w') as f:
+            f.write(casting_result.narrative)
+        print(f"  [OK] Saved casting outputs")
+
+        # Phase 3: Scene Detail (placeholder - not fully implemented)
+        print("\nPhase 3: Scene Detail...")
+        detail_agent = SceneDetailAgent(config.to_dict())
+        # Note: expand_leaf_scenes not fully implemented yet, returns placeholder
+        print("  [WARN] Scene detail agent not fully implemented - skipping for now")
+
         # Print summary
-        print_story_summary(results)
+        print("\n" + "=" * 70)
+        print("STORY GENERATION COMPLETE")
+        print("=" * 70)
+        print(f"\nStory ID: {story_id}")
+        print(f"Output directory: {story_dir}")
+        print(f"\nGenerated files:")
+        print(f"  - concept_0/ through concept_N/ (recursive expansion iterations)")
+        print(f"  - casting_gest.json (with SkinIds assigned)")
+        print(f"  - casting_narrative.txt (name-substituted narrative)")
+        print("\nNext steps:")
+        print("  - Review concept_N/narrative.txt to see story progression")
+        print("  - Check casting_narrative.txt for final structural narrative")
 
         return True
 

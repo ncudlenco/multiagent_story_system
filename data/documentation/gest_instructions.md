@@ -87,8 +87,17 @@ If action contains no explicit timeframe:
 Infer from last mentioned timeframe for that entity
 
 
-# V. TEMPORAL STRUCTURE
-## Basic Temporal Chain
+# V. Relations structure
+## 1. Temporal Relations
+### Supported temporal relations
+Across actors:
+            "after",
+            "before",
+            "starts_with",
+            "concurrent",
+Within the same actor:
+  "next"
+### Basic Temporal Chain
 json{
   "temporal": {
     "starting_actions": {
@@ -100,7 +109,7 @@ json{
     }
   }
 }
-## Temporal Constraints
+### Temporal Constraints
 Starts With (simultaneous):
 json{
   "tm_id": {"type": "starts_with"},
@@ -115,6 +124,116 @@ json{
     "target": "action2"
   }
 }
+
+## 2. LOGICAL Relations
+Purpose: Express logical connections and implications between events
+Relation Set:
+
+Boolean: and, or, not
+Causal: causes, caused_by, enables, prevents, blocks
+Conditional: implies, implied_by, requires, depends_on
+Equivalence: equivalent_to, contradicts, conflicts_with
+
+Guidelines:
+
+Use for reasoning about event dependencies and constraints
+Causal relations express "if A happens, then B happens/can happen"
+
+## 3. SEMANTIC Relations
+Purpose: Express the MEANING and NATURE of relationships between events using domain-specific verbs
+Relation Structure: Use action verbs that describe how one event relates to another
+Categories by Intent:
+
+Interaction: interrupts, disrupts, interferes_with, collaborates_with, cooperates_with, competes_with
+Influence: motivates, inspires, discourages, persuades, convinces, influences
+Response: responds_to, reacts_to, answers, acknowledges, ignores, dismisses
+Support/Opposition: supports, assists, helps, opposes, resists, counters, undermines
+Communication: tells, informs, asks, questions, commands, requests, warns
+Transformation: transforms_into, evolves_from, replaces, substitutes, modifies
+Composition: is_part_of, contains_event, includes, comprises, consists_of
+
+Guidelines for Creating Semantic Relations:
+
+Use active, descriptive verbs that capture the specific nature of the relationship
+Think domain-specifically: In narratives, use story-appropriate verbs (betrays, rescues, reveals); in technical domains, use domain verbs (compiles_to, inherits_from, implements)
+Maintain verb directionality: "A interrupts B" means A is the interruptor; ensure source→target direction is semantically correct
+Avoid overlap with other categories:
+
+If it's purely temporal → use temporal
+If it's purely spatial → use spatial
+If it's purely logical/causal → use logical
+Use semantic when the relationship carries domain meaning beyond time/space/logic
+
+
+Hierarchical relationships are semantic: is_part_of, is_substory_of, expands, summarizes
+Emotional/intentional relationships are semantic: loves, fears, desires, intends, plans
+
+
+Example Applications
+A specific case: "E1 interrupts E2, where E2 is a story, because of E1, E3 happens"
+json{
+  "type": "semantic",
+  "relation": "interrupts",
+  "source": "E1",
+  "target": "E2"
+}
+Multi-level example:
+json// Temporal: When did it happen?
+{"temporal": { "e1": {
+  "relations": ["t1"],
+  "next": null
+},
+  "t1": {"type": "concurrent", "source": "e1", "target": "e2"}}
+,
+// Semantic: What was the nature of the relationship?
+"semantic": {
+  "e1": {
+    "relations": ["s1"]
+  },
+"s1": {"type": "interrupts", "source": "e1", "target": "e2"}
+},
+
+// Logical: What was the effect?
+"logical": {
+  "e1": {
+    "relations": ["l1"]
+  },
+"l1": {"type": "causes", "source": "e1", "target": "e3"}
+  }
+}
+
+Instructions for LLMs
+When creating edges:
+
+Identify the relationship type first: Ask "Am I describing WHEN (temporal), WHERE (spatial), logical dependency (logical), or the semantic nature (semantic)?"
+For semantic relations: Use a verb that intuitively describes the relationship. If you can say "Event A [VERB] Event B" naturally in English, that verb is your relation.
+Use multiple edges when needed: The same pair of events can have temporal, spatial, AND semantic relationships simultaneously.
+Be specific over generic: Prefer interrupts over affects, betrays over interacts_with, compiles_to over relates_to.
+
+## 4. Spatial relations
+
+### Supported spatial relations
+[
+            "near",
+            "behind",
+            "left",
+            "right",
+            "on",
+            "in_front"
+]
+
+### Structure
+The spatial relations are between entities. Currently used for grounding where exactly an object is located in space when e.g. a specific instance from the simulation environment is assigned to an object.
+json{    "spatial": {
+        "chair16": {
+            "relations": [
+                {
+                    "type": "behind",
+                    "target": "desk6"
+                }
+            ]
+        },
+}}
 
 # VI. JSON OUTPUT FORMAT
 ## Complete Structure

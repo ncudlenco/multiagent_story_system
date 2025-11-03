@@ -37,6 +37,71 @@ This document provides comprehensive guidance for AI assistants (like Claude) wo
 
 ---
 
+## PHASE 1 STATUS: COMPLETE
+
+**Phase 1: Preprocessing Layer** has been completed successfully.
+
+### Key Achievements:
+- **85% Token Reduction**: game_capabilities.json (14,178 lines) → optimized caches (~1,200-2,500 lines)
+- **LLM-Based Preprocessing**: SkinCategorizationAgent, EpisodeSummarizationAgent using GPT-5
+- **Batched Processing**: Single API calls for 249 skins and 13 episodes
+- **Adaptive Preprocessing**: Optional --skip-episodes flag for faster processing
+
+### What's Ready:
+✓ Concept cache (game_capabilities_concept.json - 92% smaller)
+✓ Full indexed cache (game_capabilities_full_indexed.json - 82% smaller)
+✓ Player skin categorization (by gender/age/attire)
+✓ Episode summarization (concise summaries with regions/objects/actions)
+✓ Comprehensive test suite (7 test classes, 20+ methods)
+✓ Preprocessing CLI (--preprocess-capabilities)
+
+**Current Status**: Preprocessing complete, ready for Phase 2 (Concept & Casting Agents)
+
+See [PHASE_1_COMPLETE.md](PHASE_1_COMPLETE.md) for complete details.
+
+---
+
+## PHASE 2 STATUS: COMPLETE
+
+**Phase 2: Concept & Casting Agents** has been completed and **significantly exceeded** original scope.
+
+### Key Achievements:
+- **Recursive Scene Expansion Architecture**: Progressive refinement with parent/leaf hierarchy (NOT in original plan)
+- **Enhanced ConceptAgent**: 833 lines with recursive expansion, logical relations, bias-free generation
+- **CastingAgent**: Archetype-based skin filtering, minimal narrative expansion
+- **Story Diversity Fixes**: Removed GTA SA canonical bias (no more repetitive gang violence stories)
+- **Generic Actor Naming**: Concept uses roles (colleague_a, courier), Casting assigns character names
+- **Logical Relations**: Added to GEST schema for causal/dependency modeling (causes, enables, prevents)
+
+### Architectural Innovation:
+```
+OLD: Linear 1-3 events → Outline → Breakdown → Detail
+NEW: Recursive(Abstract) → Recursive(Medium) → Recursive(Detailed) → Leaf Expansion
+```
+
+### What's Ready:
+✓ Recursive concept expansion workflow (workflows/recursive_concept.py)
+✓ ConceptAgent with recursive expansion support
+✓ CastingAgent with archetype filtering
+✓ SceneDetailAgent placeholder structure
+✓ Parent/leaf scene hierarchy
+✓ Logical relations in GEST schema
+✓ 3-phase pipeline (Concept → Casting → Detail)
+✓ Artifact tracking at each recursion level
+✓ Unicode encoding fixes (Windows compatibility)
+
+### Test Results:
+✓ 100% generic role names (no "CJ", "Sweet", "Denise")
+✓ Diverse story themes (office drama, neighborhood scenarios - NO gang violence bias)
+✓ Structural narratives (relation-focused prose, no event IDs, no descriptive details)
+✓ Recursive expansion (1-2 iterations to reach target scene count)
+
+**Current Status**: Concept & Casting complete with recursive architecture, ready for Phase 3 (Scene Detail)
+
+See [PHASE_2_COMPLETE.md](PHASE_2_COMPLETE.md) for complete details.
+
+---
+
 ## Table of Contents
 
 1. [Project Overview](#project-overview)

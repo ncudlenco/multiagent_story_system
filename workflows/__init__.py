@@ -1,16 +1,9 @@
 """
-Story Generation Workflows
+Workflows Module
 
-This package contains workflow orchestration for the story generation pipeline.
-
-Phase 2 Workflows:
-- story_generation: Orchestrates Concept → Casting → (future stages)
+Exports workflow functions for story generation.
 """
 
-# Phase 2 imports
-from workflows.story_generation import generate_concept_and_casting, print_story_summary
+from workflows.recursive_concept import run_recursive_concept
 
-__all__ = [
-    "generate_concept_and_casting",
-    "print_story_summary",
-]
+__all__ = ['run_recursive_concept']

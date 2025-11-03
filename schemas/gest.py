@@ -9,7 +9,7 @@ Mid levels: 5-50 events (outline, scenes)
 Late levels: 50-200 events (detailed choreography)
 """
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Dict, List, Any, Optional, Literal
 
 
@@ -37,8 +37,23 @@ class GESTEvent(BaseModel):
     )
     Properties: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Additional properties (e.g., Type='Chair', Name='John', Gender=2)"
+        description="Additional properties (e.g., Type='Chair', Name='John', Gender=2, scene_type='leaf')"
     )
+
+    @property
+    def is_parent_scene(self) -> bool:
+        """Check if this event is a parent scene (has no temporal relations)"""
+        return self.Properties.get('scene_type') == 'parent'
+
+    @property
+    def is_leaf_scene(self) -> bool:
+        """Check if this event is a leaf scene (can have temporal relations)"""
+        return self.Properties.get('scene_type') == 'leaf'
+
+    @property
+    def can_have_temporal_relations(self) -> bool:
+        """Only leaf scenes can have temporal relations"""
+        return self.is_leaf_scene
 
 
 
@@ -180,27 +195,44 @@ class GEST(BaseModel):
     - Level 6 (Aggregation): All scenes merged, cross-scene temporal relations
 
     Structure stays the same - only the number of events and level of detail changes.
+
+    **Event Storage**: Events are stored at ROOT LEVEL as dynamic fields.
+    Reserved fields (temporal, spatial, semantic, logical, camera) are predefined.
+    All other fields are treated as events (event_id -> GESTEvent).
+
+    Example structure:
+    {
+        "lunch_break": {...},        // Event at root level
+        "workplace_scandal": {...},   // Event at root level
+        "temporal": {...},           // Reserved field
+        "semantic": {...}            // Reserved field
+    }
     """
 
-    events: Dict[str, GESTEvent] = Field(
-        default_factory=dict,
-        description="All events in the story, keyed by unique event ID"
-    )
-
-    temporal: Dict[str, TemporalEntry] = Field(
+    # Reserved fields - these are NOT events
+    temporal: Dict[str, Any] = Field(
         default_factory=dict,
         description="""Temporal relations structure with heterogeneous entries.
-        Uses TemporalEntry model which handles three entry types:
-        - "starting_actions": Maps actor IDs to their first event IDs
-        - event_id keys: Event temporal info (relations list, next pointer)
-        - relation_id keys: Temporal relation definitions (type, source, target)
+        Contains three types of entries (distinguished by key and structure, not by Pydantic model):
 
-        Example:
+        1. "starting_actions": Flat dict mapping actor IDs to their first event IDs
+           Example: {"alice": "a1", "bob": "b1"}
+
+        2. event_id entries: Dict with "relations" (list) and "next" (string or null)
+           Example: {"relations": ["r1"], "next": "a2"}
+
+        3. relation_id entries: Dict with "type", "source", "target"
+           Example: {"type": "after", "source": "a1", "target": "b1"}
+
+        Full example:
         {
             "starting_actions": {"alice": "a1", "bob": "b1"},
             "a1": {"relations": ["r1"], "next": "a2"},
             "r1": {"type": "after", "source": "a1", "target": "b1"}
         }
+
+        Note: Using Dict[str, Any] instead of Dict[str, TemporalEntry] to avoid
+        Pydantic validator wrapping issues with the heterogeneous structure.
         """
     )
 
@@ -214,10 +246,109 @@ class GEST(BaseModel):
         description="Semantic relations for narrative coherence: event_id -> SemanticRelation"
     )
 
+    logical: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="""Logical relations expressing dependencies and implications.
+        Structure: {event_id: {"relations": [relation_ids]}, relation_id: {"type": ..., "source": ..., "target": ...}}
+
+        Types: causes, caused_by, enables, prevents, blocks, implies, implied_by, requires, depends_on,
+               equivalent_to, contradicts, conflicts_with, and, or, not
+
+        Example:
+        {
+          "a1": {"relations": ["l1"]},
+          "l1": {"type": "causes", "source": "a1", "target": "a3"}
+        }
+        """
+    )
+
     camera: Dict[str, CameraCommand] = Field(
         default_factory=dict,
         description="Camera commands per event: event_id -> CameraCommand"
     )
+
+    # Allow extra fields (these will be events)
+    model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_events_at_root(cls, data: Any) -> Any:
+        """
+        Validate that all non-reserved fields at root level are valid GESTEvent dicts or instances.
+
+        Events must be at root level alongside reserved fields (temporal, spatial, etc.).
+        Old nested 'events' structure is NOT supported.
+
+        Accepts both:
+        - dict with 'Action' field (from LLM output or JSON loading)
+        - GESTEvent instances (from merging existing GESTs)
+        """
+        if not isinstance(data, dict):
+            return data
+
+        reserved_fields = {'temporal', 'spatial', 'semantic', 'logical', 'camera'}
+
+        # Validate all extra fields are valid event structures
+        for key, value in list(data.items()):
+            if key not in reserved_fields and not key.startswith('_'):
+                # This should be an event at root level
+                if isinstance(value, GESTEvent):
+                    # Already a GESTEvent instance (from merging GESTs) - convert to dict
+                    data[key] = value.model_dump()
+                elif isinstance(value, dict):
+                    # Dict from LLM output - validate it has Action field
+                    if 'Action' not in value:
+                        raise ValueError(f"Event '{key}' missing required 'Action' field")
+                else:
+                    raise ValueError(f"Event '{key}' must be a dict or GESTEvent, got {type(value)}")
+
+        return data
+
+    @model_validator(mode='after')
+    def convert_extra_fields_to_events(self) -> 'GEST':
+        """
+        Convert extra fields (stored as dicts in __pydantic_extra__) to GESTEvent instances.
+
+        With extra="allow", Pydantic stores extra fields as-is in __pydantic_extra__.
+        This validator runs after initialization to convert those dicts to proper GESTEvent objects,
+        ensuring .events property returns GESTEvent instances with .Properties attribute.
+        """
+        if hasattr(self, '__pydantic_extra__') and self.__pydantic_extra__:
+            converted = {}
+            for key, value in self.__pydantic_extra__.items():
+                if isinstance(value, dict):
+                    # Convert dict to GESTEvent
+                    converted[key] = GESTEvent(**value)
+                else:
+                    # Already a GESTEvent instance
+                    converted[key] = value
+            self.__pydantic_extra__ = converted
+        return self
+
+    @property
+    def events(self) -> Dict[str, GESTEvent]:
+        """
+        Backward compatibility property: access all events via .events
+
+        Returns a dict of all non-reserved fields (which are events).
+        Pydantic v2 stores extra fields in __pydantic_extra__.
+        """
+        # In Pydantic v2 with extra="allow", extra fields are in __pydantic_extra__
+        if hasattr(self, '__pydantic_extra__') and self.__pydantic_extra__:
+            return dict(self.__pydantic_extra__)
+        return {}
+
+    def __setitem__(self, key: str, value: GESTEvent) -> None:
+        """Allow dict-style assignment for events: gest['event_id'] = event"""
+        setattr(self, key, value)
+
+    def __getitem__(self, key: str) -> GESTEvent:
+        """Allow dict-style access for events: event = gest['event_id']"""
+        reserved = {'temporal', 'spatial', 'semantic', 'logical', 'camera'}
+        if key in reserved:
+            return getattr(self, key)
+        # Try to get as event
+        return getattr(self, key)
 
 
 
