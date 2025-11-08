@@ -180,19 +180,21 @@ class SceneDetailAgent(BaseAgent[DualOutput]):
     Max Tokens: 8000 (large detailed outputs)
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], prompt_logger=None):
         """Initialize scene detail agent.
 
         Loads reference graphs and temporal rules document for prompt construction.
 
         Args:
             config: Configuration dictionary containing OpenAI settings
+            prompt_logger: Optional PromptLogger instance for logging prompts
         """
         super().__init__(
             config=config,
             agent_name="scene_detail_agent",
             output_schema=DualOutput,
-            use_structured_outputs=False  # Use manual parsing like other agents
+            use_structured_outputs=False,  # Use manual parsing like other agents
+            prompt_logger=prompt_logger
         )
 
         # Load reference graphs for examples
@@ -365,6 +367,9 @@ e.g., SitDown actors that need to be sitting at the start of the recorded action
 - You are allowed to first PickUp objects from other locations / other linked episodes, then move the actors to the initial location according to your narrative
 - ONLY add actions for background actors that involve something additional to only looking at something: e.g., sit down, then look at something.
 - DO NOT add strangers / neighbours on the property of the protagonists unless the narrative explicitly requires it. E.g., there is only one porch in the episode, and the protagonist does something there: the neighbour has no business on being on their porch
+- WHEN the narrative explicitly states events that happen after / before other events, you MUST spawn the actors that are NOT part of the initial event to a different location.
+- YOU MUST ensure that the actors who appear in narrative at a certain time, are NOT visible in the scene and recorded video before that time.
+e.g., a man does something in location x, then a woman enters location x: the woman MUST NOT be present in location x before she enters.
 
 ## BACKGROUND ACTORS:
 
@@ -422,8 +427,10 @@ ALL actors are provided in protagonist_exists_events - distinguish by IsBackgrou
 
 **CRITICAL:**
 - Copy ALL actor Exists events EXACTLY from protagonist_exists_events
+- NEVER MODIFY the key of the Exists event. e.g., if protagonist_exists_events has "john_doe": {{..."Entities":["john_doe"]...}}, you MUST use "john_doe". BUT IN ANY CASE YOU ARE SUPPOSED TO COPY THE EXISTS EVENT AS IS!
 - Only set Location property (region for this scene)
 - Preserve ALL other properties (Gender, Name, SkinId, IsBackgroundActor, archetype_age, archetype_attire, Description)
+- Preserve the key of the event (e.g. in below example: actor_id)
 - Create Exists for objects (not provided, must create new)
 
 **Actor Exists (Protagonist or Background):**
@@ -504,6 +511,13 @@ Add spatial relations to disambiguate object positions ONLY IF this is mandated 
   }}
 }}
 ```
+
+---
+
+LOCATIONS
+
+The simulation environment matches locations to regions by checking if the region name starts with the location string, lowercase.
+It is allowed and indicated to use part of the region name as locations (e.g., "gym" if region is "gym main room") for better cross episode matching.
 
 POSSIBLE SPATIAL RELATION TYPES:
 {spatial_relations_types}
@@ -721,6 +735,9 @@ DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
    - Do NOT expand actions for actors not in scene Entities
 
 3. **Plan protagonist actions** - Expand abstract actions into concrete sequences
+   - For each protagonist, create a sequence of actions based on the main scene narrative
+   - Illustrate the narrative cinematically with concrete actions
+   - Very important: actions that change state are looping indefinitely (e.g. Talk, TypeOnKeyboard). Ensure to have an animation that ends this state before leaving the actor in it at the end of a scene. Once they do their main part, Move them once in the same location, to cancel their looping animations.
 
 4. **Plan background actor actions** (if any in scene):
    - Read their narratives from extra_narratives above
@@ -773,6 +790,7 @@ DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
 - EVERY actor needs complete temporal chain
 - Stay true to the narrative intent
 - Skip unsimulatable elements gracefully
+- PREFER inserting Move actions explicitly for better temporal coordination
 - **Narrative must be simple factual sentences ONLY - no cinematic descriptions**
 - DO NOT write anything about background actors in the narrative
 - Use character names (Darius Ortiz, Marisol Vega) NOT player IDs (player_51)
@@ -782,7 +800,7 @@ DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
 - Do not disrupt the original scene narrative intent
 - Do not rename protagonists - only extras get generic names
 - Put a Property for extras indicating they are background actors (they will never get camera focus)
-- IF you have the liberty to choose between multiple valid regions, pick the one that is most common across that type of episode (e.g., most houses have a livingroom or a bedroom, but not all houses have a barroom)
+- IF you have the liberty to choose between multiple valid regions, pick the one that is most common across that type of episode (e.g., most houses have a livingroom and a bedroom <-- choose these, but not all houses have a barroom <-- discard it)
 - NEVER EVER add starts_with, after, or before relations between events of the same actor - use next for that
 - DO NOT confuse the action Talk with TalkPhone - these are different actions. When you synchronize two actors doing an interaction do the matching by the action name (e.g., Talk↔Talk, TalkPhone↔TalkPhone, Give↔INV-Give).
 ---

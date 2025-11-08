@@ -72,6 +72,16 @@ class LoggingConfig(BaseModel):
     format: str = Field(default="json", description="Log format (json or text)")
 
 
+class PromptLoggingConfig(BaseModel):
+    """Prompt logging configuration"""
+    enabled: bool = Field(default=False, description="Enable prompt logging")
+    save_system_prompt: bool = Field(default=True, description="Save system prompts")
+    save_user_prompt: bool = Field(default=True, description="Save user prompts")
+    save_response_raw: bool = Field(default=False, description="Save raw LLM responses (verbose)")
+    save_response_parsed: bool = Field(default=True, description="Save parsed responses")
+    separate_files: bool = Field(default=True, description="Save separate files per agent/iteration")
+
+
 class Config(BaseModel):
     """
     Root configuration for the multiagent story system.
@@ -84,6 +94,7 @@ class Config(BaseModel):
     paths: PathsConfig
     validation: ValidationConfig
     logging: LoggingConfig
+    prompt_logging: PromptLoggingConfig = Field(default_factory=PromptLoggingConfig)
 
     class Config:
         extra = "allow"  # Allow additional fields for extensibility

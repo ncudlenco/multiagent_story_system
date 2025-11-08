@@ -45,6 +45,8 @@ class DetailState(TypedDict):
         config: System configuration
         narrative_parts: List of narrative strings (one per scene)
         use_cached: Whether to use cached expansions if available
+        prompt_logger: Optional PromptLogger instance
+        output_dir: Output directory for this workflow run
     """
     story_id: str
     casting_gest: GEST
@@ -57,6 +59,8 @@ class DetailState(TypedDict):
     config: Dict[str, Any]
     narrative_parts: List[str]
     use_cached: Optional[bool]
+    prompt_logger: Any  # Optional PromptLogger instance
+    output_dir: Path
 
 
 def get_leaf_scenes(gest: GEST) -> List[str]:
@@ -110,8 +114,8 @@ def place_episodes_node(state: DetailState) -> DetailState:
         leaf_scene_count=len(state['leaf_scenes'])
     )
 
-    # Initialize episode placement agent
-    agent = EpisodePlacementAgent(state['config'])
+    # Initialize episode placement agent with optional prompt_logger
+    agent = EpisodePlacementAgent(state['config'], prompt_logger=state.get('prompt_logger'))
 
     # Place scenes
     placement_result = agent.place_scenes(
@@ -131,7 +135,7 @@ def place_episodes_node(state: DetailState) -> DetailState:
     )
 
     # Save episode mapping artifact
-    output_dir = Path("output") / f"story_{state['story_id']}"
+    output_dir = state['output_dir']
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mapping_path = output_dir / "episode_mapping.json"
@@ -356,8 +360,8 @@ def expand_scenes_node_parallel(state: DetailState) -> DetailState:
         total_scenes=len(state['leaf_scenes'])
     )
 
-    # Initialize scene detail agent
-    agent = SceneDetailAgent(state['config'])
+    # Initialize scene detail agent with optional prompt_logger
+    agent = SceneDetailAgent(state['config'], prompt_logger=state.get('prompt_logger'))
 
     # Initialize current_gest with scene events from casting (preserve abstract scenes)
     if not state['current_gest'].events:
@@ -1135,7 +1139,7 @@ def finalize_node(state: DetailState) -> DetailState:
         total_events=len(state['current_gest'].events)
     )
 
-    output_dir = Path("output") / f"story_{state['story_id']}"
+    output_dir = state['output_dir']
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save detail GEST
@@ -1256,7 +1260,10 @@ def run_detail_workflow(
     casting_narrative: str,
     full_capabilities: Dict[str, Any],
     config: Dict[str, Any],
-    use_cached: bool = False
+    use_cached: bool = False,
+    prompt_logger=None,
+    take_number: int = 1,
+    output_dir_override: Optional[Path] = None
 ) -> DetailState:
     """Run detail workflow to expand all leaf scenes.
 
@@ -1266,6 +1273,10 @@ def run_detail_workflow(
         casting_narrative: Narrative text from casting phase
         full_capabilities: Full indexed game capabilities
         config: System configuration
+        use_cached: Whether to use cached expansions if available
+        prompt_logger: Optional PromptLogger instance for logging prompts
+        take_number: Take number for story variations (default: 1)
+        output_dir_override: Override output directory (for batch processing)
 
     Returns:
         Final DetailState with expanded GEST
@@ -1273,7 +1284,32 @@ def run_detail_workflow(
     Raises:
         ValueError: If no leaf scenes found in casting GEST
     """
-    logger.info("starting_detail_workflow", story_id=story_id)
+    logger.info("starting_detail_workflow", story_id=story_id, take_number=take_number)
+
+    # Determine output directory
+    if output_dir_override:
+        base_dir = output_dir_override
+    else:
+        base_dir = Path(config['paths']['output_dir']) / f"story_{story_id}"
+
+    # Add take subdirectory structure for variations
+    if take_number > 1:
+        output_dir = base_dir / "detail" / f"take{take_number}"
+    elif output_dir_override:
+        # Batch mode always uses detail/take1 structure
+        output_dir = base_dir / "detail" / f"take{take_number}"
+    else:
+        # Backward compatibility: take 1 in normal mode goes to root
+        output_dir = base_dir
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(
+        "output_directory_configured",
+        story_id=story_id,
+        take_number=take_number,
+        output_dir=str(output_dir)
+    )
 
     # Extract leaf scenes
     leaf_scenes = get_leaf_scenes(casting_gest)
@@ -1301,7 +1337,9 @@ def run_detail_workflow(
         'full_capabilities': full_capabilities,
         'config': config,
         'narrative_parts': [],
-        'use_cached': use_cached
+        'use_cached': use_cached,
+        'prompt_logger': prompt_logger,
+        'output_dir': output_dir
     }
 
     # Build and run workflow

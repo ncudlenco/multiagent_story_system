@@ -6,10 +6,9 @@ Expands abstract scenes into sub-scenes until target scene count is reached.
 """
 
 from langgraph.graph import StateGraph, END
-from typing import TypedDict, List, Dict, Any, Tuple
+from typing import TypedDict, List, Dict, Any
 from pathlib import Path
 import json
-import uuid
 from datetime import datetime
 import structlog
 
@@ -36,6 +35,8 @@ class RecursiveConceptState(TypedDict):
     num_distinct_actions: int
     concept_capabilities: Dict[str, Any]
     config: Dict[str, Any]
+    prompt_logger: Any  # Optional PromptLogger instance
+    output_dir_override: Path  # Optional override for batch processing
 
 
 def count_leaf_scenes(gest: GEST) -> int:
@@ -141,7 +142,7 @@ def save_concept_level_artifacts(
 def should_continue(state: RecursiveConceptState) -> str:
     """Decide whether to continue expansion"""
     # Safety: max 20 iterations to prevent infinite loops
-    if state['iteration'] >= 20:
+    if state['iteration'] >= state['target_scene_count'] + 2:
         logger.error(
             "max_iterations_reached",
             iteration=state['iteration'],
@@ -207,8 +208,8 @@ def expand_scene_node(state: RecursiveConceptState) -> RecursiveConceptState:
         extras_budget=extras_budget
     )
 
-    # Initialize agent
-    agent = ConceptAgent(state['config'])
+    # Initialize agent with optional prompt_logger
+    agent = ConceptAgent(state['config'], prompt_logger=state.get('prompt_logger'))
 
     # Choose scene to expand (first expandable for now)
     scenes_to_expand = state['expandable_scenes'] if state['expandable_scenes'] else []
@@ -224,7 +225,9 @@ def expand_scene_node(state: RecursiveConceptState) -> RecursiveConceptState:
         remaining_budget=state['target_scene_count'] - state['current_scene_count'],
         concept_capabilities=state['concept_capabilities'],
         protagonist_budget=protagonist_budget,
-        extras_budget=extras_budget
+        extras_budget=extras_budget,
+        seed_sentences=state['narrative_seeds'],
+        iteration=state['iteration']  # Pass iteration for prompt logging
     )
 
     # Merge expansion
@@ -247,7 +250,11 @@ def expand_scene_node(state: RecursiveConceptState) -> RecursiveConceptState:
         new_state['title'] = expansion_result.title
 
     # Save artifacts for this level
-    output_dir = Path(state['config']['paths']['output_dir']) / f"story_{state['story_id']}"
+    # Determine output directory
+    if state.get('output_dir_override'):
+        output_dir = state['output_dir_override']
+    else:
+        output_dir = Path(state['config']['paths']['output_dir']) / f"story_{state['story_id']}"
     save_concept_level_artifacts(new_state, output_dir)
 
     logger.info(
@@ -275,29 +282,34 @@ workflow.add_conditional_edges(
 
 def run_recursive_concept(
     config: Dict[str, Any],
+    story_id: str,
     target_scene_count: int,
     max_num_protagonists: int,
     max_num_extras: int,
     num_distinct_actions: int,
     narrative_seeds: List[str],
-    concept_capabilities: Dict[str, Any]
-) -> Tuple[DualOutput, str]:
+    concept_capabilities: Dict[str, Any],
+    prompt_logger=None,
+    output_dir_override: Path = None
+) -> DualOutput:
     """
     Run recursive scene expansion workflow.
 
     Args:
         config: Configuration dictionary
+        story_id: Story identifier (8-char UUID)
         target_scene_count: Target number of leaf scenes to generate
         max_num_protagonists: Maximum number of protagonist actors in story
         max_num_extras: Maximum number of background actors (extras) in story
         num_distinct_actions: Number of distinct actions to use
         narrative_seeds: Optional seed sentences
         concept_capabilities: Concept cache data
+        prompt_logger: Optional PromptLogger instance for logging prompts
+        output_dir_override: Override output directory (for batch processing)
 
     Returns:
-        Tuple of (DualOutput with final GEST and narrative, story_id string)
+        DualOutput with final GEST and narrative
     """
-    story_id = str(uuid.uuid4())[:8]
 
     logger.info(
         "starting_recursive_concept",
@@ -307,10 +319,6 @@ def run_recursive_concept(
         max_num_extras=max_num_extras,
         num_distinct_actions=num_distinct_actions
     )
-
-    # Create output directory
-    output_dir = Path(config['paths']['output_dir']) / f"story_{story_id}"
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize state with empty GEST (no events at root level yet)
     initial_state = {
@@ -335,7 +343,9 @@ def run_recursive_concept(
         'narrative': "",
         'title': "",
         'concept_capabilities': concept_capabilities,
-        'config': config
+        'config': config,
+        'prompt_logger': prompt_logger,
+        'output_dir_override': output_dir_override
     }
 
     # Run workflow
@@ -349,11 +359,8 @@ def run_recursive_concept(
         total_iterations=final_state['iteration']
     )
 
-    return (
-        DualOutput(
-            gest=final_state['current_gest'],
-            narrative=final_state['narrative'],
-            title=final_state.get('title', '')  # Use title from state if set by agent
-        ),
-        story_id
+    return DualOutput(
+        gest=final_state['current_gest'],
+        narrative=final_state['narrative'],
+        title=final_state.get('title', '')  # Use title from state if set by agent
     )

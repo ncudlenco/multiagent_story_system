@@ -15,7 +15,7 @@ import shutil
 import json
 import structlog
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from enum import Enum
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +26,7 @@ class MTAMode(str, Enum):
     SIMULATION = "simulation"  # Run story simulation
     EXPORT = "export"  # Export game capabilities
     NORMAL = "normal"  # Normal multiplayer mode
+    VALIDATION = "validation"  # Alias for SIMULATION mode
 
 
 class MTAServerStatus(str, Enum):
@@ -166,15 +167,16 @@ class MTAController:
         else:
             logger.warning("backup_not_found", path=str(backup_path))
 
-    def set_mode(self, mode: MTAMode, graph_file: Optional[str] = None) -> None:
+    def set_mode(self, mode: MTAMode, graph_file: Optional[str] = None, collect_artifacts: bool = False) -> None:
         """
         Set MTA server operation mode by writing config.json.
 
         Args:
             mode: Mode to set (SIMULATION/EXPORT/NORMAL)
             graph_file: Optional graph file path for SIMULATION mode
+            collect_artifacts: Whether to enable artifact collection (only for SIMULATION mode)
         """
-        logger.info("setting_mta_mode", mode=mode, graph_file=graph_file)
+        logger.info("setting_mta_mode", mode=mode, graph_file=graph_file, collect_artifacts=collect_artifacts)
 
         config = {}
 
@@ -182,6 +184,7 @@ class MTAController:
             # Export mode configuration
             config["EXPORT_MODE"] = True
             config["INPUT_GRAPHS"] = []
+            config["ARTIFACT_COLLECTION_ENABLED"] = False  # No artifacts during export
 
         elif mode == MTAMode.SIMULATION:
             # Simulation mode configuration
@@ -189,12 +192,24 @@ class MTAController:
             if graph_file:
                 config["INPUT_GRAPHS"] = [graph_file]
             else:
-                config["INPUT_GRAPHS"] = []
-
+                raise ValueError("graph_file must be provided for SIMULATION mode")
+            config["ARTIFACT_COLLECTION_ENABLED"] = collect_artifacts
+        elif mode == MTAMode.VALIDATION:
+            # Validation mode is same as simulation mode
+            config["EXPORT_MODE"] = False
+            if graph_file:
+                config["INPUT_GRAPHS"] = [graph_file]
+            else:
+                raise ValueError("graph_file must be provided for VALIDATION mode")
+            config["ARTIFACT_COLLECTION_ENABLED"] = False
+            config["DEBUG"] = True
+            config["DEBUG_VALIDATION"] = True
+            config["DEBUG_ACTION_VALIDATION"] = True
         else:  # NORMAL mode
             # Normal mode - minimal config
             config["EXPORT_MODE"] = False
             config["INPUT_GRAPHS"] = []
+            config["ARTIFACT_COLLECTION_ENABLED"] = False
 
         self._write_config(config)
         logger.info("mta_mode_set", mode=mode)
@@ -210,9 +225,10 @@ class MTAController:
 
         export_mode = config.get("EXPORT_MODE", False)
         input_graphs = config.get("INPUT_GRAPHS", [])
+        collect_artifacts = config.get("ARTIFACT_COLLECTION_ENABLED", False)
         graph_file = input_graphs[0] if input_graphs else None
 
-        return export_mode, graph_file
+        return export_mode, graph_file, collect_artifacts
 
     # =========================================================================
     # Server Process Management
@@ -355,6 +371,53 @@ class MTAController:
             logger.error("mta_server_stop_error", error=str(e))
             return False
 
+    def force_stop_all(self) -> bool:
+        """
+        Force-stop all MTA server and client processes.
+
+        This is more aggressive than stop_server() and uses kill instead of terminate.
+
+        Returns:
+            True if all processes stopped successfully
+        """
+        logger.info("force_stopping_all_mta_processes")
+
+        success = True
+
+        # Force kill server process
+        if self.process:
+            try:
+                logger.warning("force_killing_server_process", pid=self.process.pid)
+                self.process.kill()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    logger.error("server_process_did_not_die")
+                    success = False
+                self.process = None
+            except Exception as e:
+                logger.error("error_force_killing_server", error=str(e))
+                success = False
+
+        # Force kill client process
+        if self.client_process:
+            try:
+                logger.warning("force_killing_client_process")
+                self.client_process.kill()
+                self.client_process = None
+            except Exception as e:
+                logger.warning("error_force_killing_client", error=str(e))
+
+        # Kill any orphaned processes
+        killed_count = self._kill_orphaned_processes()
+        if killed_count > 0:
+            logger.info("killed_orphaned_processes", count=killed_count)
+
+        self.status = MTAServerStatus.STOPPED
+        logger.info("force_stop_complete", success=success)
+
+        return success
+
     def is_running(self) -> bool:
         """
         Check if MTA server is currently running.
@@ -392,82 +455,164 @@ class MTAController:
         return killed_count
 
     # =========================================================================
-    # Validation Workflow
+    # Simulation Workflow
     # =========================================================================
 
-    def run_validation_simulation(
+    def run_simulation(
         self,
         graph_file: str,
+        collect_artifacts: bool = False,
         timeout_seconds: Optional[int] = None
     ) -> Tuple[bool, Optional[str]]:
         """
-        Run a complete validation simulation.
+        Run a complete simulation with real-time monitoring.
 
         Args:
             graph_file: Path to Level 4 GEST JSON file
+            collect_artifacts: Whether to enable artifact collection
             timeout_seconds: Simulation timeout (defaults to config value)
 
         Returns:
             Tuple of (success, error_message)
         """
+        from utils.log_parser import MTALogParser
+
         if timeout_seconds is None:
             timeout_seconds = self.config['validation']['simulation_timeout_seconds']
 
         logger.info(
-            "starting_validation_simulation",
+            "starting_simulation",
             graph_file=graph_file,
-            timeout=timeout_seconds
+            timeout=timeout_seconds,
+            collect_artifacts=collect_artifacts
         )
 
         backup_path = None
+        simulation_folder = None
+        final_success = False
+        final_error = None
 
         try:
-            # 1. Backup config.json
+            # 1. Prepare simulation (clear logs, snapshot folders)
+            existing_folders = self.prepare_simulation(graph_file)
+
+            # 2. Backup config.json
             backup_path = self._backup_config()
 
-            # 2. Set simulation mode
-            self.set_mode(MTAMode.SIMULATION, graph_file=graph_file)
+            # 3. Set simulation mode
+            self.set_mode(MTAMode.SIMULATION, graph_file=graph_file, collect_artifacts=collect_artifacts)
 
-            # 3. Start server
+            # 4. Start server
             if not self.start_server(wait=True):
                 return False, "Failed to start MTA server"
 
-            # 4. Start client (CRITICAL - triggers simulation execution)
+            # 5. Start client (CRITICAL - triggers simulation execution)
             logger.info("starting_client_to_trigger_simulation")
             if not self.start_client(wait=True):
                 return False, "Failed to start MTA client"
 
-            # 5. Wait for simulation to complete or timeout
+            # 6. Wait briefly for simulation folder creation
+            logger.info("waiting_for_simulation_folder_creation")
+            time.sleep(3)
+
+            # 7. Detect simulation folder
+            max_folder_detection_attempts = 10
+            for attempt in range(max_folder_detection_attempts):
+                simulation_folder = self.get_current_simulation_folder(
+                    graph_file,
+                    existing_folders
+                )
+                if simulation_folder:
+                    logger.info("simulation_folder_found", path=str(simulation_folder))
+                    break
+                time.sleep(1)
+
+            if not simulation_folder:
+                logger.warning("simulation_folder_not_detected")
+
+            # 8. Main monitoring loop
+            server_log_path = self.get_server_log_path()
+            client_log_path = self.get_client_log_path()
+            server_log_pos = 0
+            client_log_pos = 0
             start_time = time.time()
+
+            logger.info("starting_simulation_monitoring_loop")
+
             while True:
-                if not self.is_running():
-                    logger.info("mta_server_stopped_normally")
+                # Monitor simulation progress
+                status, message, server_log_pos, client_log_pos = self.monitor_simulation_progress(
+                    server_log_path,
+                    client_log_path,
+                    simulation_folder,
+                    server_log_pos,
+                    client_log_pos
+                )
+
+                if status == "COMPLETE":
+                    logger.info("simulation_complete_detected", message=message)
+                    final_success = True
                     break
 
+                if status == "ERROR":
+                    logger.error("simulation_error_detected", message=message)
+                    final_success = False
+                    final_error = message
+                    break
+
+                # Check timeout
                 elapsed = time.time() - start_time
                 if elapsed > timeout_seconds:
                     logger.warning("simulation_timeout", elapsed=elapsed)
-                    self.stop_server(wait=False)
-                    return False, f"Simulation timeout after {timeout_seconds} seconds"
+                    final_success = False
+                    final_error = f"Simulation timeout after {timeout_seconds} seconds"
+                    break
 
-                time.sleep(1)
+                # Poll interval
+                time.sleep(2)
 
-            # 5. Server stopped, simulation complete
-            logger.info("validation_simulation_complete")
-            return True, None
+            # 9. Force-stop processes
+            logger.info("forcing_stop_of_mta_processes")
+            self.force_stop_all()
+
+            # 10. Parse final logs for validation
+            logger.info("parsing_final_logs_for_validation")
+            log_parser = MTALogParser(self.config)
+            validation_result = log_parser.validate_simulation_logs(
+                server_log_path,
+                client_log_path
+            )
+
+            # 11. Combine monitoring result with log validation
+            if final_success and validation_result.success:
+                logger.info("simulation_completed_successfully")
+                return True, None
+            elif final_error:
+                # Use monitoring error message
+                logger.error("simulation_failed", error=final_error)
+                return False, final_error
+            elif not validation_result.success:
+                # Use validation errors
+                error_summary = f"Validation failed: {len(validation_result.errors)} errors"
+                logger.error("validation_failed", errors=len(validation_result.errors))
+                return False, error_summary
+            else:
+                # Should not reach here, but handle gracefully
+                return False, "Simulation completed with unknown status"
 
         except Exception as e:
-            error_msg = f"Validation simulation error: {str(e)}"
-            logger.error("validation_simulation_error", error=str(e))
+            error_msg = f"Simulation error: {str(e)}"
+            logger.error("simulation_exception", error=str(e), exc_info=True)
             return False, error_msg
 
         finally:
-            # Ensure server is stopped
-            if self.is_running():
-                self.stop_server(wait=True)
+            # Ensure all processes are stopped
+            logger.info("cleanup_ensuring_all_processes_stopped")
+            self.force_stop_all()
 
             # Always restore original config.json
-            self._restore_config(backup_path)
+            if backup_path:
+                self._restore_config(backup_path)
 
     def export_game_capabilities(self) -> Tuple[bool, Optional[str]]:
         """
@@ -476,44 +621,87 @@ class MTAController:
         Returns:
             Tuple of (success, error_message)
         """
+        from utils.log_parser import MTALogParser
+
         logger.info("starting_capability_export")
 
         backup_path = None
 
         try:
-            # 1. Backup config.json
+            # 1. Clear logs before export
+            self.clear_logs()
+
+            # 2. Backup config.json
             backup_path = self._backup_config()
 
-            # 2. Set export mode
+            # 3. Set export mode
             self.set_mode(MTAMode.EXPORT)
 
-            # 3. Start server
+            # 4. Start server
             if not self.start_server(wait=True):
                 return False, "Failed to start MTA server"
 
-            # 4. Start client (CRITICAL - triggers server execution)
+            # 5. Start client (CRITICAL - triggers server execution)
             logger.info("starting_client_to_trigger_export")
             if not self.start_client(wait=True):
                 return False, "Failed to start MTA client"
 
-            # 5. Wait for export to complete (both auto-shutdown)
+            # 6. Monitor logs for export completion
             timeout = 60  # 1 minute should be plenty
             start_time = time.time()
+            server_log_path = self.get_server_log_path()
+            client_log_path = self.get_client_log_path()
+            server_log_pos = 0
+            client_log_pos = 0
+
+            log_parser = MTALogParser(self.config)
+            export_complete = False
+
+            logger.info("monitoring_export_progress")
 
             while True:
+                # Read new log lines
+                server_new_lines, server_log_pos = log_parser.tail_logs(
+                    server_log_path,
+                    server_log_pos
+                )
+                client_new_lines, client_log_pos = log_parser.tail_logs(
+                    client_log_path,
+                    client_log_pos
+                )
+
+                all_new_lines = server_new_lines + client_new_lines
+
+                # Check for export completion patterns
+                # (You may need to add export-specific patterns to config)
+                for line in all_new_lines:
+                    if "export" in line.lower() and "complete" in line.lower():
+                        export_complete = True
+                        logger.info("export_completion_detected_in_logs")
+                        break
+
+                # Also check if process stopped (fallback)
                 if not self.is_running():
-                    logger.info("export_complete_server_stopped")
+                    logger.info("export_process_stopped")
+                    export_complete = True
                     break
 
+                if export_complete:
+                    break
+
+                # Check timeout
                 elapsed = time.time() - start_time
                 if elapsed > timeout:
-                    logger.warning("export_timeout")
-                    self.stop_server(wait=False)
+                    logger.warning("export_timeout", elapsed=elapsed)
+                    self.force_stop_all()
                     return False, "Export timeout"
 
                 time.sleep(0.5)
 
-            # 5. Copy simulation_environment_capabilities.json from sv2l to data/
+            # 7. Force stop processes
+            self.force_stop_all()
+
+            # 8. Copy simulation_environment_capabilities.json from sv2l to data/
             logger.info("copying_game_capabilities_file")
 
             # Get paths from config
@@ -548,16 +736,17 @@ class MTAController:
 
         except Exception as e:
             error_msg = f"Capability export error: {str(e)}"
-            logger.error("capability_export_error", error=str(e))
+            logger.error("capability_export_error", error=str(e), exc_info=True)
             return False, error_msg
 
         finally:
-            # Ensure server is stopped
-            if self.is_running():
-                self.stop_server(wait=True)
+            # Ensure all processes are stopped
+            logger.info("cleanup_ensuring_export_processes_stopped")
+            self.force_stop_all()
 
             # Always restore original config.json
-            self._restore_config(backup_path)
+            if backup_path:
+                self._restore_config(backup_path)
 
     # =========================================================================
     # Log Files
@@ -577,3 +766,224 @@ class MTAController:
             if log_path.exists():
                 log_path.write_text("")
                 logger.info("log_cleared", path=str(log_path))
+
+    def prepare_simulation(self, graph_file: str) -> List[str]:
+        """
+        Prepare for simulation run by clearing logs and snapshotting output folders.
+
+        Args:
+            graph_file: Path to graph file (used to determine output folder)
+
+        Returns:
+            List of pre-existing folder names in {graph_file}_out/
+        """
+        logger.info("preparing_simulation", graph_file=graph_file)
+
+        # 1. Clear logs
+        self.clear_logs()
+
+        # 2. Snapshot existing folders in {graph_file}_out/
+        # Determine output folder path
+        graph_path = Path(graph_file)
+        output_dir = self.resource_path / f"{graph_path.stem}_out"
+
+        existing_folders = []
+        if output_dir.exists():
+            existing_folders = [
+                f.name for f in output_dir.iterdir()
+                if f.is_dir()
+            ]
+            logger.info(
+                "output_folders_snapshot",
+                output_dir=str(output_dir),
+                existing_count=len(existing_folders)
+            )
+        else:
+            logger.info(
+                "output_dir_not_exists",
+                output_dir=str(output_dir)
+            )
+
+        return existing_folders
+
+    def get_current_simulation_folder(
+        self,
+        graph_file: str,
+        existing_folders: List[str]
+    ) -> Optional[Path]:
+        """
+        Detect newly created simulation output folder.
+
+        MTA creates a folder with a random GUID when simulation starts.
+        This method compares current folders against the snapshot to find the new one.
+
+        Args:
+            graph_file: Path to graph file (used to determine output folder)
+            existing_folders: List of folder names that existed before simulation
+
+        Returns:
+            Path to {guid}/spectator1/ folder, or None if not found yet
+        """
+        graph_path = Path(graph_file)
+        output_dir = self.resource_path / f"{graph_path.stem}_out"
+
+        if not output_dir.exists():
+            logger.debug("output_dir_not_exists", output_dir=str(output_dir))
+            return None
+
+        # Get current folders
+        current_folders = [
+            f.name for f in output_dir.iterdir()
+            if f.is_dir()
+        ]
+
+        # Find new folders (not in existing snapshot)
+        new_folders = [f for f in current_folders if f not in existing_folders]
+
+        if not new_folders:
+            logger.debug("no_new_folders_detected")
+            return None
+
+        if len(new_folders) > 1:
+            logger.warning(
+                "multiple_new_folders_detected",
+                count=len(new_folders),
+                folders=new_folders
+            )
+            # Use the most recent one
+            new_folder = sorted(new_folders)[-1]
+        else:
+            new_folder = new_folders[0]
+
+        # Construct path to spectator1 subfolder
+        spectator_path = output_dir / new_folder / "spectator1"
+
+        logger.info(
+            "simulation_folder_detected",
+            guid=new_folder,
+            spectator_path=str(spectator_path)
+        )
+
+        return spectator_path
+
+    def check_for_error_files(
+        self,
+        simulation_folder: Optional[Path]
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Check for ERROR or MAX_STORY_TIME_EXCEEDED files in simulation folder.
+
+        These files are created by the MTA simulation engine to indicate specific
+        error conditions.
+
+        Args:
+            simulation_folder: Path to simulation folder (e.g., {guid}/spectator1/)
+
+        Returns:
+            Tuple of (has_error, error_message)
+        """
+        if simulation_folder is None or not simulation_folder.exists():
+            return False, None
+
+        # Retrieve also one level up folder
+        parent_folder = simulation_folder.parent
+
+        # Check for ERROR file
+        error_path1 = simulation_folder / "ERROR"
+        error_path2 = parent_folder / "ERROR"
+
+        error_path = error_path1 if error_path1.exists() else error_path2
+
+        # When either of the ERROR files exist
+        if error_path.exists():
+            try:
+                error_message = error_path.read_text(encoding='utf-8', errors='ignore').strip()
+                if not error_message:
+                    error_message = "ERROR file detected (no message)"
+                logger.error(
+                    "error_file_detected",
+                    path=str(error_path),
+                    message=error_message
+                )
+                return True, f"ERROR: {error_message}"
+            except Exception as e:
+                logger.error("error_reading_error_file", error=str(e))
+                return True, "ERROR file detected (could not read message)"
+
+        # Check for MAX_STORY_TIME_EXCEEDED file
+        timeout_path = simulation_folder / "MAX_STORY_TIME_EXCEEDED"
+        if timeout_path.exists():
+            try:
+                timeout_message = timeout_path.read_text(encoding='utf-8', errors='ignore').strip()
+                if not timeout_message:
+                    timeout_message = "MAX_STORY_TIME_EXCEEDED"
+                logger.error(
+                    "timeout_file_detected",
+                    path=str(timeout_path),
+                    message=timeout_message
+                )
+                return True, f"TIMEOUT: {timeout_message}"
+            except Exception as e:
+                logger.error("error_reading_timeout_file", error=str(e))
+                return True, "MAX_STORY_TIME_EXCEEDED file detected"
+
+        return False, None
+
+    def monitor_simulation_progress(
+        self,
+        server_log_path: Path,
+        client_log_path: Path,
+        simulation_folder: Optional[Path],
+        server_log_pos: int,
+        client_log_pos: int
+    ) -> Tuple[str, Optional[str], int, int]:
+        """
+        Monitor simulation progress by checking logs and error files.
+
+        Args:
+            server_log_path: Path to server.log
+            client_log_path: Path to clientscript.log
+            simulation_folder: Path to simulation folder (for error file checking)
+            server_log_pos: Current byte position in server log
+            client_log_pos: Current byte position in client log
+
+        Returns:
+            Tuple of (status, message, new_server_pos, new_client_pos)
+            where status = "COMPLETE" | "ERROR" | "RUNNING"
+        """
+        from utils.log_parser import MTALogParser
+
+        # Create log parser
+        log_parser = MTALogParser(self.config)
+
+        # 1. Check for error files first (immediate failure detection)
+        has_error, error_msg = self.check_for_error_files(simulation_folder)
+        if has_error:
+            return "ERROR", error_msg, server_log_pos, client_log_pos
+
+        # 2. Read new log lines
+        server_new_lines, new_server_pos = log_parser.tail_logs(
+            server_log_path,
+            server_log_pos
+        )
+        client_new_lines, new_client_pos = log_parser.tail_logs(
+            client_log_path,
+            client_log_pos
+        )
+
+        all_new_lines = server_new_lines + client_new_lines
+
+        # 3. Check for completion patterns
+        if log_parser.check_simulation_complete(all_new_lines):
+            return "COMPLETE", "Simulation completed successfully", new_server_pos, new_client_pos
+
+        # 4. Check for error patterns
+        errors = log_parser.find_errors(all_new_lines)
+        if errors:
+            error_message = f"Errors detected in logs: {len(errors)} errors"
+            error_message += "\n" + "\n".join(errors)
+            logger.error("simulation_errors_detected", count=len(errors), errors=errors)
+            return "ERROR", error_message, new_server_pos, new_client_pos
+
+        # 5. Still running
+        return "RUNNING", None, new_server_pos, new_client_pos

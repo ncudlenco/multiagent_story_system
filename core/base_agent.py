@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import structlog
 from openai import OpenAI
 import json
+import time
 
 logger = structlog.get_logger()
 
@@ -40,7 +41,8 @@ class BaseAgent(ABC, Generic[T]):
         output_schema: Type[T],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        use_structured_outputs: bool = True
+        use_structured_outputs: bool = True,
+        prompt_logger=None
     ):
         """
         Initialize agent.
@@ -53,11 +55,13 @@ class BaseAgent(ABC, Generic[T]):
             max_tokens: Optional override (uses config default if None)
             use_structured_outputs: If True, use OpenAI structured outputs API.
                                    If False, use manual JSON parsing (for complex schemas like GEST)
+            prompt_logger: Optional PromptLogger instance for logging prompts/responses
         """
         self.config = config
         self.agent_name = agent_name
         self.output_schema = output_schema
         self.use_structured_outputs = use_structured_outputs
+        self.prompt_logger = prompt_logger
 
         # OpenAI client
         self.client = OpenAI(api_key=config['openai']['api_key'])
@@ -72,7 +76,8 @@ class BaseAgent(ABC, Generic[T]):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             output_schema=output_schema.__name__,
-            use_structured_outputs=use_structured_outputs
+            use_structured_outputs=use_structured_outputs,
+            prompt_logging_enabled=prompt_logger is not None
         )
 
     @abstractmethod
@@ -118,7 +123,9 @@ class BaseAgent(ABC, Generic[T]):
         system_prompt: str,
         user_prompt: str,
         temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        iteration: Optional[int] = None,
+        context: Optional[Dict[str, Any]] = None
     ) -> T:
         """
         Call OpenAI API with optional structured output.
@@ -139,6 +146,8 @@ class BaseAgent(ABC, Generic[T]):
             user_prompt: User prompt with task
             temperature: Optional override
             max_tokens: Optional override
+            iteration: Optional iteration number (for prompt logging)
+            context: Optional context dict (for prompt logging, e.g., scene_id)
 
         Returns:
             Validated Pydantic model instance (type matches output_schema)
@@ -147,6 +156,9 @@ class BaseAgent(ABC, Generic[T]):
             OpenAI API errors (rate limit, invalid key, etc.)
             ValueError: JSON parsing or Pydantic validation errors
         """
+        # Start timing
+        start_time = time.time()
+
         # For unstructured mode, inject schema into system prompt
         if not self.use_structured_outputs:
             schema_dict = self.output_schema.model_json_schema()
@@ -173,11 +185,12 @@ class BaseAgent(ABC, Generic[T]):
             api_params["max_completion_tokens"] = token_limit
 
         # BRANCH: Choose API based on mode
+        response_raw = None
         if self.use_structured_outputs:
             # STRUCTURED MODE: Beta parse API
             api_params["response_format"] = self.output_schema
             response = self.client.beta.chat.completions.parse(**api_params)
-            return response.choices[0].message.parsed
+            parsed_result = response.choices[0].message.parsed
 
         else:
             # UNSTRUCTURED MODE: Manual parsing with schema injection
@@ -186,6 +199,7 @@ class BaseAgent(ABC, Generic[T]):
 
             # Parse JSON
             content = response.choices[0].message.content
+            response_raw = content  # Save for logging
             try:
                 data = json.loads(content)
             except json.JSONDecodeError as e:
@@ -199,9 +213,8 @@ class BaseAgent(ABC, Generic[T]):
 
             # Validate with Pydantic
             try:
-                validated = self.output_schema.model_validate(data)
+                parsed_result = self.output_schema.model_validate(data)
                 logger.debug("pydantic_validation_success", agent=self.agent_name)
-                return validated
             except Exception as e:
                 logger.error(
                     "pydantic_validation_error",
@@ -211,10 +224,42 @@ class BaseAgent(ABC, Generic[T]):
                 )
                 raise ValueError(f"Pydantic validation failed for {self.agent_name}: {e}")
 
+        # Calculate execution time
+        execution_time = time.time() - start_time
+
+        # Extract token usage from response (FREE metadata)
+        token_usage = None
+        if hasattr(response, 'usage') and response.usage:
+            token_usage = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            }
+
+        # Log prompt if logger is enabled
+        if self.prompt_logger:
+            self.prompt_logger.log_prompt(
+                agent_name=self.agent_name,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response_parsed=parsed_result,
+                token_usage=token_usage,
+                execution_time=execution_time,
+                model=self.model,
+                temperature=temp if temp is not None else 1.0,
+                max_tokens=token_limit,
+                response_raw=response_raw,
+                iteration=iteration,
+                context=context
+            )
+
+        return parsed_result
+
     def execute(
         self,
         context: Dict[str, Any],
-        max_retries: int = 3
+        max_retries: int = 3,
+        iteration: Optional[int] = None
     ) -> T:
         """
         Execute agent with retry logic.
@@ -226,6 +271,7 @@ class BaseAgent(ABC, Generic[T]):
         Args:
             context: Context dictionary with input data
             max_retries: Maximum number of retry attempts
+            iteration: Optional iteration number (for prompt logging)
 
         Returns:
             Validated Pydantic model (type matches output_schema)
@@ -247,7 +293,12 @@ class BaseAgent(ABC, Generic[T]):
                 )
 
                 # Call LLM with structured output
-                result = self.call_llm(system_prompt, user_prompt)
+                result = self.call_llm(
+                    system_prompt,
+                    user_prompt,
+                    iteration=iteration,
+                    context=context
+                )
 
                 logger.info(
                     "agent_success",

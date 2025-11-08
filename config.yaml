@@ -2,7 +2,7 @@
 # Phase 0: Foundation + Phase 1: Preprocessing
 
 openai:
-  model: "gpt-5"  # Default model for all agents
+  model: "gpt-5-mini"  # Default model for all agents
   # temperature: 1.0  # GPT-5 with structured outputs only supports 1 (omit to use default)
   # max_tokens: null  # No limit - let GPT-5 decide output length
   # api_key loaded from .env file (OPENAI_API_KEY)
@@ -14,7 +14,7 @@ mta:
   client_shortcut: "Multi Theft Auto.exe - Shortcut.lnk"
   client_executable: "Multi Theft Auto.exe"
   server_log: "mods/deathmatch/logs/server.log"
-  client_log: "mods/deathmatch/logs/clientscript.log"
+  client_log: "../MTA/logs/clientscript.log"
   startup_wait_seconds: 20
   shutdown_wait_seconds: 3
 
@@ -36,7 +36,7 @@ preprocessing:
 
   # Skin categorization agent
   skin_categorization:
-    model: "gpt-5"  # Large context window for all 249 skins
+    model: "gpt-5-mini"  # Large context window for all 249 skins
     # temperature: 1.0  # GPT-5 structured outputs only supports 1 (omit for default)
     # max_tokens: null  # No limit - GPT-5 decides
 
@@ -61,13 +61,36 @@ validation:
   scene_1_max_retries: 2
   require_video_output: false
   error_patterns:
-    - "error"
-    - "failed"
-    - "exception"
+    - "[ErrorHandler] ERROR DETECTED!"
+    - "We could not find any valid episodes for the file"
   success_patterns:
-    - "simulation complete"
-    - "story complete"
+    - "story completed successfully"
 
 logging:
   level: "DEBUG"
   format: "json"
+
+# Prompt logging configuration
+# Use --save-prompts CLI flag to enable (overrides this setting)
+prompt_logging:
+  enabled: false  # Disabled by default (enable with --save-prompts flag)
+  save_system_prompt: true  # Save system prompts
+  save_user_prompt: true  # Save user prompts
+  save_response_raw: false  # Save raw LLM responses (use --save-raw-responses flag)
+  save_response_parsed: true  # Save parsed responses
+  separate_files: true  # Save separate files per agent/iteration
+
+# Batch generation configuration
+batch:
+  default_output_dir: "batch_output"  # Default output directory for batch runs
+  compress_archives: false  # Whether to compress batch outputs to .zip
+  max_generation_retries: 3  # Maximum retries for failed generation phases
+  max_simulation_retries: 1  # Maximum retries for failed simulations
+  simulation_timeout_first: 300  # Timeout for first simulation attempt (seconds)
+  simulation_timeout_retry: 900  # Timeout for retry attempts (seconds, longer)
+  keep_intermediates: true  # Keep intermediate files (scene_detail_agent/, concept_N/)
+
+# Google Drive integration configuration
+google_drive:
+  credentials_path: "credentials/google_drive_credentials.json"  # Path to Google Drive credentials
+  default_folder_id: null  # Optional default Google Drive folder ID

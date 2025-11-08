@@ -27,17 +27,19 @@ class EpisodePlacementAgent(BaseAgent[EpisodePlacementOutput]):
         - "outdoor conversation" → "garden" (open space, benches)
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], prompt_logger=None):
         """Initialize episode placement agent.
 
         Args:
             config: Configuration dictionary containing OpenAI settings
+            prompt_logger: Optional PromptLogger instance for logging prompts
         """
         super().__init__(
             config=config,
             agent_name="episode_placement_agent",
             output_schema=EpisodePlacementOutput,
-            use_structured_outputs=False  # Use manual parsing like other agents
+            use_structured_outputs=False,  # Use manual parsing like other agents
+            prompt_logger=prompt_logger
         )
         logger.info(
             "episode_placement_agent_initialized",

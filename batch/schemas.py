@@ -1,0 +1,314 @@
+"""
+Data schemas for batch story generation and simulation.
+
+This module defines the data structures used for tracking batch generation state,
+individual story status, and configuration parameters.
+"""
+
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+
+@dataclass
+class BatchConfig:
+    """Configuration for batch story generation and simulation."""
+
+    # Story generation parameters
+    num_stories: int
+    max_num_protagonists: int
+    max_num_extras: int
+    num_distinct_actions: int
+    scene_number: int
+    narrative_seeds: List[str] = field(default_factory=list)
+
+    # Variation parameters
+    same_story_generation_variations: int = 1  # Number of Phase 3 takes
+    same_story_simulation_variations: int = 1  # Simulations per take
+
+    # Retry settings
+    max_generation_retries: int = 3
+    max_simulation_retries: int = 3
+    retry_phases: List[int] = field(default_factory=lambda: [1, 2, 3])
+
+    # Simulation settings
+    simulation_timeout_first: int = 600  # seconds
+    simulation_timeout_retry: int = 900  # seconds (longer for retries)
+    collect_simulation_artifacts: bool = False  # Enable artifact collection (videos, logs)
+
+    # Output settings
+    output_base_dir: str = "batch_output"
+    move_to_final_dir: bool = True
+    compress_archives: bool = False
+    keep_intermediates: bool = True
+
+    # Google Drive settings
+    upload_to_drive: bool = False
+    drive_folder_id: Optional[str] = None
+    keep_local: bool = True  # Keep local copy after upload
+
+    # From existing stories mode
+    from_existing_stories_path: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'num_stories': self.num_stories,
+            'max_num_protagonists': self.max_num_protagonists,
+            'max_num_extras': self.max_num_extras,
+            'num_distinct_actions': self.num_distinct_actions,
+            'scene_number': self.scene_number,
+            'narrative_seeds': self.narrative_seeds,
+            'same_story_generation_variations': self.same_story_generation_variations,
+            'same_story_simulation_variations': self.same_story_simulation_variations,
+            'max_generation_retries': self.max_generation_retries,
+            'max_simulation_retries': self.max_simulation_retries,
+            'retry_phases': self.retry_phases,
+            'simulation_timeout_first': self.simulation_timeout_first,
+            'simulation_timeout_retry': self.simulation_timeout_retry,
+            'collect_simulation_artifacts': self.collect_simulation_artifacts,
+            'output_base_dir': self.output_base_dir,
+            'move_to_final_dir': self.move_to_final_dir,
+            'compress_archives': self.compress_archives,
+            'keep_intermediates': self.keep_intermediates,
+            'upload_to_drive': self.upload_to_drive,
+            'drive_folder_id': self.drive_folder_id,
+            'keep_local': self.keep_local,
+            'from_existing_stories_path': self.from_existing_stories_path,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'BatchConfig':
+        """Create from dictionary for JSON deserialization."""
+        return cls(**data)
+
+
+@dataclass
+class SimulationResult:
+    """Result of a single simulation attempt."""
+
+    take_number: int
+    sim_number: int
+    success: bool
+    timeout: bool = False
+    error_messages: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    video_generated: bool = False
+    video_path: Optional[str] = None
+    total_actions: int = 0
+    failed_actions: int = 0
+    simulation_time_seconds: Optional[float] = None
+    output_dir: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'take_number': self.take_number,
+            'sim_number': self.sim_number,
+            'success': self.success,
+            'timeout': self.timeout,
+            'error_messages': self.error_messages,
+            'warnings': self.warnings,
+            'video_generated': self.video_generated,
+            'video_path': self.video_path,
+            'total_actions': self.total_actions,
+            'failed_actions': self.failed_actions,
+            'simulation_time_seconds': self.simulation_time_seconds,
+            'output_dir': self.output_dir,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'SimulationResult':
+        """Create from dictionary for JSON deserialization."""
+        return cls(**data)
+
+
+@dataclass
+class StoryStatus:
+    """Status tracking for a single story in the batch."""
+
+    story_id: str
+    story_number: int  # 1-based index in batch
+    status: str  # pending, phase1, phase2, phase3, simulating, success, failed
+
+    # Current progress
+    current_take: int = 1
+    current_sim: int = 1
+    current_phase: int = 0
+
+    # Retry tracking
+    generation_attempts: Dict[int, int] = field(default_factory=dict)  # phase -> attempt count
+    simulation_attempts: int = 0
+
+    # Messages
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+
+    # Timing
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+    # Output
+    output_dir: str = ""
+
+    # Results
+    scene_count: Optional[int] = None
+    event_count: Optional[int] = None
+    successful_simulations: List[str] = field(default_factory=list)  # ["take1_sim2", "take2_sim1"]
+    all_simulation_results: List[SimulationResult] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'story_id': self.story_id,
+            'story_number': self.story_number,
+            'status': self.status,
+            'current_take': self.current_take,
+            'current_sim': self.current_sim,
+            'current_phase': self.current_phase,
+            'generation_attempts': self.generation_attempts,
+            'simulation_attempts': self.simulation_attempts,
+            'warnings': self.warnings,
+            'errors': self.errors,
+            'started_at': self.started_at,
+            'completed_at': self.completed_at,
+            'output_dir': self.output_dir,
+            'scene_count': self.scene_count,
+            'event_count': self.event_count,
+            'successful_simulations': self.successful_simulations,
+            'all_simulation_results': [r.to_dict() for r in self.all_simulation_results],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'StoryStatus':
+        """Create from dictionary for JSON deserialization."""
+        # Convert simulation results back from dict
+        sim_results = [
+            SimulationResult.from_dict(r)
+            for r in data.get('all_simulation_results', [])
+        ]
+        data_copy = data.copy()
+        data_copy['all_simulation_results'] = sim_results
+        return cls(**data_copy)
+
+
+@dataclass
+class BatchState:
+    """Overall state of batch generation process."""
+
+    batch_id: str
+    config: BatchConfig
+    stories: List[StoryStatus] = field(default_factory=list)
+
+    # Timing
+    started_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    completed_at: Optional[str] = None
+
+    # Progress tracking
+    current_story_index: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+
+    # Retry statistics
+    total_generation_retries: int = 0
+    total_simulation_retries: int = 0
+    phase_retry_counts: Dict[int, int] = field(default_factory=dict)  # phase -> total retries
+
+    # Output
+    batch_output_dir: str = ""
+    drive_folder_id: Optional[str] = None
+    drive_folder_link: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'batch_id': self.batch_id,
+            'config': self.config.to_dict(),
+            'stories': [s.to_dict() for s in self.stories],
+            'started_at': self.started_at,
+            'completed_at': self.completed_at,
+            'current_story_index': self.current_story_index,
+            'success_count': self.success_count,
+            'failure_count': self.failure_count,
+            'total_generation_retries': self.total_generation_retries,
+            'total_simulation_retries': self.total_simulation_retries,
+            'phase_retry_counts': self.phase_retry_counts,
+            'batch_output_dir': self.batch_output_dir,
+            'drive_folder_id': self.drive_folder_id,
+            'drive_folder_link': self.drive_folder_link,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'BatchState':
+        """Create from dictionary for JSON deserialization."""
+        # Convert nested objects
+        config = BatchConfig.from_dict(data['config'])
+        stories = [StoryStatus.from_dict(s) for s in data['stories']]
+
+        data_copy = data.copy()
+        data_copy['config'] = config
+        data_copy['stories'] = stories
+
+        return cls(**data_copy)
+
+    def get_story_by_id(self, story_id: str) -> Optional[StoryStatus]:
+        """Get story status by story ID."""
+        for story in self.stories:
+            if story.story_id == story_id:
+                return story
+        return None
+
+    def get_failed_stories_eligible_for_reset(self) -> List[StoryStatus]:
+        """
+        Get failed stories that are eligible for reset.
+
+        Only includes stories that:
+        - Have status == 'failed'
+        - Have current_phase == 3 (generation complete)
+
+        Returns:
+            List of eligible story statuses
+        """
+        return [
+            story for story in self.stories
+            if story.status == 'failed' and story.current_phase == 3
+        ]
+
+    def get_successful_stories_eligible_for_reset(self) -> List[StoryStatus]:
+        """
+        Get successful stories that are eligible for reset.
+
+        Only includes stories that:
+        - Have status == 'success'
+        - Have current_phase == 3 (generation complete)
+
+        Returns:
+            List of eligible story statuses
+        """
+        return [
+            story for story in self.stories
+            if story.status == 'success' and story.current_phase == 3
+        ]
+
+    def get_all_stories_eligible_for_simulation_reset(self) -> List[StoryStatus]:
+        """
+        Get all stories with completed simulations eligible for reset.
+
+        Only includes stories that:
+        - Have current_phase == 3 (generation complete)
+        - Have status in ['success', 'failed', 'pending']
+        - Are NOT currently running
+
+        Returns:
+            List of eligible story statuses
+        """
+        return [
+            story for story in self.stories
+            if story.current_phase == 3 and
+               story.status in ['success', 'failed', 'pending']
+        ]
+
+    def update_progress(self) -> None:
+        """Update success/failure counts based on story statuses."""
+        self.success_count = sum(1 for s in self.stories if s.status == 'success')
+        self.failure_count = sum(1 for s in self.stories if s.status == 'failed')

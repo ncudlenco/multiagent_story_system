@@ -35,18 +35,20 @@ class CastingAgent(BaseAgent):
     4. Expand narrative with character names and descriptions
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], prompt_logger=None):
         """
         Initialize CastingAgent.
 
         Args:
             config: Configuration dictionary from Config.to_dict()
+            prompt_logger: Optional PromptLogger instance for logging prompts
         """
         super().__init__(
             config=config,
             agent_name="casting_agent",
             output_schema=DualOutput,
-            use_structured_outputs=False  # GEST schema requires manual parsing (Dict[str, BaseModel])
+            use_structured_outputs=False,  # GEST schema requires manual parsing (Dict[str, BaseModel])
+            prompt_logger=prompt_logger
         )
         logger.info("casting_agent_initialized")
 
@@ -478,6 +480,7 @@ CRITICAL: Narrative = Concept narrative with generic roles replaced by character
 - NO extra closure events beyond concept
 - NO descriptive details beyond concept
 - NEVER MENTION the background actors in the main narrative AT ALL. Focus only on protagonists.
+- NEVER ASSIGN THE SAME SKIN ID TO MULTIPLE PROTAGONISTS.
 """
 
         return prompt

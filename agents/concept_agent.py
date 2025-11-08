@@ -24,7 +24,7 @@ Outputs:
 - Narrative: Natural prose describing story structure (NO event IDs, NO descriptive details)
 """
 
-from random import random
+import random
 from typing import Dict, Any, List
 from core.base_agent import BaseAgent
 from schemas.gest import DualOutput
@@ -46,18 +46,20 @@ class ConceptAgent(BaseAgent):
     5. Set up story constraints (num_actors, num_distinct_actions)
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], prompt_logger=None):
         """
         Initialize ConceptAgent.
 
         Args:
             config: Configuration dictionary from Config.to_dict()
+            prompt_logger: Optional PromptLogger instance for logging prompts
         """
         super().__init__(
             config=config,
             agent_name="concept_agent",
             output_schema=DualOutput,
-            use_structured_outputs=False  # GEST schema requires manual parsing (Dict[str, BaseModel])
+            use_structured_outputs=False,  # GEST schema requires manual parsing (Dict[str, BaseModel])
+            prompt_logger=prompt_logger
         )
         logger.info("concept_agent_initialized")
 
@@ -81,6 +83,7 @@ A concept represents:
 
 A narrative is composed of sentences about actors executing actions.
 A scene is an abstraction over concrete actions that can be executed in concrete locations with concrete objects in the simulation environment + a narrative description of what happens in the scene (mappable to the concept narrative directly).
+One single scene MUST contain multiple chains of actions of multiple actors.
 
 DO NOT produce unsimulatable scenes or narratives. Use the reference episode summaries, and action chains plus catalogues of actions, objects and locations to ground your concepts in what can be simulated (skin descriptions to not dictate what actions are possible but should be linked to what is possible in the environment).
 
@@ -283,8 +286,8 @@ You will be called recursively to expand scenes. Each call:
    - Add semantic relations: children is_part_of parent
    - Add temporal relations: ONLY between same-level leaves
    - Add properties: scene_type, parent_scene, child_scenes
-   - Expand the complete narrative for the story to describe ALL leaf scenes in the GEST
-   - CRITICAL: An expansion MUST ALWAYS ADD AT LEAST ONE new leaf scene
+   - Expand the complete narrative for the story to describe ALL leaf scenes in the GEST while keeping the EXACT original narrative style
+   - CRITICAL: An expansion MUST ALWAYS ADD AT LEAST ONE new leaf scene OR IT WILL BE REJECTED
 
 EXPANSION EXAMPLE (Iteration 2):
 
@@ -534,12 +537,14 @@ ALLOWED abstract actions (examples - not exhaustive):
 - "Escorts" → will expand to: Walk, Move
 - "Observes" → will expand to: LookAt
 - "Discusses" → will expand to: SitDown, Talk
+- "Goes" to another location → will expand to: Move
+- "Eats" → will expand to: SitDown, Eat
 
 NOT ALLOWED (cannot be simulated):
 - Internal states: "Thinks", "Feels", "Dreams", "Remembers"
 - Micro-details: "Smooths blazer", "Adjusts glasses", "Steam fogs"
 
-Test: "Can this be broken down into game actions?" If yes → valid. If no → too abstract.
+Test: "Can this be broken down into multiple concrete game actions (chains of actions) across multiple actors?" If yes → valid. If no → too abstract.
 
 TITLE AND NARRATIVE REQUIREMENTS:
 
@@ -547,7 +552,8 @@ TITLE AND NARRATIVE REQUIREMENTS:
    - Short, punchy, captures story essence
    - Examples: "The Overheard Secret", "Caught in the Act", "Breaking News"
 
-2. NARRATIVE (2-4 sentences in NATURAL PROSE):
+2. NARRATIVE (sentences in NATURAL PROSE):
+   Keep it short, a paragraph.
    Describe the story's STRUCTURE using relation vocabulary - NOT descriptive details.
 
    CRITICAL: Write in natural language prose. NEVER mention event IDs (E1, E2, a1, b1, etc.)
@@ -636,7 +642,13 @@ CONSTRAINTS:
         object_catalog = [obj for obj in concept_capabilities.get('object_types', {}).keys() if concept_capabilities.get('object_types', {}).get(obj, {}).get('actions')]
 
         # Pick at random 3 objects as seed
-        return random.sample(object_catalog, min(3, len(object_catalog)))
+        chosen = []
+        for _ in range(min(3, len(object_catalog))):
+            obj = random.choice(object_catalog)
+            while obj in chosen:
+                obj = random.choice(object_catalog)
+            chosen.append(obj)
+        return chosen
 
     def build_user_prompt(self, context: Dict[str, Any]) -> str:
         """
@@ -668,28 +680,33 @@ CONSTRAINTS:
         narrative_seeds = context.get('narrative_seeds', [])
         concept_capabilities = context.get('concept_capabilities', {})
 
-        # Seed concept idea with random objects or themes
-        seed_objects = self._getConceptObjectsSeed(concept_capabilities)
-
         # Format narrative seeds
-        seeds_str = "\n".join([f"  - {obj}" for obj in seed_objects])
         if narrative_seeds:
             seeds_str = "\n".join([f"  - {seed}" for seed in narrative_seeds])
             seeds_section = f"""
-NARRATIVE SEEDS PROVIDED:
-The user has provided the following seed sentences to inspire the story:
+NARRATIVE PROVIDED:
+The user has provided the following sentences. YOU MUST ALWAYS FOLLOW WHAT IS WRITTEN BELOW BY THE USER:
 {seeds_str}
 
-Your concept should incorporate these seeds meaningfully. They may suggest:
+Your concept should incorporate these sentences meaningfully. They may suggest:
 - Character roles or actions
 - Narrative structure or meta-references
 - Themes or relationships
 - Objects to include
 - Story complexity (e.g., nested observation, story-within-story)
+- Exact innitial narrative that you must use as is directly with minor adjustments to only project it into the simulation world within the bounds of its capabilities.
 
-Interpret these seeds creatively to define your concept's meta-structure.
+When the user indicates exactly a list of complete sentences that must be used, you MUST use them as the narrative.
+Only change with equivalent semantics what cannot be directly simulated in the environment.
+
+e.g., The user provides: The actor puts down the book. -> You can simulate this as: The actor puts down the Food. (because books do not exist in the environment).
+e.g., The user provides: While sitting, he plays with the phone. -> You can TakeOut the phone since it does not involve an animation but nothing else -> the environment does not support this seated action.
+e.g., The user provides: While talking on the phone, she walks to the door. -> You can simulate this as: First talk on the phone, then walk to the door. (because walking while talking is not supported).
 """
         else:
+            # Seed concept idea with random objects or themes
+            seed_objects = self._getConceptObjectsSeed(concept_capabilities)
+            seeds_str = "\n".join([f"  - {obj}" for obj in seed_objects])
             seeds_section = f"""
 NARRATIVE SEEDS PROVIDED:
 Generate a distinct creative concept with story-within-story complexity, unique every time I re-run this query.
@@ -761,7 +778,7 @@ YOUR TASK:
 6. For each background actor, add entry to scene Properties.extra_narratives describing their simple background actions
 7. Create semantic relations for meta-structure hints
 8. Write a movie-style title (3-7 words)
-9. Write a movie synopsis narrative (1-3 sentences, more when needed) - simple plot description, NO meta-explanation
+9. Write a movie synopsis narrative (at least 5 sentences per each scene, more when needed) - simple plot description, NO meta-explanation
    - Focus on PROTAGONISTS only (do NOT mention background actors in main narrative)
    - CRITICAL: Generate DIVERSE, ORIGINAL stories from simulation environment capabilities
    - DO NOT use the same themes from examples over and over
@@ -1000,10 +1017,12 @@ OUTPUT: DualOutput with expanded GEST and complete narrative describing all curr
         self,
         current_gest,
         scenes_to_expand: List[str],
+        seed_sentences: List[str],
         remaining_budget: int,
         concept_capabilities: Dict[str, Any],
         protagonist_budget: int = 0,
-        extras_budget: int = 0
+        extras_budget: int = 0,
+        iteration: int = None
     ) -> DualOutput:
         """
         Expand a single scene into sub-scenes.
@@ -1011,10 +1030,12 @@ OUTPUT: DualOutput with expanded GEST and complete narrative describing all curr
         Args:
             current_gest: Current GEST with existing scenes
             scenes_to_expand: List of Scene IDs to expand
+            seed_sentences: List of seed sentences to guide expansion
             remaining_budget: How many new scenes can be created
             concept_capabilities: Concept cache data
             protagonist_budget: How many more protagonists can be created (0 = none, -1 = unlimited)
             extras_budget: How many more extras can be created (0 = none, -1 = unlimited)
+            iteration: Optional iteration number for prompt logging
 
         Returns:
             DualOutput with expanded GEST and narrative
@@ -1031,20 +1052,22 @@ OUTPUT: DualOutput with expanded GEST and complete narrative describing all curr
             current_scene_count=current_leaf_count,
             remaining_budget=remaining_budget,
             protagonist_budget=protagonist_budget,
-            extras_budget=extras_budget
+            extras_budget=extras_budget,
+            iteration=iteration
         )
 
         context = {
-            'mode': 'expansion',
+            'mode': 'initial' if iteration == 0 else 'expansion',
             'current_gest': current_gest,
             'scenes_to_expand': scenes_to_expand,
             'remaining_budget': remaining_budget,
             'concept_capabilities': concept_capabilities,
             'protagonist_budget': protagonist_budget,
-            'extras_budget': extras_budget
+            'extras_budget': extras_budget,
+            'narrative_seeds': seed_sentences
         }
 
-        result = super().execute(context, max_retries=3)
+        result = super().execute(context, max_retries=3, iteration=iteration)
 
         # Count leaf scenes in result (not all events)
         result_leaf_count = sum(

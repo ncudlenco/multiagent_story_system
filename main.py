@@ -8,6 +8,7 @@ import argparse
 import structlog
 import sys
 import logging
+import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -15,6 +16,7 @@ from core.config import Config
 from utils.file_manager import FileManager
 from utils.mta_controller import MTAController
 from utils.preprocess_capabilities import CapabilitiesPreprocessor
+from utils.prompt_logger import PromptLogger
 from workflows.recursive_concept import run_recursive_concept
 from workflows.detail_workflow import run_detail_workflow
 from agents.casting_agent import CastingAgent
@@ -242,7 +244,8 @@ def simulate_story(
     config: Config,
     story_id: str,
     scene_id: Optional[str] = None,
-    timeout_seconds: Optional[int] = None
+    timeout_seconds: Optional[int] = None,
+    collect_artifacts: bool = False
 ) -> bool:
     """
     Run MTA simulation for a generated story or specific scene.
@@ -325,9 +328,10 @@ def simulate_story(
         print(f"  Server console will appear in a separate window")
         print(f"  Please wait for simulation to complete...\n")
 
-        success, error = controller.run_validation_simulation(
+        success, error = controller.run_simulation(
             graph_file=relative_path,
-            timeout_seconds=timeout_seconds
+            timeout_seconds=timeout_seconds,
+            collect_artifacts=collect_artifacts
         )
 
         # Report results
@@ -477,7 +481,8 @@ def _execute_phase_2_casting(
     concept_gest: GEST,
     concept_narrative: str,
     full_indexed_capabilities: Dict[str, Any],
-    all_capabilities: Dict[str, Any]
+    all_capabilities: Dict[str, Any],
+    prompt_logger=None
 ) -> tuple[GEST, str]:
     """Execute Phase 2: Casting (shared by generate and resume).
 
@@ -487,6 +492,7 @@ def _execute_phase_2_casting(
         concept_gest: Concept GEST from Phase 1
         full_indexed_capabilities: Full indexed cache
         all_capabilities: Original game capabilities
+        prompt_logger: Optional PromptLogger instance
 
     Returns:
         Casting GEST and narrative string
@@ -494,7 +500,7 @@ def _execute_phase_2_casting(
     import json
 
     print("\nPhase 2: Casting...")
-    casting_agent = CastingAgent(config.to_dict())
+    casting_agent = CastingAgent(config.to_dict(), prompt_logger=prompt_logger)
     casting_result = casting_agent.execute(
         concept_gest=concept_gest,
         concept_narrative=concept_narrative,
@@ -518,7 +524,10 @@ def _execute_phase_3_detail(
     casting_gest: GEST,
     casting_narrative: str,
     all_capabilities: Dict[str, Any],
-    use_cached: bool = False
+    use_cached: bool = False,
+    prompt_logger=None,
+    take_number: int = 1,
+    output_dir_override: Optional[Path] = None
 ) -> Dict[str, Any]:
     """Execute Phase 3: Scene Detail (shared by generate and resume).
 
@@ -529,18 +538,28 @@ def _execute_phase_3_detail(
         casting_narrative: Casting narrative from Phase 2
         all_capabilities: Original game capabilities with episodes
         use_cached: Whether to use cached expansions if available
+        prompt_logger: Optional PromptLogger instance
+        take_number: Take number for variations (default: 1)
+        output_dir_override: Override output directory (for batch processing)
 
     Returns:
         Detail workflow result state
     """
-    print("\nPhase 3: Scene Detail...")
+    if take_number == 1:
+        print("\nPhase 3: Scene Detail...")
+    else:
+        print(f"\nPhase 3: Scene Detail (Take {take_number})...")
+
     detail_result = run_detail_workflow(
         story_id=story_id,
         casting_gest=casting_gest,
         casting_narrative=casting_narrative,
         full_capabilities=all_capabilities,
         config=config.to_dict(),
-        use_cached=use_cached
+        use_cached=use_cached,
+        prompt_logger=prompt_logger,
+        take_number=take_number,
+        output_dir_override=output_dir_override
     )
     print(f"  [OK] Expanded {len(detail_result['scenes_expanded'])} scenes to {len(detail_result['current_gest'].events)} events")
     print("  [OK] Saved detail outputs")
@@ -560,7 +579,10 @@ def generate_story(
     narrative_seeds: Optional[list[str]] = None,
     scene_number: Optional[int] = None,
     stop_phase: Optional[int] = None,
-    use_cached_detail: Optional[bool] = False
+    use_cached_detail: Optional[bool] = False,
+    # Prompt logging parameters
+    save_prompts: bool = False,
+    save_raw_responses: bool = False
 ) -> bool:
     """
     Generate or resume story generation.
@@ -589,12 +611,16 @@ def generate_story(
         "story_generation_start",
         is_resume=is_resume,
         story_id=resume_story_id if is_resume else "new",
-        from_phase=resume_from_phase if is_resume else 1
+        from_phase=resume_from_phase if is_resume else 1,
+        save_prompts=save_prompts
     )
 
     try:
         # Initialize file manager
         file_manager = FileManager(config.to_dict())
+
+        # Initialize prompt logger (will be set up properly once we have story_id)
+        prompt_logger = None
 
         # Validate inputs and set up paths
         if is_resume:
@@ -617,6 +643,18 @@ def generate_story(
             print(f"Story ID: {story_id}")
             print(f"Directory: {story_dir}\n")
 
+            # Initialize prompt logger for resume
+            if save_prompts:
+                prompt_logger = PromptLogger(
+                    story_id=story_id,
+                    output_dir=Path(config.paths.output_dir),
+                    save_system_prompt=config.prompt_logging.save_system_prompt,
+                    save_user_prompt=config.prompt_logging.save_user_prompt,
+                    save_response_raw=save_raw_responses or config.prompt_logging.save_response_raw,
+                    save_response_parsed=config.prompt_logging.save_response_parsed,
+                    separate_files=config.prompt_logging.separate_files
+                )
+
             # Load metadata for Phase 1 resume
             if resume_from_phase == 1:
                 metadata = load_concept_metadata(story_dir)
@@ -634,12 +672,28 @@ def generate_story(
 
             narrative_seeds = narrative_seeds or []
             start_phase = 1
-            story_id = None
-            story_dir = None
+
+            # Generate story_id BEFORE Phase 1
+            story_id = str(uuid.uuid4())[:8]
+            story_dir = Path(config.paths.output_dir) / f"story_{story_id}"
+            story_dir.mkdir(parents=True, exist_ok=True)
+
+            # Initialize prompt logger BEFORE Phase 1 (now we have story_id)
+            if save_prompts:
+                prompt_logger = PromptLogger(
+                    story_id=story_id,
+                    output_dir=Path(config.paths.output_dir),
+                    save_system_prompt=config.prompt_logging.save_system_prompt,
+                    save_user_prompt=config.prompt_logging.save_user_prompt,
+                    save_response_raw=save_raw_responses or config.prompt_logging.save_response_raw,
+                    save_response_parsed=config.prompt_logging.save_response_parsed,
+                    separate_files=config.prompt_logging.separate_files
+                )
 
             print("\n" + "=" * 70)
             print("STORY GENERATION")
             print("=" * 70)
+            print(f"Story ID: {story_id}")
             print(f"Max Protagonists: {max_num_protagonists}")
             print(f"Max Extras: {max_num_extras}")
             print(f"Actions: {num_distinct_actions}")
@@ -652,24 +706,22 @@ def generate_story(
         # PHASE 1
         if start_phase <= 1 and (stop_phase is None or stop_phase >= 1):
             print("Phase 1: Concept...")
-            concept_result, returned_story_id = run_recursive_concept(
+            concept_result = run_recursive_concept(
                 config=config.to_dict(),
+                story_id=story_id,
                 target_scene_count=scene_number,
                 num_distinct_actions=num_distinct_actions,
                 max_num_protagonists=max_num_protagonists,
                 max_num_extras=max_num_extras,
                 narrative_seeds=narrative_seeds,
-                concept_capabilities=concept_capabilities
+                concept_capabilities=concept_capabilities,
+                prompt_logger=prompt_logger
             )
 
-            # Use the story_id returned from the workflow
+            # Story already exists (created before Phase 1 or from resume)
             if not (is_resume and resume_from_phase == 1):
-                # Fresh generation - use returned story_id
-                story_id = returned_story_id
-                story_dir = Path(config.paths.output_dir) / f"story_{story_id}"
-                print(f"  [OK] Created story: {story_id}")
+                print(f"  [OK] Generated concept for story: {story_id}")
             else:
-                # Resume from Phase 1 - keep existing story_id and directory
                 print(f"  [OK] Using existing ID: {story_id}")
 
             concept_gest, concept_narrative = concept_result.gest, concept_result.narrative
@@ -687,7 +739,7 @@ def generate_story(
         if start_phase <= 2 and (stop_phase is None or stop_phase >= 2):
             casting_gest, casting_narrative = _execute_phase_2_casting(
                 config, story_dir, concept_gest, concept_narrative,
-                full_indexed_capabilities, all_capabilities
+                full_indexed_capabilities, all_capabilities, prompt_logger
             )
         else:
             casting_gest, casting_narrative = load_casting_gest(story_dir)
@@ -696,12 +748,21 @@ def generate_story(
                 return False
 
         if stop_phase == 2:
+            # Save prompt summary if enabled
+            if prompt_logger:
+                prompt_logger.save_summary()
+                print(f"  [OK] Saved prompt summary")
             print(f"\n[STOPPED] After Phase 2")
             return True
 
         # PHASE 3
         if start_phase <= 3 and (stop_phase is None or stop_phase >= 3):
-            _execute_phase_3_detail(config, story_id, casting_gest, casting_narrative, all_capabilities, use_cached_detail)
+            _execute_phase_3_detail(config, story_id, casting_gest, casting_narrative, all_capabilities, use_cached_detail, prompt_logger)
+
+        # Save prompt summary if enabled
+        if prompt_logger:
+            prompt_logger.save_summary()
+            print(f"  [OK] Saved prompt summary to {story_dir}/prompts_summary.json")
 
         # Success
         print(f"\n{'='*70}")
@@ -867,6 +928,25 @@ Examples:
         help='Simulation timeout in seconds (default: 600)'
     )
 
+    parser.add_argument(
+        '--collect-artifacts',
+        action='store_true',
+        default=False,
+        help='Enable artifact collection during simulation (videos, logs, etc.)'
+    )
+
+    parser.add_argument(
+        '--save-prompts',
+        action='store_true',
+        help='Save all LLM prompts and responses during story generation'
+    )
+
+    parser.add_argument(
+        '--save-raw-responses',
+        action='store_true',
+        help='Include raw LLM responses in prompt logs (verbose, requires --save-prompts)'
+    )
+
     args = parser.parse_args()
 
     # Adjust log level if verbose
@@ -905,7 +985,8 @@ Examples:
                 config=config,
                 story_id=args.simulate,
                 scene_id=args.scene,
-                timeout_seconds=args.timeout
+                timeout_seconds=args.timeout,
+                collect_artifacts=args.collect_artifacts
             )
             sys.exit(0 if success else 1)
 
@@ -926,7 +1007,9 @@ Examples:
                 narrative_seeds=args.seeds,
                 scene_number=args.scene_number,
                 stop_phase=args.stop_phase,
-                use_cached_detail=args.use_cached_detail
+                use_cached_detail=args.use_cached_detail,
+                save_prompts=args.save_prompts,
+                save_raw_responses=args.save_raw_responses
             )
             sys.exit(0 if success else 1)
 

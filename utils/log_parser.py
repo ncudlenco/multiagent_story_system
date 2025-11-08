@@ -106,6 +106,53 @@ class MTALogParser:
 
         return lines
 
+    def tail_logs(
+        self,
+        log_path: Path,
+        last_position: int = 0
+    ) -> Tuple[List[str], int]:
+        """
+        Read only new lines from log file since last position.
+
+        This is more efficient than re-reading the entire file when monitoring
+        logs in real-time.
+
+        Args:
+            log_path: Path to log file
+            last_position: Byte position from last read (0 to start from beginning)
+
+        Returns:
+            Tuple of (new_lines, new_position)
+        """
+        if not log_path.exists():
+            logger.debug("log_file_not_found_for_tail", path=str(log_path))
+            return [], last_position
+
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                # Seek to last position
+                f.seek(last_position)
+
+                # Read new lines
+                new_lines = f.readlines()
+
+                # Get new position
+                new_position = f.tell()
+
+            logger.debug(
+                "log_file_tailed",
+                path=str(log_path),
+                new_lines=len(new_lines),
+                old_position=last_position,
+                new_position=new_position
+            )
+
+            return new_lines, new_position
+
+        except Exception as e:
+            logger.error("error_tailing_log", path=str(log_path), error=str(e))
+            return [], last_position
+
     def parse_log_line(self, line: str, line_number: int) -> Optional[LogMessage]:
         """Parse a single log line
 
@@ -167,8 +214,14 @@ class MTALogParser:
 
         for i, line in enumerate(lines, start=1):
             for pattern in self.error_patterns:
+                # If error pattern matches, append all next lines until next non-error line
                 if pattern.search(line):
                     errors.append(f"Line {i}: {line.strip()}")
+                    # Continue to next lines
+                    for j in range(i, len(lines)):
+                        if not any(p.search(lines[j]) for p in self.error_patterns):
+                            break
+                        errors.append(f"Line {j + 1}: {lines[j].strip()}")
                     break
 
         logger.info("errors_found", count=len(errors))
@@ -465,3 +518,67 @@ class MTALogParser:
         logger.info("log_search_complete", term=search_term, matches=len(results))
 
         return results
+
+    def check_for_error_files(
+        self,
+        simulation_folder: Path
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Check for ERROR or MAX_STORY_TIME_EXCEEDED files in simulation folder.
+
+        These files are created by the MTA simulation engine to indicate specific
+        error conditions. Their presence indicates simulation failure.
+
+        Args:
+            simulation_folder: Path to simulation folder (e.g., {guid}/spectator1/)
+
+        Returns:
+            Tuple of (has_error, error_message)
+        """
+        if not simulation_folder.exists():
+            logger.debug(
+                "simulation_folder_not_exists",
+                path=str(simulation_folder)
+            )
+            return False, None
+
+        # Check for ERROR file
+        error_path = simulation_folder / "ERROR"
+        if error_path.exists():
+            try:
+                error_message = error_path.read_text(encoding='utf-8', errors='ignore').strip()
+                if not error_message:
+                    error_message = "ERROR file detected (no message)"
+                logger.warning(
+                    "error_file_detected",
+                    path=str(error_path),
+                    message=error_message
+                )
+                return True, f"ERROR: {error_message}"
+            except Exception as e:
+                logger.error("error_reading_error_file", error=str(e))
+                return True, "ERROR file detected (could not read message)"
+
+        # Check for MAX_STORY_TIME_EXCEEDED file
+        timeout_path = simulation_folder / "MAX_STORY_TIME_EXCEEDED"
+        if timeout_path.exists():
+            try:
+                timeout_message = timeout_path.read_text(encoding='utf-8', errors='ignore').strip()
+                if not timeout_message:
+                    timeout_message = "MAX_STORY_TIME_EXCEEDED"
+                logger.warning(
+                    "timeout_file_detected",
+                    path=str(timeout_path),
+                    message=timeout_message
+                )
+                return True, f"TIMEOUT: {timeout_message}"
+            except Exception as e:
+                logger.error("error_reading_timeout_file", error=str(e))
+                return True, "MAX_STORY_TIME_EXCEEDED file detected"
+
+        logger.debug(
+            "no_error_files_found",
+            checked_dir=str(simulation_folder)
+        )
+
+        return False, None

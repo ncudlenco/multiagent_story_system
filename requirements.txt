@@ -1,6 +1,9 @@
 # Core LLM - OpenAI with structured outputs
 openai>=1.12.0
 
+# Workflow Orchestration
+langgraph>=0.0.20
+
 # Data Validation and Schemas
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
