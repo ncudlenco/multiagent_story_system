@@ -1751,3 +1751,150 @@ class BatchController:
         )
 
         return self.batch_state
+
+    def run_batch_from_text_files(self, text_file_paths: List[str]) -> BatchState:
+        """
+        Generate stories from text files (from-text-files mode).
+
+        Args:
+            text_file_paths: List of paths to text files containing narratives
+
+        Returns:
+            Final batch state
+
+        Raises:
+            Exception: If critical error occurs during batch processing
+        """
+        # Initialize batch state
+        batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_text"
+        batch_output_dir = Path(self.batch_config.output_base_dir) / batch_id
+
+        self.batch_state = BatchState(
+            batch_id=batch_id,
+            config=self.batch_config,
+            batch_output_dir=str(batch_output_dir)
+        )
+
+        # Create output directory
+        batch_output_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(
+            "batch_text_files_started",
+            batch_id=batch_id,
+            num_files=len(text_file_paths),
+            output_dir=str(batch_output_dir)
+        )
+
+        # Process each text file
+        for story_idx, text_file_path in enumerate(text_file_paths):
+            story_number = story_idx + 1
+            story_id = Path(text_file_path).stem  # Use filename as story ID
+            story_uuid = uuid.uuid4().hex[:8]  # Generate UUID for unique identification
+
+            # Create output directory for this story
+            story_output_dir = batch_output_dir / f"story_{story_number:05d}_{story_id}"
+            story_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create StoryStatus
+            story_status = StoryStatus(
+                story_number=story_number,
+                story_id=story_uuid,
+                status='pending',
+                output_dir=str(story_output_dir)
+            )
+            self.batch_state.stories.append(story_status)
+
+            logger.info(
+                "text_file_processing_started",
+                story_number=story_number,
+                story_id=story_uuid,
+                text_file=text_file_path
+            )
+
+            story_status.status = 'running'
+            story_status.started_at = datetime.now().isoformat()
+            self._save_state()
+
+            try:
+                # Read text file
+                text_file = Path(text_file_path)
+                if not text_file.exists():
+                    raise FileNotFoundError(f"Text file not found: {text_file_path}")
+
+                text_content = text_file.read_text(encoding='utf-8').strip()
+                narrative_seeds = [line.strip() for line in text_content.split('\n') if line.strip()]
+
+                logger.info(
+                    "text_file_loaded",
+                    story_number=story_number,
+                    line_count=len(narrative_seeds)
+                )
+
+                print(f"\n{'='*70}")
+                print(f"Story {story_number}/{len(text_file_paths)}: {text_file.name}")
+                print(f"{'='*70}")
+                print(f"  Loaded {len(narrative_seeds)} sentences")
+
+                # Generate story using run_recursive_concept workflow
+                result = run_recursive_concept(
+                    config=self.config,
+                    output_path=str(story_output_dir),
+                    target_scene_count=self.batch_config.scene_number or 4,  # Will be inferred from text
+                    max_num_protagonists=-1,  # Infer from text
+                    max_num_extras=self.batch_config.max_num_extras,
+                    num_distinct_actions=self.batch_config.num_distinct_actions,  # Will be inferred from text
+                    narrative_seeds=narrative_seeds,  # TEXT INPUT HERE
+                    stop_phase=3  # Generate through detail phase
+                )
+
+                # Mark as success
+                story_status.status = 'success'
+                story_status.completed_at = datetime.now().isoformat()
+                self.batch_state.success_count += 1
+                self._save_state()
+
+                logger.info(
+                    "text_file_processing_completed",
+                    story_number=story_number,
+                    story_id=story_uuid,
+                    status='success'
+                )
+
+                print(f"  [SUCCESS] Story generated")
+
+            except Exception as e:
+                logger.error(
+                    "text_file_processing_failed",
+                    story_number=story_number,
+                    story_id=story_uuid,
+                    text_file=text_file_path,
+                    error=str(e),
+                    exc_info=True
+                )
+                story_status.status = 'failed'
+                story_status.errors.append(f"Generation error: {str(e)}")
+                story_status.completed_at = datetime.now().isoformat()
+                self.batch_state.failure_count += 1
+                self._save_state()
+
+                print(f"  [FAILED] {str(e)}")
+
+        # Finalize batch
+        self.batch_state.completed_at = datetime.now().isoformat()
+        self.batch_state.update_progress()
+
+        # Update retry statistics
+        retry_stats = self.retry_manager.get_total_retries()
+        self.batch_state.total_generation_retries = retry_stats['total_generation']
+        self.batch_state.total_simulation_retries = 0  # No simulation in text files mode
+
+        self._save_state()
+
+        logger.info(
+            "batch_text_files_completed",
+            batch_id=batch_id,
+            success_count=self.batch_state.success_count,
+            failure_count=self.batch_state.failure_count
+        )
+
+        return self.batch_state

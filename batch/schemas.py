@@ -50,6 +50,9 @@ class BatchConfig:
     # From existing stories mode
     from_existing_stories_path: Optional[str] = None
 
+    # From text files mode
+    from_text_files_path: Optional[str] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -75,6 +78,7 @@ class BatchConfig:
             'drive_folder_id': self.drive_folder_id,
             'keep_local': self.keep_local,
             'from_existing_stories_path': self.from_existing_stories_path,
+            'from_text_files_path': self.from_text_files_path,
         }
 
     @classmethod

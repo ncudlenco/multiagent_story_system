@@ -274,14 +274,14 @@ class PromptLogger:
 
         # Add cost estimation (optional, based on hypothetical GPT-5 pricing)
         # These rates are placeholders - update with actual pricing when available
-        prompt_cost_per_1k = 0.01  # $0.01 per 1K prompt tokens (placeholder)
-        completion_cost_per_1k = 0.02  # $0.02 per 1K completion tokens (placeholder)
+        prompt_cost_per_1k = 1.25  # per 1M prompt tokens (placeholder)
+        completion_cost_per_1k = 10  # per 1M completion tokens (placeholder)
 
-        prompt_cost = (total_tokens["prompt_tokens"] / 1000) * prompt_cost_per_1k
-        completion_cost = (total_tokens["completion_tokens"] / 1000) * completion_cost_per_1k
+        prompt_cost = (total_tokens["prompt_tokens"] / 1000000) * prompt_cost_per_1k
+        completion_cost = (total_tokens["completion_tokens"] / 1000000) * completion_cost_per_1k
 
         summary["estimated_cost_usd"] = {
-            "note": "Based on placeholder pricing (update with actual GPT-5 rates)",
+            "note": "Estimated costs based on GPT-5-mini input and output prices.",
             "prompt_cost": round(prompt_cost, 4),
             "completion_cost": round(completion_cost, 4),
             "total_cost": round(prompt_cost + completion_cost, 4)

@@ -665,10 +665,16 @@ def generate_story(
 
             start_phase = resume_from_phase
         else:
+            # From seeds
+            isInSeedMode = narrative_seeds is not None and len(narrative_seeds) > 0
+
             # Fresh generation
-            if max_num_protagonists is None or num_distinct_actions is None or scene_number is None:
-                print("\n[ERROR] --max-num-protagonists, --num-actions, and --scene-number required")
-                return False
+            if not isInSeedMode:
+                if max_num_protagonists is None or num_distinct_actions is None or scene_number is None:
+                    print("\n[ERROR] --max-num-protagonists, --num-actions, and --scene-number required")
+                    return False
+            else:
+                print("\n[INFO] Seed mode enabled. The number of protagonists, scenes, and actions will be inferred from the seeds.")
 
             narrative_seeds = narrative_seeds or []
             start_phase = 1
@@ -861,6 +867,13 @@ Examples:
     )
 
     parser.add_argument(
+        '--from-text-file',
+        type=str,
+        metavar='FILE',
+        help='Read narrative from text file (one sentence per line, overrides --seeds)'
+    )
+
+    parser.add_argument(
         '--stop-phase',
         type=int,
         default=None,
@@ -870,7 +883,7 @@ Examples:
     parser.add_argument(
         '--scene-number',
         type=int,
-        default=None,
+        default=0,
         help='How many scenes to generate'
     )
 
@@ -997,6 +1010,28 @@ Examples:
                 print("  Example: python main.py --resume 0faaa268 --from-phase 2")
                 sys.exit(1)
 
+            # Load narrative seeds from file if provided
+            narrative_seeds = args.seeds
+            if args.from_text_file:
+                try:
+                    text_file_path = Path(args.from_text_file)
+                    if not text_file_path.exists():
+                        print(f"\n[ERROR] Text file not found: {args.from_text_file}")
+                        sys.exit(1)
+
+                    text_content = text_file_path.read_text(encoding='utf-8').strip()
+                    # Split by newlines to get sentences
+                    narrative_seeds = [line.strip() for line in text_content.split('\n') if line.strip()]
+
+                    logger.info("loaded_text_file",
+                                path=args.from_text_file,
+                                line_count=len(narrative_seeds))
+                    print(f"\n[INFO] Loaded {len(narrative_seeds)} sentences from {args.from_text_file}")
+
+                except Exception as e:
+                    print(f"\n[ERROR] Failed to read text file: {e}")
+                    sys.exit(1)
+
             success = generate_story(
                 config=config,
                 resume_story_id=args.resume,  # None if --generate
@@ -1004,7 +1039,7 @@ Examples:
                 max_num_protagonists=args.max_num_protagonists,
                 max_num_extras=args.max_num_extras,
                 num_distinct_actions=args.num_actions,
-                narrative_seeds=args.seeds,
+                narrative_seeds=narrative_seeds,
                 scene_number=args.scene_number,
                 stop_phase=args.stop_phase,
                 use_cached_detail=args.use_cached_detail,

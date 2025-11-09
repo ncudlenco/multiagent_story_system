@@ -218,11 +218,13 @@ def expand_scene_node(state: RecursiveConceptState) -> RecursiveConceptState:
         logger.warning("no_scene_to_expand", iteration=state['iteration'])
         return state
 
+    remaining_budget = state['target_scene_count'] - state['current_scene_count'] if state['target_scene_count'] and state['current_scene_count'] else 0
+
     # Expand scene with budgets
     expansion_result = agent.expand_scene(
         current_gest=state['current_gest'],
         scenes_to_expand=scenes_to_expand,
-        remaining_budget=state['target_scene_count'] - state['current_scene_count'],
+        remaining_budget=remaining_budget,
         concept_capabilities=state['concept_capabilities'],
         protagonist_budget=protagonist_budget,
         extras_budget=extras_budget,

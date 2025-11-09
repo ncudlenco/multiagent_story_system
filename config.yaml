@@ -2,7 +2,7 @@
 # Phase 0: Foundation + Phase 1: Preprocessing
 
 openai:
-  model: "gpt-5-mini"  # Default model for all agents
+  model: "gpt-5"  # Default model for all agents
   # temperature: 1.0  # GPT-5 with structured outputs only supports 1 (omit to use default)
   # max_tokens: null  # No limit - let GPT-5 decide output length
   # api_key loaded from .env file (OPENAI_API_KEY)
@@ -36,7 +36,7 @@ preprocessing:
 
   # Skin categorization agent
   skin_categorization:
-    model: "gpt-5-mini"  # Large context window for all 249 skins
+    model: "gpt-5"  # Large context window for all 249 skins
     # temperature: 1.0  # GPT-5 structured outputs only supports 1 (omit for default)
     # max_tokens: null  # No limit - GPT-5 decides
 
@@ -60,11 +60,14 @@ validation:
   simulation_timeout_seconds: 600
   scene_1_max_retries: 2
   require_video_output: false
+  # Freeze/crash detection settings
+  max_server_log_silence_seconds: 60  # Detect freeze after 60s of no server logs
+  process_check_interval: 2  # Check process health every 2 seconds
   error_patterns:
     - "[ErrorHandler] ERROR DETECTED!"
     - "We could not find any valid episodes for the file"
   success_patterns:
-    - "story completed successfully"
+    - "No more graphs to process\\. Shutting down the server\\. story completed successfully"
 
 logging:
   level: "DEBUG"

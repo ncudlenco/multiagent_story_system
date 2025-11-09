@@ -18,7 +18,8 @@
                 "Multi-actor interactions require same location for both actors.",
                 "Other interactions can creatively be simulated (e.g. sit down all actors on chairs in the same region (e.g. kitchen, same table), answer phone for actor1 followed by answer phone for actor2 - simulates one calling the other).",
                 "Other interactions can creatively be simulated with creative temporal chains: e.g., actor0 performs TaiChi, actor1 and actor2 move to porch from bedroom, actor1 waves at actor0 in goodbye, actor2 and actor0 move to street same time, actor1 goes back inside - complex interaction simulated",
-                "Story within story can be simulated with creative temporal chains: e.g., actor0 answers phone (main story), then, in another episode with another timeframe illustrate the conversation it has (story within the story), then hang up and stash phone (end of story)"
+                "Story within story can be simulated with creative temporal chains: e.g., actor0 answers phone (main story), then, in another episode with another timeframe illustrate the conversation it has (story within the story), then hang up and stash phone (end of story)",
+                "The spawnable objects cannot be given or put down."
             ],
             "description": "General rules for action sequencing",
             "note": "These rules represent a guide in generating valid action sequences that respect object lifecycles, location constraints, and interaction requirements."
@@ -78,7 +79,7 @@
             ]
         },
         "observation_actions": {
-            "note": "LookAt can be directed at actors or objects but it must be used rarely since it performs no animation. Wave is typically a gesture. These actions can be performed standalone. LookAt can be performed while sitting/standing.",
+            "note": "LookAt can be directed at actors or objects but it must be used rarely since it performs no animation. Wave is typically a gesture. These actions can be performed standalone. LookAt can be performed while sitting/standing. LookAt is already a part of interaction animations.",
             "description": "Actions for observing and gesturing",
             "actions": [
                 "LookAt",
@@ -729,16 +730,6 @@
             "spawnable": false,
             "instance_count": 14
         },
-        "Furniture": {
-            "actions": [],
-            "spawnable": false,
-            "instance_count": 2
-        },
-        "FlowerPot": {
-            "actions": [],
-            "spawnable": false,
-            "instance_count": 3
-        },
         "Drinks": {
             "actions": [
                 "Drink",
@@ -776,11 +767,6 @@
             "spawnable": false,
             "instance_count": 11
         },
-        "Wardrobe": {
-            "actions": [],
-            "spawnable": false,
-            "instance_count": 1
-        },
         "ArmChair": {
             "actions": [
                 "StandUp",
@@ -796,16 +782,6 @@
             ],
             "spawnable": false,
             "instance_count": 2
-        },
-        "Plate": {
-            "actions": [],
-            "spawnable": false,
-            "instance_count": 8
-        },
-        "Painting": {
-            "actions": [],
-            "spawnable": false,
-            "instance_count": 9
         },
         "Cigarette": {
             "actions": [
@@ -854,11 +830,6 @@
             "spawnable": false,
             "instance_count": 14
         },
-        "GasCooker": {
-            "actions": [],
-            "spawnable": false,
-            "instance_count": 1
-        },
         "PunchingBag": {
             "actions": [
                 "Punch"
@@ -872,11 +843,6 @@
             ],
             "spawnable": false,
             "instance_count": 7
-        },
-        "Toilet": {
-            "actions": [],
-            "spawnable": false,
-            "instance_count": 1
         },
         "Table": {
             "actions": [],
@@ -917,11 +883,6 @@
             "spawnable": false,
             "instance_count": 2
         },
-        "CommonInterior": {
-            "actions": [],
-            "spawnable": false,
-            "instance_count": 1
-        },
         "TwoDumbbells": {
             "actions": [
                 "DumbbellsWorkOut",
@@ -933,6 +894,13 @@
         }
     },
     "episode_catalog": {
+        "classroom1": {
+            "linked_episodes": [],
+            "regions": [
+                "hallway",
+                "classroom"
+            ]
+        },
         "garden": {
             "linked_episodes": [
                 "house1_sweet",
@@ -1040,35 +1008,16 @@
         "next"
     ],
     "camera_actions": {
-        "recording_control": {
-            "commands": [
-                {
-                    "action": "record",
-                    "description": "Begin collecting artifacts (video, images, metadata from the simulation)"
-                },
-                {
-                    "action": "stop",
-                    "description": "Stop collecting artifacts"
-                }
-            ]
+        "note": "When a camera section is present in the graph, the system starts in non-recording mode. No frames are recorded for any events before the first 'record' command. Use 'stop' to pause recording - no frames will be captured between 'stop' and the next 'record' command.",
+        "actions": [
+            "record",
+            "stop"
+        ],
+        "notes": {
+            "record": "Start recording frames including this event.",
+            "stop": "Stop recording frames right now, frames will not be captured for this event. To include the last event in the recording, simply ensure that you started recorded and never stopped. The system stops automatically."
         },
-        "example":
-        {
-            "camera": {
-                "event_5": {
-                    "action": "record",
-                    "note": "Starts recording at event 5, skips events 0-4."
-                },
-                "event_20": {
-                    "action": "stop",
-                    "note": "Stops recording at event 20, events 5-20 were recorded."
-                },
-                "event_35": {
-                    "action": "record",
-                    "note": "Resumes recording at event 35, skips events 21-34. Will continue recording until story ends."
-                }
-            }
-        }
+        "focus_management": "After recording starts for any event, camera automatically records all events until end of story or stop. It handles focus switching between actors, episode transitions, and fade effects. Focus duration: 2 seconds normal, 5 seconds for context changes (cross-episode transitions). If multiple actions execute in parallel in multiple locations, except for background actors, the camera will alternate between positions. This makes events hard to follow. The recommendation is to ensure proper temporal synchronization across actors in different locations for best cinematic experience."
     },
     "middle_actions": [
         "TakeOut",

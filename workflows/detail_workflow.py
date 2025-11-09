@@ -99,14 +99,90 @@ def get_episode_for_scene(episode_name: str, full_capabilities: Dict[str, Any]) 
     raise ValueError(f"Episode '{episode_name}' not found in capabilities")
 
 
+def preprocess_episode_data(episode_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Preprocess episode data to categorize objects based on POI sequences.
+
+    Analyzes POI action patterns to determine which objects can be picked up
+    while seated (after SitDown) vs while standing (standalone PickUp).
+
+    Args:
+        episode_data: Raw episode data from capabilities
+
+    Returns:
+        Enhanced episode data with categorized objects
+    """
+    # Analyze POI sequences to find seated pickup patterns
+    seated_pickupable_types = set()
+    standing_pickupable_types = set()
+
+    pois = episode_data.get('POIs', [])
+
+    for poi in pois:
+        actions = poi.get('actions', [])
+
+        # Check if this POI has a SitDown action with PickUp in next actions
+        has_seated_pickup = False
+        for action in actions:
+            if action.get('type') == 'SitDown' and 'PickUp' in action.get('possible_next_actions', []):
+                has_seated_pickup = True
+                break
+
+        # Process PickUp actions in this POI
+        for action in actions:
+            if action.get('type') == 'PickUp':
+                obj_type = action.get('object_type')
+                if obj_type:
+                    if has_seated_pickup:
+                        # This is a seated pickup
+                        seated_pickupable_types.add(obj_type)
+                    else:
+                        # This is a standing pickup (only if not already marked as seated)
+                        if obj_type not in seated_pickupable_types:
+                            standing_pickupable_types.add(obj_type)
+
+    # Enhance objects with pickup categorization
+    enhanced_objects = []
+    for obj in episode_data.get('objects', []):
+        obj_type = obj.get('type')
+        enhanced_obj = obj.copy()
+
+        if obj_type in seated_pickupable_types:
+            enhanced_obj['pickup_mode'] = 'seated'
+            # Food when seated can only be eaten, cannot be given or put down
+            enhanced_obj['seated_constraints'] = 'SitDown->PickUp->Use (e.g. Eat) sequence required, cannot Give or PutDown while seated'
+        elif obj_type in standing_pickupable_types:
+            enhanced_obj['pickup_mode'] = 'standing'
+        else:
+            # Not pickupable (e.g., chairs, desks)
+            enhanced_obj['pickup_mode'] = 'not_pickupable'
+
+        enhanced_objects.append(enhanced_obj)
+
+    # Update episode data with enhanced objects
+    episode_data_enhanced = episode_data.copy()
+    episode_data_enhanced['objects'] = enhanced_objects
+
+    logger.debug(
+        "preprocessed_episode_objects",
+        episode=episode_data.get('name'),
+        seated_pickupable=list(seated_pickupable_types),
+        standing_pickupable=list(standing_pickupable_types),
+        total_objects=len(enhanced_objects)
+    )
+
+    return episode_data_enhanced
+
+
 def place_episodes_node(state: DetailState) -> DetailState:
     """Node that assigns episodes to leaf scenes.
+
+    First gets ALL valid episodes for each scene, then randomly selects one.
 
     Args:
         state: Current workflow state
 
     Returns:
-        Updated state with episode_mapping populated
+        Updated state with episode_mapping populated (single episode per scene)
     """
     logger.info(
         "starting_episode_placement",
@@ -117,35 +193,61 @@ def place_episodes_node(state: DetailState) -> DetailState:
     # Initialize episode placement agent with optional prompt_logger
     agent = EpisodePlacementAgent(state['config'], prompt_logger=state.get('prompt_logger'))
 
-    # Place scenes
-    placement_result = agent.place_scenes(
+    # Get ALL valid episodes for each scene
+    all_valid_placements = agent.place_scenes(
         story_id=state['story_id'],
         casting_gest=state['casting_gest'],
         full_capabilities=state['full_capabilities'],
         use_cached=state['use_cached'] or False
     )
 
-    # Update state
-    state['episode_mapping'] = placement_result.placements
-
     logger.info(
-        "episode_placement_complete",
+        "all_valid_episodes_identified",
         story_id=state['story_id'],
-        placements=placement_result.placements
+        total_scenes=len(all_valid_placements.placements),
+        total_options={scene_id: len(episodes) for scene_id, episodes in all_valid_placements.placements.items()}
     )
 
-    # Save episode mapping artifact
+    # Save all valid placements for reference/debugging
     output_dir = state['output_dir']
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    all_valid_path = output_dir / "all_valid_episode_mappings.json"
+    with open(all_valid_path, 'w', encoding='utf-8') as f:
+        json.dump({
+            'placements': all_valid_placements.placements,
+            'reasoning': all_valid_placements.reasoning
+        }, f, indent=2)
+
+    logger.info("saved_all_valid_episodes", path=str(all_valid_path))
+
+    # Randomly select one episode per scene
+    selected_mapping = agent.select_episodes_randomly(
+        all_valid_placements,
+        seed=None  # Can be parameterized for reproducibility if needed
+    )
+
+    # Update state with selected mapping
+    state['episode_mapping'] = selected_mapping
+
+    logger.info(
+        "episode_selection_complete",
+        story_id=state['story_id'],
+        selected_episodes=selected_mapping
+    )
+
+    # Save selected episode mapping (backward compatible format)
     mapping_path = output_dir / "episode_mapping.json"
     with open(mapping_path, 'w', encoding='utf-8') as f:
         json.dump({
-            'placements': placement_result.placements,
-            'reasoning': placement_result.reasoning
+            'placements': selected_mapping,
+            'reasoning': {
+                scene_id: all_valid_placements.reasoning[scene_id][selected_episode]
+                for scene_id, selected_episode in selected_mapping.items()
+            }
         }, f, indent=2)
 
-    logger.info("saved_episode_mapping", path=str(mapping_path))
+    logger.info("saved_selected_episode_mapping", path=str(mapping_path))
 
     return state
 
@@ -336,17 +438,19 @@ def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int) -> GEST:
     )
 
 
-def expand_scenes_node_parallel(state: DetailState) -> DetailState:
-    """Node that expands all leaf scenes and performs complete cross-scene merging.
+def expand_scenes_node_sequential(state: DetailState) -> DetailState:
+    """Node that expands leaf scenes sequentially with state tracking.
 
-    This node now handles ALL expansion and merging in one atomic operation:
+    This node handles expansion and merging sequentially to ensure state continuity:
 
-    1. Parallel Expansion: Uses ThreadPoolExecutor for 4-5x performance improvement
-    2. Scene Ordering: Topologically sorts scenes by BEFORE relations
-    3. Sequential Merge: Merges in correct narrative order (not parallel completion order)
-    4. Scene Info Tracking: Extracts first/last actions during merge (no later searches)
-    5. Cross-Scene Temporal Relations: Adds scene-to-scene BEFORE relations
-    6. Actor Chain Linking: Links same-actor chains across scene boundaries
+    1. Scene Ordering: Topologically sorts scenes by BEFORE relations
+    2. Sequential Expansion: Expands one scene at a time in narrative order
+    3. State Passing: Passes previous scene state (last actions, created objects) to each expansion
+    4. Immediate Merge: Merges each scene immediately after expansion
+    5. Scene Info Tracking: Extracts first/last actions during merge
+    6. Cross-Scene Temporal Relations: Adds scene-to-scene BEFORE relations
+    7. Actor Chain Linking: Links same-actor chains across scene boundaries
+    8. Object Tracking: Tracks created objects to prevent duplication and enable reuse
 
     Args:
         state: Current workflow state
@@ -355,7 +459,7 @@ def expand_scenes_node_parallel(state: DetailState) -> DetailState:
         Updated state with fully merged and linked detail GEST
     """
     logger.info(
-        "starting_parallel_scene_expansion",
+        "starting_sequential_scene_expansion",
         story_id=state['story_id'],
         total_scenes=len(state['leaf_scenes'])
     )
@@ -394,134 +498,194 @@ def expand_scenes_node_parallel(state: DetailState) -> DetailState:
         background_actors=background_count
     )
 
-    # Prepare expansion tasks
-    expansion_tasks = []
-    for scene_id in state['leaf_scenes']:
+    # STEP 1: Order scenes by temporal relations
+    logger.info("ordering_scenes_by_temporal_relations")
+    scene_sequence = get_scene_sequence(state['casting_gest'], state['leaf_scenes'])
+    logger.info("derived_scene_sequence", sequence=scene_sequence)
+
+    # Initialize accumulated state for tracking across scenes
+    accumulated_state = {
+        'last_actions_by_actor': {},          # actor_id → last_action_event_id
+        'last_locations_by_actor': {},        # actor_id → [location1, location2, ...]
+        'last_stateful_action_by_actor': {}, # actor_id → {'action': 'SitDown', 'entity_type': None, 'action_id': '...'}
+        'created_objects': {}                  # object_id → Exists event
+    }
+
+    # STEP 2: Expand scenes sequentially and merge immediately
+    previous_scene_id = None
+
+    for idx, scene_id in enumerate(scene_sequence):
+        logger.info(
+            "expanding_scene_sequentially",
+            scene_id=scene_id,
+            scene_index=idx,
+            total_scenes=len(scene_sequence)
+        )
+
+        # Prepare scene data
         scene_event = state['casting_gest'].events[scene_id]
         episode_name = state['episode_mapping'][scene_id]
         episode_data = get_episode_for_scene(episode_name, state['full_capabilities'])
+        episode_data = preprocess_episode_data(episode_data)  # Categorize objects by pickup mode
+
         # Get ALL actors (protagonists + background actors) for this scene
         scene_actor_exists_events = {
             k: v for k, v in all_actor_exists_events.items() if k in scene_event.Entities
         }
         actor_names = [event.Properties['Name'] for event in scene_actor_exists_events.values()]
 
-        expansion_tasks.append({
-            'scene_id': scene_id,
-            'story_id': state['story_id'],
-            'scene_event': scene_event,
-            'casting_narrative': state['casting_narrative'],
-            'episode_name': episode_name,
-            'episode_data': episode_data,
-            'protagonist_names': actor_names,  # Keep this key name for backward compatibility
-            'full_capabilities': state['full_capabilities'],
-            'protagonist_exists_events': scene_actor_exists_events,  # Keep this key name for backward compatibility
-            'use_cached': state['use_cached']
-        })
-
-    # Execute expansions in parallel
-    max_workers = min(5, len(state['leaf_scenes']))
-    expansion_results = []
-
-    logger.info("executing_parallel_expansion", max_workers=max_workers)
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
-        future_to_scene = {
-            executor.submit(agent.expand_leaf_scene, **task): task['scene_id']
-            for task in expansion_tasks
+        # Prepare previous scene state (None for first scene)
+        previous_scene_state = None if idx == 0 else {
+            'last_actions_by_actor': dict(accumulated_state['last_actions_by_actor']),
+            'last_locations_by_actor': dict(accumulated_state['last_locations_by_actor']),
+            'last_stateful_action_by_actor': dict(accumulated_state['last_stateful_action_by_actor']),
+            'created_objects': dict(accumulated_state['created_objects'])
         }
 
-        # Collect results as they complete
-        for future in as_completed(future_to_scene):
-            scene_id = future_to_scene[future]
-            try:
-                expansion_result = future.result()
-                expansion_results.append((scene_id, expansion_result))
+        # Prepare future scenes for lookahead (empty list for last scene)
+        future_scenes = []
+        if idx < len(scene_sequence) - 1:
+            for future_scene_id in scene_sequence[idx + 1:]:
+                future_scene_event = state['casting_gest'].events[future_scene_id]
+                future_episode_name = state['episode_mapping'][future_scene_id]
 
-                logger.info(
-                    "scene_expanded",
-                    scene_id=scene_id,
-                    expanded_event_count=len(expansion_result.gest.events)
-                )
+                # Get actor names for this future scene
+                future_actor_ids = future_scene_event.Entities
+                future_actor_names = [
+                    all_actor_exists_events[actor_id].Properties['Name']
+                    for actor_id in future_actor_ids
+                    if actor_id in all_actor_exists_events
+                ]
 
-            except Exception as e:
-                logger.error(
-                    "scene_expansion_failed",
-                    scene_id=scene_id,
-                    error=str(e),
-                    exc_info=True
-                )
-                # Continue with other scenes even if one fails
-                continue
+                future_scenes.append({
+                    'scene_id': future_scene_id,
+                    'narrative': future_scene_event.Properties.get('narrative', 'No narrative'),
+                    'entities': future_actor_ids,
+                    'actor_names': future_actor_names,
+                    'location': future_scene_event.Location,
+                    'episode_name': future_episode_name
+                })
 
-    # STEP 1: Order scenes by temporal relations
-    logger.info("ordering_scenes_by_temporal_relations")
-    scene_sequence = get_scene_sequence(state['casting_gest'], state['leaf_scenes'])
-    logger.info("derived_scene_sequence", sequence=scene_sequence)
+            logger.info(
+                "prepared_future_scenes_lookahead",
+                current_scene=scene_id,
+                future_scene_count=len(future_scenes),
+                future_scene_ids=[fs['scene_id'] for fs in future_scenes]
+            )
 
-    # Convert expansion_results to dict for easy lookup
-    expansion_results_dict = dict(expansion_results)
+        try:
+            # Expand scene with previous state and future lookahead
+            expansion_result = agent.expand_leaf_scene(
+                scene_id=scene_id,
+                story_id=state['story_id'],
+                scene_event=scene_event,
+                casting_narrative=state['casting_narrative'],
+                episode_name=episode_name,
+                episode_data=episode_data,
+                protagonist_names=actor_names,
+                full_capabilities=state['full_capabilities'],
+                protagonist_exists_events=scene_actor_exists_events,
+                use_cached=state['use_cached'],
+                previous_scene_state=previous_scene_state,
+                future_scenes=future_scenes  # NEW: Pass future scenes for lookahead
+            )
 
-    # Order expansions according to scene sequence
-    ordered_expansions = [
-        (scene_id, expansion_results_dict[scene_id])
-        for scene_id in scene_sequence
-        if scene_id in expansion_results_dict
-    ]
+            logger.info(
+                "scene_expanded",
+                scene_id=scene_id,
+                expanded_event_count=len(expansion_result.gest.events)
+            )
 
-    logger.info("merging_parallel_expansions_in_order", count=len(ordered_expansions))
+            # Make event IDs unique for this scene
+            unique_gest = make_event_ids_unique(
+                expansion_result.gest,
+                scene_id,
+                idx
+            )
 
-    # Make all event and relation IDs unique across scenes
-    logger.info("making_event_ids_unique_across_scenes", scene_count=len(ordered_expansions))
+            # Create new DualOutput with renamed GEST
+            expansion_result = DualOutput(
+                gest=unique_gest,
+                narrative=expansion_result.narrative
+            )
 
-    unique_ordered_expansions = []
-    for idx, (scene_id, expansion_result) in enumerate(ordered_expansions):
-        # Comprehensively rename all IDs in this scene
-        unique_gest = make_event_ids_unique(
-            expansion_result.gest,
-            scene_id,
-            idx
-        )
+            # Extract scene info BEFORE merging (for cross-scene linking)
+            scene_info = extract_scene_info(expansion_result.gest)
+            scene_info['scene_id'] = scene_id  # Add scene_id for logging
 
-        # Create new DualOutput with renamed GEST
-        unique_ordered_expansions.append((
-            scene_id,
-            DualOutput(gest=unique_gest, narrative=expansion_result.narrative)
-        ))
+            logger.info(
+                "extracted_scene_info",
+                scene_id=scene_id,
+                first_actions_overall=scene_info['first_actions_overall'],
+                last_actions_overall=scene_info['last_actions_overall'],
+                first_actions_by_actor=scene_info['first_actions_by_actor'],
+                last_actions_by_actor=scene_info['last_actions_by_actor']
+            )
 
-    # Replace with uniquified version
-    ordered_expansions = unique_ordered_expansions
+            # Get previous scene info if available
+            current_info_map = None
+            if previous_scene_id:
+                current_info_map = extract_scene_info(state['current_gest'])
 
-    logger.info("all_scene_ids_made_unique", scene_count=len(ordered_expansions))
+            # Merge immediately with accumulated objects for deduplication
+            state['current_gest'] = merge_expansion(
+                state['current_gest'],
+                expansion_result.gest,
+                current_info_map,
+                scene_info,
+                accumulated_objects=accumulated_state['created_objects']
+            )
 
-    # STEP 2: Merge in order and track scene information
-    scene_info_map = {}
+            state['narrative_parts'].append(expansion_result.narrative)
+            state['scenes_expanded'].append(scene_id)
 
-    previous_scene_id = None
-    for scene_id, expansion_result in ordered_expansions:
-        # Track scene info BEFORE merging (for cross-scene linking)
-        scene_info = extract_scene_info(expansion_result.gest)
-        logger.info(
-            "extracted_scene_info",
-            scene_id=scene_id,
-            first_actions_overall=scene_info['first_actions_overall'],
-            last_actions_overall=scene_info['last_actions_overall'],
-            first_actions_by_actor=scene_info['first_actions_by_actor'],
-            last_actions_by_actor=scene_info['last_actions_by_actor']
-        )
-        scene_info_map[scene_id] = scene_info
+            # Update accumulated state for next scene
+            # Update last actions, locations, and stateful actions (keep all actors, even if not in this scene)
+            for actor_id, action_id in scene_info['last_actions_by_actor'].items():
+                accumulated_state['last_actions_by_actor'][actor_id] = action_id
 
-        # Perform merge
-        state['current_gest'] = merge_expansion(
-            state['current_gest'],
-            expansion_result.gest,
-            scene_info_map[previous_scene_id] if previous_scene_id else None,
-            scene_info
-        )
-        state['narrative_parts'].append(expansion_result.narrative)
-        state['scenes_expanded'].append(scene_id)
-        previous_scene_id = scene_id
+                # Extract location from last action event
+                if action_id in expansion_result.gest.events:
+                    last_action_event = expansion_result.gest.events[action_id]
+                    accumulated_state['last_locations_by_actor'][actor_id] = last_action_event.Location
+
+                # Find last stateful action for this actor
+                starting_action_id = scene_info['first_actions_by_actor'].get(actor_id)
+                if starting_action_id:
+                    last_stateful = find_last_stateful_action(
+                        expansion_result.gest,
+                        actor_id,
+                        starting_action_id
+                    )
+                    if last_stateful:
+                        accumulated_state['last_stateful_action_by_actor'][actor_id] = last_stateful
+                    # If no stateful action found and actor had one before, keep the old one
+                    # (actor might not have performed new stateful action in this scene)
+
+            # Update created objects with new objects from this scene
+            scene_objects = extract_created_objects(expansion_result.gest)
+            accumulated_state['created_objects'].update(scene_objects)
+
+            logger.info(
+                "accumulated_state_updated",
+                scene_id=scene_id,
+                total_tracked_actors=len(accumulated_state['last_actions_by_actor']),
+                total_tracked_locations=len(accumulated_state['last_locations_by_actor']),
+                total_tracked_stateful_actions=len(accumulated_state['last_stateful_action_by_actor']),
+                total_tracked_objects=len(accumulated_state['created_objects'])
+            )
+
+            previous_scene_id = scene_id
+
+        except Exception as e:
+            logger.error(
+                "scene_expansion_failed",
+                scene_id=scene_id,
+                error=str(e),
+                exc_info=True
+            )
+            # Continue with other scenes even if one fails
+            continue
 
     logger.info(
         "scene_merge_complete",
@@ -531,7 +695,7 @@ def expand_scenes_node_parallel(state: DetailState) -> DetailState:
     )
 
     logger.info(
-        "parallel_scene_expansion_complete",
+        "sequential_scene_expansion_complete",
         story_id=state['story_id'],
         scenes_expanded=len(state['scenes_expanded']),
         total_events=len(state['current_gest'].events)
@@ -544,7 +708,8 @@ def merge_expansion(
         current_gest: GEST,
         expansion_gest: GEST,
         current_info_map: Optional[Dict[str, Any]], # or None
-        expansion_info_map: Dict[str, Any]
+        expansion_info_map: Dict[str, Any],
+        accumulated_objects: Optional[Dict[str, GESTEvent]] = None
     ) -> GEST:
     """Merge expansion GEST into current accumulated GEST. This is done in order of scenes: casting, leaf1, leaf2, ...
 
@@ -553,6 +718,7 @@ def merge_expansion(
         expansion_gest: New expansion to merge
         current_info_map: Scene info map for current GEST
         expansion_info_map: Scene info map for expansion GEST
+        accumulated_objects: Objects created in previous scenes (for deduplication)
 
     Returns:
         Merged GEST
@@ -578,7 +744,22 @@ def merge_expansion(
     # Merge events, preserving first occurrence of ALL actor Exists (protagonists + background actors)
     merged_events = dict(current_gest.events)  # Start with current (has first occurrences)
 
+    # Initialize accumulated_objects if not provided
+    if accumulated_objects is None:
+        accumulated_objects = {}
+
     for event_id, event in expansion_gest.events.items():
+        # Skip object Exists events that were created in previous scenes
+        if (event.Action == 'Exists' and
+            event.Properties.get('Gender') is None and  # Is an object (not an actor)
+            event_id in accumulated_objects):
+            logger.info(
+                "skipping_duplicate_object_exists",
+                object_id=event_id,
+                scene=expansion_info_map.get('scene_id', 'unknown')
+            )
+            continue  # Skip this object - already exists from previous scene
+
         if event_id in merged_events:
             # Check if this is an actor Exists event collision (protagonist or background)
             existing = merged_events[event_id]
@@ -880,6 +1061,91 @@ def extract_scene_info(expansion_gest: GEST) -> Dict[str, Any]:
         'first_actions_overall': first_actions_overall,
         'last_actions_overall': last_actions_overall
     }
+
+
+def extract_created_objects(gest: GEST) -> Dict[str, GESTEvent]:
+    """Extract all object Exists events (non-actor) from GEST.
+
+    Objects are distinguished from actors by the absence of a 'Gender' property.
+    This allows tracking of objects created in previous scenes for reuse.
+
+    Args:
+        gest: GEST from scene expansion
+
+    Returns:
+        Dictionary mapping object_id to Exists event
+    """
+    created_objects = {}
+
+    for event_id, event in gest.events.items():
+        if event.Action == 'Exists':
+            # Check if this is an object (not an actor)
+            # Actors have Gender property, objects do not
+            if event.Properties.get('Gender') is None:
+                created_objects[event_id] = event
+
+    logger.info(
+        "extracted_created_objects",
+        object_count=len(created_objects),
+        object_ids=list(created_objects.keys())
+    )
+
+    return created_objects
+
+
+def find_last_stateful_action(gest: GEST, actor_id: str, starting_action_id: str) -> Optional[Dict[str, Any]]:
+    """Find the last stateful action in an actor's action chain.
+
+    Stateful actions are:
+    - SitDown (actor in seated state, needs StandUp to exit)
+    - GetOn with Bed entity (actor sleeping, needs GetOff)
+    - GetOn with benchpress entity (actor bench pressing, needs GetOff)
+    - GetOn with treadmill entity (actor on treadmill, needs GetOff)
+
+    Args:
+        gest: GEST containing the action chain
+        actor_id: ID of the actor
+        starting_action_id: First action in chain (from temporal.starting_actions)
+
+    Returns:
+        The event of the last stateful action or None:
+    """
+    last_stateful = None
+    current_action_id = starting_action_id
+
+    # Walk forward through the action chain collecting stateful actions
+    while current_action_id:
+        event = gest.events.get(current_action_id)
+
+        if not event or actor_id not in event.Entities:
+            break
+
+        # Check if this is SitDown
+        if event.Action == 'SitDown':
+            last_stateful = event
+
+        # Check if this is GetOn with stateful entity
+        elif event.Action == 'GetOn':
+            last_stateful = event
+            break  # Found stateful entity, no need to check more
+        elif event.Action == 'StandUp' or event.Action == 'GetOff':
+            last_stateful = None
+
+        # Move to next action in chain
+        temporal_entry = gest.temporal.get(current_action_id)
+        if temporal_entry and isinstance(temporal_entry, dict):
+            current_action_id = temporal_entry.get('next')
+        else:
+            break
+
+    if last_stateful:
+        logger.info(
+            "found_last_stateful_action",
+            actor_id=actor_id,
+            action=last_stateful.Action
+        )
+
+    return last_stateful
 
 
 def get_scene_sequence(casting_gest: GEST, leaf_scenes: List[str]) -> List[str]:
@@ -1239,7 +1505,7 @@ def build_detail_workflow() -> StateGraph:
 
     # Add nodes
     workflow.add_node("place_episodes", place_episodes_node)
-    workflow.add_node("expand_scenes", expand_scenes_node_parallel)
+    workflow.add_node("expand_scenes", expand_scenes_node_sequential)
     workflow.add_node("finalize", finalize_node)
 
     # Set entry point

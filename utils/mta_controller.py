@@ -76,6 +76,7 @@ class MTAController:
         # Server and client processes
         self.process: Optional[subprocess.Popen] = None
         self.client_process: Optional[subprocess.Popen] = None
+        self.client_start_time: Optional[float] = None  # Track client start time for process identification
         self.status = MTAServerStatus.STOPPED
 
         logger.info(
@@ -293,6 +294,9 @@ class MTAController:
         logger.info("starting_mta_client", shortcut=str(self.client_shortcut))
 
         try:
+            # Record start time for process identification
+            self.client_start_time = time.time()
+
             # Start client via shortcut (configured to connect to localhost)
             self.client_process = subprocess.Popen(
                 ['cmd', '/c', 'start', '', str(self.client_shortcut)],
@@ -305,7 +309,7 @@ class MTAController:
                 logger.info("waiting_for_client_startup", seconds=2)
                 time.sleep(2)
 
-            logger.info("mta_client_started")
+            logger.info("mta_client_started", start_time=self.client_start_time)
             return True
 
         except Exception as e:
@@ -431,6 +435,77 @@ class MTAController:
         # Check if process is still alive
         return self.process.poll() is None
 
+    def check_processes_alive(self) -> Tuple[bool, bool, Optional[str]]:
+        """
+        Check if both server and client processes are alive.
+
+        This method detects client crashes which would otherwise cause the server
+        to hang indefinitely waiting for client connection.
+
+        Returns:
+            Tuple of (server_alive, client_alive, error_message)
+        """
+        server_alive = False
+        client_alive = False
+        error = None
+
+        # Check server process
+        if self.process:
+            if self.process.poll() is None:
+                server_alive = True
+            else:
+                exit_code = self.process.poll()
+                error = f"Server process died unexpectedly (exit code: {exit_code})"
+                logger.error("server_process_died", exit_code=exit_code)
+
+        # Check client process (find by executable name and start time)
+        if self.client_start_time is not None:
+            try:
+                client_exe_name = self.mta_config.get('client_executable', 'Multi Theft Auto.exe')
+                found_client = False
+
+                for proc in psutil.process_iter(['name', 'exe', 'create_time', 'pid']):
+                    proc_name = proc.info.get('name', '')
+
+                    # Match client executable name
+                    if client_exe_name.lower() in proc_name.lower():
+                        # Check if started after our client launch
+                        # Give 5 second grace period for process creation time tracking
+                        if proc.info['create_time'] >= (self.client_start_time - 5):
+                            found_client = True
+
+                            # Check if still running
+                            try:
+                                if proc.is_running():
+                                    client_alive = True
+                                    logger.debug("client_process_alive", pid=proc.info['pid'])
+                                else:
+                                    error = f"Client process died unexpectedly (PID: {proc.info['pid']})"
+                                    logger.error("client_process_died", pid=proc.info['pid'])
+                            except psutil.NoSuchProcess:
+                                error = "Client process no longer exists"
+                                logger.error("client_process_missing")
+
+                            break
+
+                if not found_client:
+                    # Client process not found
+                    # This could mean:
+                    # 1. Client hasn't fully started yet (too early)
+                    # 2. Client already crashed/closed
+                    # Don't mark as error immediately - assume alive for graceful handling
+                    logger.debug("client_process_not_found")
+                    client_alive = True  # Assume alive if not found yet
+
+            except Exception as e:
+                logger.warning("client_process_check_error", error=str(e))
+                client_alive = True  # Assume alive on check error (graceful handling)
+        else:
+            # Client not started yet
+            client_alive = False
+
+        return server_alive, client_alive, error
+
     def _kill_orphaned_processes(self) -> int:
         """
         Kill any orphaned MTA server processes.
@@ -530,24 +605,42 @@ class MTAController:
             if not simulation_folder:
                 logger.warning("simulation_folder_not_detected")
 
-            # 8. Main monitoring loop
+            # 8. Main monitoring loop with enhanced freeze/crash detection
             server_log_path = self.get_server_log_path()
             client_log_path = self.get_client_log_path()
             server_log_pos = 0
             client_log_pos = 0
             start_time = time.time()
+            last_server_activity_time = start_time  # Track server log activity for freeze detection
 
-            logger.info("starting_simulation_monitoring_loop")
+            logger.info("starting_enhanced_simulation_monitoring_loop")
 
             while True:
-                # Monitor simulation progress
-                status, message, server_log_pos, client_log_pos = self.monitor_simulation_progress(
-                    server_log_path,
-                    client_log_path,
-                    simulation_folder,
-                    server_log_pos,
-                    client_log_pos
-                )
+                # Check process health (detect crashes)
+                server_alive, client_alive, process_error = self.check_processes_alive()
+
+                if not server_alive:
+                    logger.error("server_process_crashed")
+                    final_success = False
+                    final_error = process_error or "Server process died unexpectedly"
+                    break
+
+                if not client_alive:
+                    logger.error("client_process_crashed")
+                    final_success = False
+                    final_error = process_error or "Client process died unexpectedly"
+                    break
+
+                # Monitor simulation progress (includes server log activity tracking)
+                status, message, server_log_pos, client_log_pos, last_server_activity_time = \
+                    self.monitor_simulation_progress(
+                        server_log_path,
+                        client_log_path,
+                        simulation_folder,
+                        server_log_pos,
+                        client_log_pos,
+                        last_server_activity_time
+                    )
 
                 if status == "COMPLETE":
                     logger.info("simulation_complete_detected", message=message)
@@ -560,16 +653,17 @@ class MTAController:
                     final_error = message
                     break
 
-                # Check timeout
+                # Check global timeout
                 elapsed = time.time() - start_time
                 if elapsed > timeout_seconds:
-                    logger.warning("simulation_timeout", elapsed=elapsed)
+                    logger.warning("simulation_global_timeout", elapsed=elapsed)
                     final_success = False
-                    final_error = f"Simulation timeout after {timeout_seconds} seconds"
+                    final_error = f"Simulation global timeout after {timeout_seconds} seconds"
                     break
 
-                # Poll interval
-                time.sleep(2)
+                # Poll interval (configurable)
+                check_interval = self.config['validation'].get('process_check_interval', 2)
+                time.sleep(check_interval)
 
             # 9. Force-stop processes
             logger.info("forcing_stop_of_mta_processes")
@@ -935,10 +1029,15 @@ class MTAController:
         client_log_path: Path,
         simulation_folder: Optional[Path],
         server_log_pos: int,
-        client_log_pos: int
-    ) -> Tuple[str, Optional[str], int, int]:
+        client_log_pos: int,
+        last_server_activity_time: float
+    ) -> Tuple[str, Optional[str], int, int, float]:
         """
         Monitor simulation progress by checking logs and error files.
+
+        This method now tracks server log activity to detect freezes.
+        If the server produces no new log lines for max_server_log_silence_seconds,
+        it indicates a likely freeze (client hung, server waiting, or deadlock).
 
         Args:
             server_log_path: Path to server.log
@@ -946,9 +1045,10 @@ class MTAController:
             simulation_folder: Path to simulation folder (for error file checking)
             server_log_pos: Current byte position in server log
             client_log_pos: Current byte position in client log
+            last_server_activity_time: Timestamp of last server log activity
 
         Returns:
-            Tuple of (status, message, new_server_pos, new_client_pos)
+            Tuple of (status, message, new_server_pos, new_client_pos, last_server_activity_time)
             where status = "COMPLETE" | "ERROR" | "RUNNING"
         """
         from utils.log_parser import MTALogParser
@@ -959,7 +1059,7 @@ class MTAController:
         # 1. Check for error files first (immediate failure detection)
         has_error, error_msg = self.check_for_error_files(simulation_folder)
         if has_error:
-            return "ERROR", error_msg, server_log_pos, client_log_pos
+            return "ERROR", error_msg, server_log_pos, client_log_pos, last_server_activity_time
 
         # 2. Read new log lines
         server_new_lines, new_server_pos = log_parser.tail_logs(
@@ -973,17 +1073,40 @@ class MTAController:
 
         all_new_lines = server_new_lines + client_new_lines
 
-        # 3. Check for completion patterns
-        if log_parser.check_simulation_complete(all_new_lines):
-            return "COMPLETE", "Simulation completed successfully", new_server_pos, new_client_pos
+        # 3. Track server log activity for freeze detection
+        current_time = time.time()
+        if server_new_lines:
+            # Server produced new logs - update activity time
+            last_server_activity_time = current_time
+            logger.debug("server_log_activity_detected", new_lines=len(server_new_lines))
+        else:
+            # No new server logs - check if silent for too long
+            silence_duration = current_time - last_server_activity_time
+            max_silence = self.config['validation'].get('max_server_log_silence_seconds', 60)
 
-        # 4. Check for error patterns
+            if silence_duration > max_silence:
+                error_msg = (
+                    f"Server log silence detected: no server logs for {silence_duration:.1f} seconds "
+                    f"(max: {max_silence}s). This indicates a likely freeze or deadlock."
+                )
+                logger.error(
+                    "server_log_silence_timeout",
+                    silence_duration=silence_duration,
+                    max_silence=max_silence
+                )
+                return "ERROR", error_msg, new_server_pos, new_client_pos, last_server_activity_time
+
+        # 4. Check for completion patterns
+        if log_parser.check_simulation_complete(all_new_lines):
+            return "COMPLETE", "Simulation completed successfully", new_server_pos, new_client_pos, last_server_activity_time
+
+        # 5. Check for error patterns
         errors = log_parser.find_errors(all_new_lines)
         if errors:
             error_message = f"Errors detected in logs: {len(errors)} errors"
             error_message += "\n" + "\n".join(errors)
             logger.error("simulation_errors_detected", count=len(errors), errors=errors)
-            return "ERROR", error_message, new_server_pos, new_client_pos
+            return "ERROR", error_message, new_server_pos, new_client_pos, last_server_activity_time
 
-        # 5. Still running
-        return "RUNNING", None, new_server_pos, new_client_pos
+        # 6. Still running
+        return "RUNNING", None, new_server_pos, new_client_pos, last_server_activity_time

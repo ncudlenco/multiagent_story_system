@@ -19,7 +19,11 @@
                 "Multi-actor interactions require same location for both actors.",
                 "Other interactions can creatively be simulated (e.g. sit down all actors on chairs in the same region (e.g. kitchen, same table), answer phone for actor1 followed by answer phone for actor2 - simulates one calling the other).",
                 "Other interactions can creatively be simulated with creative temporal chains: e.g., actor0 performs TaiChi, actor1 and actor2 move to porch from bedroom, actor1 waves at actor0 in goodbye, actor2 and actor0 move to street same time, actor1 goes back inside - complex interaction simulated",
-                "Story within story can be simulated with creative temporal chains: e.g., actor0 answers phone (main story), then, in another episode with another timeframe illustrate the conversation it has (story within the story), then hang up and stash phone (end of story)"
+                "Story within story can be simulated with creative temporal chains: e.g., actor0 answers phone (main story), then, in another episode with another timeframe illustrate the conversation it has (story within the story), then hang up and stash phone (end of story)",
+                "The spawnable objects cannot be given or put down.",
+                "CRITICAL: After PickUp you must insert another action (e.g. use it or give it) before PutDown.",
+                "After Receiving you must insert another action (e.g. use it or sit down or move) before giving it back.",
+                "No two of the same actions in a row or after looking at something are allowed except for Move."
             ],
             "description": "General rules for action sequencing",
             "note": "These rules represent a guide in generating valid action sequences that respect object lifecycles, location constraints, and interaction requirements."
@@ -79,8 +83,8 @@
             ]
         },
         "observation_actions": {
-            "note": "LookAt can be directed at actors or objects but it must be used rarely since it performs no animation. Wave is typically a gesture. These actions can be performed standalone. LookAt can be performed while sitting/standing.",
-            "description": "Actions for observing and gesturing",
+            "note": "LookAt can be directed at actors or objects but it must be used rarely since it performs no animation. Wave is typically a gesture. These actions can be performed standalone. LookAt can be performed while sitting/standing. LookAt is already a part of interaction animations.",
+            "description": "Actions for observing and gesturing.",
             "actions": [
                 "LookAt",
                 "Wave"
@@ -91,7 +95,8 @@
             "variations": {
                 "remote_control": [
                     "PickUp",
-                    "[Optional]LookAt",
+                    "Give",
+                    "Receive (back, the other actor must first receive then give)",
                     "PutDown"
                 ],
                 "drink": [
@@ -105,7 +110,7 @@
                     "PutDown"
                 ]
             },
-            "description": "Object interaction patterns - not strictly linear",
+            "description": "Object interaction patterns - not strictly linear. ALWAYS do something before putting back down.",
             "base_sequence": [
                 "PickUp",
                 "Use",
@@ -124,6 +129,10 @@
             {
                 "rule": "PickUp before use",
                 "description": "Must PickUp object before Eat/Drink/etc"
+            },
+            {
+                "rule": "Use after PickUp",
+                "description": "Must first do something with the picked up object before putting it back down."
             },
             {
                 "rule": "TakeOut before spawnable use",
@@ -722,13 +731,3488 @@
             }
         },
         "episodes": [
+                        {
+                "regions": [
+                    {
+                        "objects": [
+                            "Drinks (glass of beer)",
+                            "Drinks (glass of wine)",
+                            "Drinks (bottle of wine)",
+                            "Drinks (carton of orange juice)",
+                            "Drinks (bottle of wine)",
+                            "Drinks (carton of orange juice)",
+                            "Drinks (bottle of alcohol)",
+                            "Drinks (glass of alcohol)",
+                            "Food (slice of pizza)",
+                            "Food (red apple)",
+                            "Food (slice of pizza)",
+                            "Food (burger)",
+                            "Food (slice of cake)",
+                            "Food (green apple)"
+                        ],
+                        "pois": [
+                            "hallway1 ",
+                            "hallway1 ",
+                            "hallway3 ",
+                            "hallway4 ",
+                            "hallway5 ",
+                            "hallway6 ",
+                            "hallway7 ",
+                            "hallway8 ",
+                            "hallway9 ",
+                            "poi for drink item",
+                            "poi for drink item",
+                            "poi for drink item",
+                            "poi for drink item",
+                            "poi for drink item",
+                            "poi for drink item",
+                            "poi for drink item",
+                            "poi for drink item",
+                            "poi near food item",
+                            "poi near food item",
+                            "poi near food item",
+                            "poi near food item",
+                            "poi near food item",
+                            "poi near food item"
+                        ],
+                        "name": "hallway",
+                        "description": ""
+                    },
+                    {
+                        "objects": [
+                            "Chair (chair)",
+                            "Laptop (closed lid laptop)",
+                            "Desk (desk)",
+                            "Food (slice of pizza)",
+                            "Chair (chair)",
+                            "Food (banana)",
+                            "Chair (chair)",
+                            "Drinks (bottle of wine)",
+                            "Drinks (cup of coffe)",
+                            "Chair (chair)",
+                            "Laptop (closed lid laptop)",
+                            "Desk (desk)",
+                            "Food (slice of cake)",
+                            "Chair (chair)",
+                            "Food (slice of pizza)",
+                            "Chair (chair)",
+                            "Drinks (bottle of wine)",
+                            "Drinks (glass of wine)",
+                            "Chair (chair)",
+                            "Laptop (closed lid laptop)",
+                            "Desk (desk)",
+                            "Food (green apple)",
+                            "Chair (chair)",
+                            "Food (green apple)",
+                            "Chair (chair)",
+                            "Drinks (glass of wine)",
+                            "Drinks (bottle of cider)",
+                            "Chair (chair)",
+                            "Laptop (closed lid laptop)",
+                            "Desk (desk)",
+                            "Food (slice of cake)",
+                            "Chair (chair)",
+                            "Food (slice of cake)",
+                            "Chair (chair)",
+                            "Drinks (cup of soda)",
+                            "Drinks (bottle of beer)",
+                            "Chair (chair)",
+                            "Laptop (closed lid laptop)",
+                            "Desk (desk)",
+                            "Food (banana)",
+                            "Chair (chair)",
+                            "Food (banana)",
+                            "Chair (chair)",
+                            "Drinks (bottle of alcohol)",
+                            "Drinks (carton of apple juice)",
+                            "Chair (chair)",
+                            "Laptop (closed lid laptop)",
+                            "Desk (desk)",
+                            "Food (shawarma)",
+                            "Chair (chair)",
+                            "Food (slice of cake)",
+                            "Chair (chair)",
+                            "Drinks (glass of alcohol)",
+                            "Drinks (bottle of alcohol)"
+                        ],
+                        "pois": [
+                            "whiteboard ",
+                            "row1c1 ",
+                            "row1c2 ",
+                            "row2c2 ",
+                            "row2c3 ",
+                            "row3c1 ",
+                            "row3c2 ",
+                            "whiteboard2 ",
+                            "interaction poi",
+                            "interaction poi",
+                            " near the desk ",
+                            "near chair",
+                            "near chair",
+                            "poi for drink item",
+                            "poi for drink item",
+                            " near the desk ",
+                            "near chair",
+                            "near chair",
+                            "poi for drink item",
+                            "poi for drink item",
+                            " near the desk ",
+                            "near chair",
+                            "near chair",
+                            "poi for drink item",
+                            "poi for drink item",
+                            "interaction poi",
+                            " near the desk ",
+                            "near chair",
+                            "near chair",
+                            "poi for drink item",
+                            "poi for drink item",
+                            " near the desk ",
+                            "near chair",
+                            "near chair",
+                            "poi for drink item",
+                            "poi for drink item",
+                            " near the desk ",
+                            "near chair",
+                            "near chair",
+                            "poi for drink item",
+                            "poi for drink item"
+                        ],
+                        "name": "classroom",
+                        "description": ""
+                    },
+                    {
+                        "objects": [],
+                        "pois": [],
+                        "name": "hallway2",
+                        "description": ""
+                    }
+                ],
+                "name": "classroom1",
+                "episode_links": [],
+                "pois": [
+                    {
+                        "description": "whiteboard ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "row1c1 ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "row1c2 ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "row2c2 ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "row2c3 ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "row3c1 ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "row3c2 ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "whiteboard2 ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway1 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway1 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway3 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway4 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway5 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway6 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway7 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway8 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "hallway9 ",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "interaction poi",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": true
+                    },
+                    {
+                        "description": "interaction poi",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": true
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi near food item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Eat",
+                                    "Give"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi near food item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Eat",
+                                    "Give"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi near food item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Eat",
+                                    "Give"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi near food item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Eat",
+                                    "Give"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi near food item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Eat",
+                                    "Give"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi near food item",
+                        "region": "hallway",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Eat",
+                                    "Give"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": " near the desk ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "OpenLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "TypeOnKeyboard",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "PunchDesk",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LayOnElbow",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LookAtTheWatch",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "StandUp"
+                                ],
+                                "type": "CloseLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": " near the desk ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "OpenLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "TypeOnKeyboard",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "PunchDesk",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LayOnElbow",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LookAtTheWatch",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "StandUp"
+                                ],
+                                "type": "CloseLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": " near the desk ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "OpenLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "TypeOnKeyboard",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "PunchDesk",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LayOnElbow",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LookAtTheWatch",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "StandUp"
+                                ],
+                                "type": "CloseLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "interaction poi",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [],
+                        "interactions_only": true
+                    },
+                    {
+                        "description": " near the desk ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "OpenLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "TypeOnKeyboard",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "PunchDesk",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LayOnElbow",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LookAtTheWatch",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "StandUp"
+                                ],
+                                "type": "CloseLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": " near the desk ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "OpenLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "TypeOnKeyboard",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "PunchDesk",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LayOnElbow",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LookAtTheWatch",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "StandUp"
+                                ],
+                                "type": "CloseLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": " near the desk ",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "OpenLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "TypeOnKeyboard",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "PunchDesk",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LayOnElbow",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "TypeOnKeyboard",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "CloseLaptop",
+                                    "StandUp"
+                                ],
+                                "type": "LookAtTheWatch",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "OpenLaptop",
+                                    "PunchDesk",
+                                    "LayOnElbow",
+                                    "LookAtTheWatch",
+                                    "StandUp"
+                                ],
+                                "type": "CloseLaptop",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Laptop"
+                                ],
+                                "object_type": "Laptop"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "near chair",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "PickUp",
+                                    "StandUp"
+                                ],
+                                "type": "SitDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "Eat"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "StandUp"
+                                ],
+                                "type": "Eat",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Food"
+                                ],
+                                "object_type": "Food"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "StandUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Chair"
+                                ],
+                                "object_type": "Chair"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    },
+                    {
+                        "description": "poi for drink item",
+                        "region": "classroom",
+                        "episode_links": [],
+                        "actions": [
+                            {
+                                "possible_next_actions": [
+                                    "Drink",
+                                    "Give",
+                                    "PutDown"
+                                ],
+                                "type": "PickUp",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [
+                                    "PutDown"
+                                ],
+                                "type": "Drink",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "PutDown",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            },
+                            {
+                                "possible_next_actions": [],
+                                "type": "Give",
+                                "requires_object": true,
+                                "entities": [
+                                    "Actor",
+                                    "Actor2",
+                                    "Drinks"
+                                ],
+                                "object_type": "Drinks"
+                            }
+                        ],
+                        "interactions_only": false
+                    }
+                ],
+                "objects": [
+                    {
+                        "type": "Drinks",
+                        "description": "glass of beer",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "glass of wine",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of wine",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "carton of orange juice",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of wine",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "carton of orange juice",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of alcohol",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "glass of alcohol",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of pizza",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "red apple",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of pizza",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "burger",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of cake",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "green apple",
+                        "region": "hallway"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Laptop",
+                        "description": "closed lid laptop",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Desk",
+                        "description": "desk",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of pizza",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "banana",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of wine",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "cup of coffe",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Laptop",
+                        "description": "closed lid laptop",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Desk",
+                        "description": "desk",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of cake",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of pizza",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of wine",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "glass of wine",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Laptop",
+                        "description": "closed lid laptop",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Desk",
+                        "description": "desk",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "green apple",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "green apple",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "glass of wine",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of cider",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Laptop",
+                        "description": "closed lid laptop",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Desk",
+                        "description": "desk",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of cake",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of cake",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "cup of soda",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of beer",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Laptop",
+                        "description": "closed lid laptop",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Desk",
+                        "description": "desk",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "banana",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "banana",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of alcohol",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "carton of apple juice",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Laptop",
+                        "description": "closed lid laptop",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Desk",
+                        "description": "desk",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "shawarma",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Food",
+                        "description": "slice of cake",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Chair",
+                        "description": "chair",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "glass of alcohol",
+                        "region": "classroom"
+                    },
+                    {
+                        "type": "Drinks",
+                        "description": "bottle of alcohol",
+                        "region": "classroom"
+                    }
+                ]
+            },
             {
                 "regions": [
                     {
                         "objects": [
-                            "Painting (painting)",
-                            "Painting (painting)",
-                            "FlowerPot (flower pot)",
                             "Cigarette (cigarette)",
                             "MobilePhone (mobile phone)",
                             "Sofa (couch)",
@@ -777,11 +4261,6 @@
                     },
                     {
                         "objects": [
-                            "Painting (painting)",
-                            "Painting (painting)",
-                            "Painting (painting)",
-                            "Painting (painting)",
-                            "FlowerPot (flower pot)",
                             "Cigarette (cigarette)",
                             "MobilePhone (phone)",
                             "MobilePhone (cell phone)",
@@ -873,7 +4352,6 @@
                     },
                     {
                         "objects": [
-                            "Painting (painting)",
                             "Cigarette (cigarette)",
                             "MobilePhone (phone)"
                         ],
@@ -891,10 +4369,6 @@
                     },
                     {
                         "objects": [
-                            "Painting (painting)",
-                            "Painting (painting)",
-                            "FlowerPot (flower pot)",
-                            "Wardrobe (wardrobe)",
                             "Bed (bed)",
                             "Cigarette (cigarette)",
                             "MobilePhone (cell phone)",
@@ -3389,83 +6863,8 @@
                 ],
                 "objects": [
                     {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "livingroom"
-                    },
-                    {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "livingroom"
-                    },
-                    {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "hallway"
-                    },
-                    {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "hallway"
-                    },
-                    {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "hallway"
-                    },
-                    {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "hallway"
-                    },
-                    {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "bedroom"
-                    },
-                    {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "second floor hallway"
-                    },
-                    {
-                        "type": "Painting",
-                        "description": "painting",
-                        "region": "bedroom"
-                    },
-                    {
                         "type": "Sink",
                         "description": "sink",
-                        "region": "kitchen"
-                    },
-                    {
-                        "type": "FlowerPot",
-                        "description": "flower pot",
-                        "region": "hallway"
-                    },
-                    {
-                        "type": "FlowerPot",
-                        "description": "flower pot",
-                        "region": "livingroom"
-                    },
-                    {
-                        "type": "FlowerPot",
-                        "description": "flower pot",
-                        "region": "bedroom"
-                    },
-                    {
-                        "type": "Wardrobe",
-                        "description": "wardrobe",
-                        "region": "bedroom"
-                    },
-                    {
-                        "type": "Toilet",
-                        "description": "water closet",
-                        "region": "bathroom"
-                    },
-                    {
-                        "type": "GasCooker",
-                        "description": "gas cooker",
                         "region": "kitchen"
                     },
                     {
@@ -3614,11 +7013,6 @@
                         "region": "barroom"
                     },
                     {
-                        "type": "Furniture",
-                        "description": "wooden chest of drawers",
-                        "region": "barroom"
-                    },
-                    {
                         "type": "Televisor",
                         "description": "TV",
                         "region": "barroom"
@@ -3704,26 +7098,6 @@
                         "region": "livingroom"
                     },
                     {
-                        "type": "Plate",
-                        "description": "plate",
-                        "region": "livingroom"
-                    },
-                    {
-                        "type": "Plate",
-                        "description": "plate",
-                        "region": "livingroom"
-                    },
-                    {
-                        "type": "Plate",
-                        "description": "plate",
-                        "region": "livingroom"
-                    },
-                    {
-                        "type": "Plate",
-                        "description": "plate",
-                        "region": "livingroom"
-                    },
-                    {
                         "type": "Remote",
                         "description": "remote",
                         "region": "livingroom"
@@ -3801,26 +7175,6 @@
                     {
                         "type": "Table",
                         "description": "table",
-                        "region": "kitchen"
-                    },
-                    {
-                        "type": "Plate",
-                        "description": "plate",
-                        "region": "kitchen"
-                    },
-                    {
-                        "type": "Plate",
-                        "description": "plate",
-                        "region": "kitchen"
-                    },
-                    {
-                        "type": "Plate",
-                        "description": "plate",
-                        "region": "kitchen"
-                    },
-                    {
-                        "type": "Plate",
-                        "description": "plate",
                         "region": "kitchen"
                     },
                     {
@@ -6488,11 +9842,6 @@
                 "spawnable": false,
                 "instance_count": 2
             },
-            "FlowerPot": {
-                "actions": [],
-                "spawnable": false,
-                "instance_count": 3
-            },
             "Drinks": {
                 "actions": [
                     "Drink",
@@ -6530,11 +9879,6 @@
                 "spawnable": false,
                 "instance_count": 11
             },
-            "Wardrobe": {
-                "actions": [],
-                "spawnable": false,
-                "instance_count": 1
-            },
             "ArmChair": {
                 "actions": [
                     "StandUp",
@@ -6550,16 +9894,6 @@
                 ],
                 "spawnable": false,
                 "instance_count": 2
-            },
-            "Plate": {
-                "actions": [],
-                "spawnable": false,
-                "instance_count": 8
-            },
-            "Painting": {
-                "actions": [],
-                "spawnable": false,
-                "instance_count": 9
             },
             "Cigarette": {
                 "actions": [
@@ -6608,11 +9942,6 @@
                 "spawnable": false,
                 "instance_count": 14
             },
-            "GasCooker": {
-                "actions": [],
-                "spawnable": false,
-                "instance_count": 1
-            },
             "PunchingBag": {
                 "actions": [
                     "Punch"
@@ -6626,11 +9955,6 @@
                 ],
                 "spawnable": false,
                 "instance_count": 7
-            },
-            "Toilet": {
-                "actions": [],
-                "spawnable": false,
-                "instance_count": 1
             },
             "Table": {
                 "actions": [],
@@ -6671,11 +9995,6 @@
                 "spawnable": false,
                 "instance_count": 2
             },
-            "CommonInterior": {
-                "actions": [],
-                "spawnable": false,
-                "instance_count": 1
-            },
             "TwoDumbbells": {
                 "actions": [
                     "DumbbellsWorkOut",
@@ -6712,7 +10031,7 @@
             ],
             "notes": {
                 "record": "Start recording frames including this event.",
-                "stop": "Stop recording frames right now, frames will not be captured for this event."
+                "stop": "Stop recording frames right now, frames will not be captured for this event. To include the last event in the recording, simply ensure that you started recorded and never stopped. The system stops automatically."
             },
             "focus_management": "After recording starts for any event, camera automatically records all events until end of story or stop. It handles focus switching between actors, episode transitions, and fade effects. Focus duration: 2 seconds normal, 5 seconds for context changes (cross-episode transitions). If multiple actions execute in parallel in multiple locations, except for background actors, the camera will alternate between positions. This makes events hard to follow. The recommendation is to ensure proper temporal synchronization across actors in different locations for best cinematic experience."
         },
@@ -7724,6 +11043,13 @@
             "Phone"
         ],
         "episode_catalog": {
+            "classroom1": {
+                "linked_episodes": [],
+                "regions": [
+                    "hallway",
+                    "classroom"
+                ]
+            },
             "garden": {
                 "linked_episodes": [
                     "house1_sweet",

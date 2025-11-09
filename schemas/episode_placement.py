@@ -6,33 +6,50 @@ narrative requirements and resource availability.
 """
 
 from pydantic import BaseModel
-from typing import Dict
+from typing import Dict, List
 
 
 class EpisodePlacementOutput(BaseModel):
     """Output schema for episode placement agent.
 
-    Maps each leaf scene ID to a specific episode name, along with
-    reasoning for the selection.
+    Maps each leaf scene ID to a list of ALL valid episode names, along with
+    reasoning for each episode's suitability. A separate selection step will
+    choose one episode per scene randomly.
 
     Attributes:
-        placements: Dictionary mapping scene_id to episode_name
-                   Example: {"lunch_scene": "office2", "gym_scene": "gym1_a"}
-        reasoning: Dictionary mapping scene_id to selection rationale
-                  Example: {"lunch_scene": "Office2 has 8 chairs and 4 desks,
-                           sufficient for 2 protagonists with space for extras"}
+        placements: Dictionary mapping scene_id to list of valid episode_names
+                   Example: {"lunch_scene": ["office1", "office2", "office3"],
+                            "gym_scene": ["gym1_a", "gym1_b"]}
+        reasoning: Dictionary mapping scene_id to dict of {episode_name: rationale}
+                  Example: {"lunch_scene": {
+                               "office1": "Office1 has 6 chairs and 3 desks...",
+                               "office2": "Office2 has 8 chairs and 4 desks...",
+                               "office3": "Office3 has 10 chairs and 5 desks..."
+                           }}
     """
 
-    placements: Dict[str, str]
-    reasoning: Dict[str, str]
+    placements: Dict[str, List[str]]
+    reasoning: Dict[str, Dict[str, str]]
 
     def validate_consistency(self) -> bool:
-        """Validate that reasoning keys match placement keys.
+        """Validate that reasoning keys match placement keys and episodes.
 
         Returns:
-            True if all placement keys have corresponding reasoning
+            True if all placement keys have corresponding reasoning dicts,
+            and all episodes in placements have reasoning entries
         """
-        return set(self.placements.keys()) == set(self.reasoning.keys())
+        # Check that all scenes have reasoning
+        if set(self.placements.keys()) != set(self.reasoning.keys()):
+            return False
+
+        # Check that all episodes in placements have reasoning
+        for scene_id, episodes in self.placements.items():
+            reasoning_episodes = set(self.reasoning[scene_id].keys())
+            placement_episodes = set(episodes)
+            if reasoning_episodes != placement_episodes:
+                return False
+
+        return True
 
     @staticmethod
     def load_cached(story_id: str) -> 'EpisodePlacementOutput | None':

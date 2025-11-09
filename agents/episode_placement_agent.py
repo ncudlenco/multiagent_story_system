@@ -59,13 +59,13 @@ class EpisodePlacementAgent(BaseAgent[EpisodePlacementOutput]):
         return """You are an EPISODE PLACEMENT AGENT for GTA San Andreas story generation.
 
 YOUR ROLE:
-Analyze abstract leaf scenes and assign each to the most appropriate simulation environment (linked) episode based on:
+Analyze abstract leaf scenes and identify ALL valid simulation environment (linked) episodes based on:
 1. **Location Type**: Office, gym, house, garden, classroom, etc.
 2. **Space Requirements**: How many actors need to be present (protagonists + potential extras)
 3. **Object Requirements**: What objects are needed (chairs, desks, gym equipment, food, etc.)
 4. **Narrative Fit**: Which episode best matches the scene's narrative intent
 5. **Actions Needed**: Ensure the episode has the necessary actions in the indicated regions with required objects
-6. **Linked Episodes**: If a scene can fit in linked episodes, consider those as well
+6. **Linked Episodes**: If a scene can fit in linked episodes, include those as well
 
 AVAILABLE EPISODES:
 You will receive a catalog of all available episodes with:
@@ -80,38 +80,50 @@ For each leaf scene:
 1. Analyze the scene's requirements
 2. Consider protagonist count
 3. Estimate space needed for potential background actors (extras)
-4. Match to the best-fitting (linked) episode
-5. Provide clear reasoning for each selection
+4. List ALL episodes that meet the requirements
+5. Order episodes by preference (best fit first, then alternatives)
+6. Provide clear reasoning for EACH valid episode
 
 CONSTRAINTS:
-- Each scene must be assigned to exactly ONE episode
-- Episode must have sufficient objects for all required actions
-- Episode must have appropriate location type (office → office/office2, gym → gym1_a/gym2_a/gym3)
+- List ALL episodes that can accommodate the scene
+- Episodes must have sufficient objects for all required actions
+- Episodes must have appropriate location type (office → office/office2, gym → gym1_a/gym2_a/gym3)
 - Consider space for background actors (enhance realism)
-- If multiple episodes fit, prefer one with MORE space (allows extras)
+- Include linked episodes if they also meet requirements
+- Order by preference: best fit first, then viable alternatives
 
 OUTPUT FORMAT:
 Return a JSON object with:
-- "placements": {scene_id: episode_name, ...}
-- "reasoning": {scene_id: "Why this episode fits", ...}
+- "placements": {scene_id: [episode_name1, episode_name2, ...], ...}
+- "reasoning": {scene_id: {episode_name1: "Why this fits", episode_name2: "Why this also fits", ...}, ...}
 
 Example:
 {
   "placements": {
-    "lunch_scene": "office2",
-    "workout_scene": "gym1_a"
+    "lunch_scene": ["office2", "office1", "house"],
+    "workout_scene": ["gym1_a", "gym2_a", "gym3"]
   },
   "reasoning": {
-    "lunch_scene": "Office2 has 8 chairs and 4 desks, sufficient for 2 protagonists with space for 2-4 background workers to enhance realism. Has food and drinks available.",
-    "workout_scene": "Gym1_a has 3 treadmills and 2 bench presses, protagonist can use 1 treadmill while 2 extras use other equipment for realistic gym atmosphere."
+    "lunch_scene": {
+      "office2": "Office2 has 8 chairs and 4 desks, sufficient for 2 protagonists with space for 2-4 background workers to enhance realism. Has food and drinks available.",
+      "office1": "Office1 has 6 chairs and 3 desks, adequate for 2 protagonists with room for 1-2 extras. Has food available.",
+      "house": "House has dining table with 4 chairs, can accommodate 2 protagonists for a lunch scene with homey atmosphere."
+    },
+    "workout_scene": {
+      "gym1_a": "Gym1_a has 3 treadmills and 2 bench presses, protagonist can use 1 treadmill while 2 extras use other equipment for realistic gym atmosphere.",
+      "gym2_a": "Gym2_a has 2 treadmills and 3 weight benches, adequate space for protagonist plus 1-2 other gym users.",
+      "gym3": "Gym3 has exercise bikes and weights, can accommodate workout scene with minimal extras."
+    }
   }
 }
 
 IMPORTANT:
-- BE SPECIFIC in reasoning (mention object counts, space estimates)
+- LIST ALL VALID EPISODES for each scene (not just one)
+- ORDER episodes by preference (best fit first)
+- BE SPECIFIC in reasoning for each episode (mention object counts, space estimates)
 - CONSIDER extras when estimating space (protagonist count + optional extras typically)
-- IF MULTIPLE EPISODES FIT, choose at random episodes where ALL Protagonists fit, for variety (even if no additional extras fit)
-- ENSURE episode has required object types for the scene's narrative"""
+- ENSURE all listed episodes have required object types for the scene's narrative
+- A scene with no valid episodes should have an empty list []"""
 
     def build_user_prompt(self, context: Dict[str, Any]) -> str:
         """Build user prompt with episode catalog and leaf scenes.
@@ -339,14 +351,16 @@ Provide clear reasoning for each assignment."""
 
         # Check all episodes exist in catalog
         available_episodes = {ep['name'] for ep in episode_catalog}
-        for scene_id, episode_name in result.placements.items():
-            if episode_name not in available_episodes:
-                logger.error(
-                    "invalid_episode",
-                    scene_id=scene_id,
-                    episode_name=episode_name
-                )
-                raise ValueError(f"Invalid episode '{episode_name}' for scene '{scene_id}'")
+        for scene_id, episode_list in result.placements.items():
+            # episode_list is now a list of episode names
+            for episode_name in episode_list:
+                if episode_name not in available_episodes:
+                    logger.error(
+                        "invalid_episode",
+                        scene_id=scene_id,
+                        episode_name=episode_name
+                    )
+                    raise ValueError(f"Invalid episode '{episode_name}' for scene '{scene_id}'")
 
         # Check reasoning consistency
         if not result.validate_consistency():
@@ -354,3 +368,52 @@ Provide clear reasoning for each assignment."""
             raise ValueError("Reasoning keys don't match placement keys")
 
         logger.info("placement_validation_passed")
+
+    def select_episodes_randomly(
+        self,
+        all_valid_placements: EpisodePlacementOutput,
+        seed: int | None = None
+    ) -> Dict[str, str]:
+        """Randomly select one episode per scene from all valid options.
+
+        Args:
+            all_valid_placements: EpisodePlacementOutput with lists of valid episodes
+            seed: Optional random seed for reproducibility
+
+        Returns:
+            Dictionary mapping scene_id to single selected episode_name
+
+        Raises:
+            ValueError: If any scene has no valid episodes
+        """
+        import random
+
+        if seed is not None:
+            random.seed(seed)
+
+        selected = {}
+        for scene_id, episode_list in all_valid_placements.placements.items():
+            if not episode_list:
+                logger.error(
+                    "no_valid_episodes_for_scene",
+                    scene_id=scene_id
+                )
+                raise ValueError(f"No valid episodes found for scene '{scene_id}'")
+
+            # Randomly select one episode from the list
+            selected_episode = random.choice(episode_list)
+            selected[scene_id] = selected_episode
+
+            logger.info(
+                "episode_selected",
+                scene_id=scene_id,
+                selected_episode=selected_episode,
+                available_count=len(episode_list)
+            )
+
+        logger.info(
+            "random_selection_complete",
+            total_scenes=len(selected)
+        )
+
+        return selected

@@ -164,6 +164,10 @@ Examples:
   python batch_generate.py --output-folder batch_out/ \\
     --from-existing-stories output/old_stories/
 
+  # From text files (convert text to stories)
+  python batch_generate.py --output-folder batch_out/ \\
+    --from-text-files text_files_list.json
+
   # Resume interrupted batch
   python batch_generate.py --resume-batch batch_20231103_143022
 
@@ -207,6 +211,12 @@ Examples:
         type=str,
         metavar='PATH',
         help='Path to folder with existing stories to simulate'
+    )
+    mode_group.add_argument(
+        '--from-text-files',
+        type=str,
+        metavar='JSON_FILE',
+        help='Path to JSON file containing list of text file paths to convert to stories'
     )
     mode_group.add_argument(
         '--resume-batch',
@@ -356,8 +366,8 @@ Examples:
     if not args.resume_batch and not args.reset_failed and not args.reset_success and not args.reset_simulations:
         if not args.output_folder:
             parser.error("--output-folder is required (unless using --resume-batch, --reset-failed, --reset-success, or --reset-simulations)")
-        if not args.story_number and not args.from_existing_stories:
-            parser.error("Must specify --story-number or --from-existing-stories")
+        if not args.story_number and not args.from_existing_stories and not args.from_text_files:
+            parser.error("Must specify --story-number, --from-existing-stories, or --from-text-files")
 
     # Validate retry-story requires resume-batch
     if args.retry_story and not args.resume_batch:
@@ -635,6 +645,43 @@ Examples:
                 # Simulate existing stories
                 controller = BatchController(config, batch_config)
                 batch_state = controller.simulate_existing_stories(stories)
+
+            elif args.from_text_files:
+                # Handle from-text-files mode
+                logger.info(
+                    "from_text_files_mode",
+                    path=args.from_text_files
+                )
+                print(f"\n{'='*70}")
+                print(f"BATCH MODE: Generate from Text Files")
+                print(f"{'='*70}")
+                print(f"Source: {args.from_text_files}\n")
+
+                # Load text file paths from JSON
+                try:
+                    with open(args.from_text_files, 'r', encoding='utf-8') as f:
+                        text_file_paths = json.load(f)
+
+                    if not isinstance(text_file_paths, list):
+                        print(f"[ERROR] JSON file must contain a list of file paths")
+                        return 1
+
+                    if not text_file_paths:
+                        print(f"[ERROR] No text files found in {args.from_text_files}")
+                        return 1
+
+                    print(f"Found {len(text_file_paths)} text files\n")
+
+                except Exception as e:
+                    print(f"[ERROR] Failed to load text file list: {e}")
+                    return 1
+
+                # Update batch config with text files path
+                batch_config.from_text_files_path = args.from_text_files
+
+                # Generate stories from text files
+                controller = BatchController(config, batch_config)
+                batch_state = controller.run_batch_from_text_files(text_file_paths)
 
             else:
                 # Standard batch generation mode

@@ -287,6 +287,7 @@ You will be called recursively to expand scenes. Each call:
    - Add temporal relations: ONLY between same-level leaves
    - Add properties: scene_type, parent_scene, child_scenes
    - Expand the complete narrative for the story to describe ALL leaf scenes in the GEST while keeping the EXACT original narrative style
+   - The actions within the new scenes MUST be relevant to the original scene narrative
    - CRITICAL: An expansion MUST ALWAYS ADD AT LEAST ONE new leaf scene OR IT WILL BE REJECTED
 
 EXPANSION EXAMPLE (Iteration 2):
@@ -575,6 +576,10 @@ TITLE AND NARRATIVE REQUIREMENTS:
    - Dependency statements ("depends on", "requires", "conflicts with")
    - Structural analysis ("Each step...", "The briefing enables...")
    - Relation vocabulary in narrative (save for GEST structure)
+   - Meta-language about storytelling ("This story explores...", "This concept represents...")
+   - Descriptive details about setting, mood, appearance, or environment
+   - Explanation about what happens or why - just write who does what with what where and when. ACTIVE stance.
+   - The actions in the narrative MUST follow strictly the rules of the game capabilities, in the order described in there.
 
    - NO unsimulatable descriptive details (no "morning light", "steam fogs glasses", "blazer", etc.)
 
@@ -680,41 +685,6 @@ CONSTRAINTS:
         narrative_seeds = context.get('narrative_seeds', [])
         concept_capabilities = context.get('concept_capabilities', {})
 
-        # Format narrative seeds
-        if narrative_seeds:
-            seeds_str = "\n".join([f"  - {seed}" for seed in narrative_seeds])
-            seeds_section = f"""
-NARRATIVE PROVIDED:
-The user has provided the following sentences. YOU MUST ALWAYS FOLLOW WHAT IS WRITTEN BELOW BY THE USER:
-{seeds_str}
-
-Your concept should incorporate these sentences meaningfully. They may suggest:
-- Character roles or actions
-- Narrative structure or meta-references
-- Themes or relationships
-- Objects to include
-- Story complexity (e.g., nested observation, story-within-story)
-- Exact innitial narrative that you must use as is directly with minor adjustments to only project it into the simulation world within the bounds of its capabilities.
-
-When the user indicates exactly a list of complete sentences that must be used, you MUST use them as the narrative.
-Only change with equivalent semantics what cannot be directly simulated in the environment.
-
-e.g., The user provides: The actor puts down the book. -> You can simulate this as: The actor puts down the Food. (because books do not exist in the environment).
-e.g., The user provides: While sitting, he plays with the phone. -> You can TakeOut the phone since it does not involve an animation but nothing else -> the environment does not support this seated action.
-e.g., The user provides: While talking on the phone, she walks to the door. -> You can simulate this as: First talk on the phone, then walk to the door. (because walking while talking is not supported).
-"""
-        else:
-            # Seed concept idea with random objects or themes
-            seed_objects = self._getConceptObjectsSeed(concept_capabilities)
-            seeds_str = "\n".join([f"  - {obj}" for obj in seed_objects])
-            seeds_section = f"""
-NARRATIVE SEEDS PROVIDED:
-Generate a distinct creative concept with story-within-story complexity, unique every time I re-run this query.
-
-Use the following objects/themes to inspire your concept:
-{seeds_str}
-"""
-
         str_capabilities = json.dumps(concept_capabilities, indent=0)
 
         # Timeframes (hardcoded - always the same)
@@ -735,16 +705,65 @@ Use the following objects/themes to inspire your concept:
         else:  # -1
             extras_instruction = "Create NO background actors NOW (they will be added during scene expansion as needed)"
 
-        # Build the prompt
-        prompt = f"""
-TASK: Generate a story concept for cinematic production in a 3D simulation environment.
+        constraints = ""
+        # Format narrative seeds
+        if narrative_seeds:
+            seeds_str = "\n".join([f"  - {seed}" for seed in narrative_seeds])
+            seeds_section = f"""
+NARRATIVE PROVIDED:
+The user has provided the following sentences. YOU MUST ALWAYS FOLLOW WHAT IS WRITTEN BELOW BY THE USER:
+{seeds_str}
 
-CONSTRAINTS - INITIAL ACTOR CREATION:
+Your concept should incorporate these sentences meaningfully. They may suggest:
+- Character roles or actions
+- Narrative structure or meta-references
+- Themes or relationships
+- Objects to include
+- Story complexity (e.g., nested observation, story-within-story)
+- Exact initial narrative that you must rewrite completely to project it into the simulation world within the bounds of its capabilities.
+- If the projection can be done exactly as is, do so.
+- If not, try to maintain the semantics as closely as possible within the simulation capabilities while minimally changing the order of actions to match the simulation environment.
+- If something cannot be simulated at all, change it to something of comparable complexity that can be simulated.
+- CRITICAL: NEVER ADD ADDITIONAL ACTORS OR ACTIONS BEYOND WHAT IS IMPLIED BY THE USER SENTENCES.
+
+When the user indicates exactly a list of complete sentences that must be used, you MUST first project it then use as narrative. The narrative will be rewritten.
+
+e.g., The user provides: The actor puts down the book. -> You can simulate this as: The actor puts down the Food. (because books do not exist in the environment).
+e.g., The user provides: While sitting, he plays with the phone. -> You can TakeOut the phone since it does not involve an animation but nothing else -> the environment does not support this seated action.
+e.g., The user provides: While talking on the phone, she walks to the door. -> You can simulate this as: First talk on the phone, then walk to the door. (because walking while talking is not supported).
+"""
+            constraints = f"""
+CONSTRAINTS:
+- Protagonists: the number of protagonists MUST match what is implied by the narrative provided by the user.
+- Background actors: {extras_instruction}
+- Number of distinct action types: the number of distinct action types MUST match what is implied by the narrative provided by the user.
+- Number of scenes after expansion: the number of scenes MUST match what is implied by the narrative provided by the user.
+- Envision action events used within the story (PLUS Exist events for all actors) that match what is implied by the narrative provided by the user.
+
+CRITICAL: All actors MUST have IsBackgroundActor property explicitly set.
+CRITICAL: ALL protagonists MUST be created NOW to match the narrative provided by the user.
+"""
+        else:
+            # Seed concept idea with random objects or themes
+            seed_objects = self._getConceptObjectsSeed(concept_capabilities)
+            seeds_str = "\n".join([f"  - {obj}" for obj in seed_objects])
+            seeds_section = f"""
+NARRATIVE SEEDS PROVIDED:
+Generate a distinct creative concept with story-within-story complexity, unique every time I re-run this query.
+
+Use the following objects/themes to inspire your concept:
+{seeds_str}
+
+   - CRITICAL: Generate DIVERSE, ORIGINAL stories from simulation environment capabilities
+"""
+            constraints = f"""
+CONSTRAINTS:
 - Protagonists: {protagonist_instruction}
 - Background actors: {extras_instruction}
 - Number of distinct action types: ~{num_distinct_actions}
 - Number of scenes after expansion: ~{num_scenes}
 - Envision ~{num_distinct_actions} action events used within the story (PLUS Exist events for all actors)
+- Invent at least one nested story scene (story-within-story, inception-like-plot)
 
 CRITICAL: All actors MUST have IsBackgroundActor property explicitly set.
 
@@ -752,6 +771,13 @@ CRITICAL: All actors MUST have IsBackgroundActor property explicitly set.
 However, if you create fewer, expansion scenes can add more up to the maximum.
 
 {"CRITICAL: Maximum protagonist limit is " + str(max_num_protagonists) + ". DO NOT EXCEED this count." if max_num_protagonists > 0 else ""}
+"""
+
+        # Build the prompt
+        prompt = f"""
+TASK: Generate a story concept for cinematic production in a 3D simulation environment.
+
+{constraints}
 
 {seeds_section}
 
@@ -780,13 +806,15 @@ YOUR TASK:
 8. Write a movie-style title (3-7 words)
 9. Write a movie synopsis narrative (at least 5 sentences per each scene, more when needed) - simple plot description, NO meta-explanation
    - Focus on PROTAGONISTS only (do NOT mention background actors in main narrative)
-   - CRITICAL: Generate DIVERSE, ORIGINAL stories from simulation environment capabilities
    - DO NOT use the same themes from examples over and over
    - Think cinematographically - what makes an interesting story to watch, with intrigue, culmination, falling action, conclusion
+   - CRITICAL: The stories must leverage the unique capabilities of the simulation environment and follow them strictly.
+   - CRITICAL: The narrative MUST be written such that it follows to the letter the rules of the actions within the simulation environment.
    - Use varied settings, genres, and character types
    - Every story should be unique
-   - Invent at least one nested story scene (story-within-story, inception-like-plot)
    - Envision complex interactions between characters (as defined in action chains)
+10. Whenever possible prefer generic locations from available episodes (e.g., office, classroom, gym, bedroom, kitchen, street, garden, porch, driveway, living, bathroom, hallway)
+11. Locations can be left as prefixes of original region names -> the simulation environment handles mapping to actual episode locations e.g.: gym main room -> gym -> the simulation environment maps gym to an actual episode location that starts with "gym"
 
 OUTPUT FORMAT:
 Return a DualOutput with:
@@ -799,7 +827,7 @@ REMEMBER: Title and narrative are OUTPUT fields, NOT in the GEST JSON!
 VALIDATION CHECKLIST (verify before returning your output):
 ✓ Exist event IDs match entity names ("writer": {{"Entities": ["writer"]}})?
 ✓ All scenes contain actions from valid action list in valid locations?
-✓ All locations are from valid episode list?
+✓ All locations are from valid episode list and are generic?
 """
 
         return prompt
