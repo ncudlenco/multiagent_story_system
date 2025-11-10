@@ -60,7 +60,7 @@ class EpisodePlacementAgent(BaseAgent[EpisodePlacementOutput]):
 
 YOUR ROLE:
 Analyze abstract leaf scenes and identify ALL valid simulation environment (linked) episodes based on:
-1. **Location Type**: Office, gym, house, garden, classroom, etc.
+1. **Location Type** If one implied by the scene, otherwise consider ALL regions
 2. **Space Requirements**: How many actors need to be present (protagonists + potential extras)
 3. **Object Requirements**: What objects are needed (chairs, desks, gym equipment, food, etc.)
 4. **Narrative Fit**: Which episode best matches the scene's narrative intent
@@ -74,6 +74,7 @@ You will receive a catalog of all available episodes with:
 - Available objects and their quantities
 - Points of interest (POIs)
 - Capacity estimates
+- Episode links (natural connections to other episodes: e.g., house links to garden -> there is a door in the house that leads to the garden)
 
 YOUR TASK:
 For each leaf scene:
@@ -85,29 +86,40 @@ For each leaf scene:
 6. Provide clear reasoning for EACH valid episode
 
 CONSTRAINTS:
-- List ALL episodes that can accommodate the scene
+- **PRIORITIZE OBJECT AVAILABILITY**: An episode with the right objects is MORE important than matching episode name
+- List ALL groups of episodes that can accommodate the scene
 - Episodes must have sufficient objects for all required actions
-- Episodes must have appropriate location type (office → office/office2, gym → gym1_a/gym2_a/gym3)
+- Episode name is LESS important than having the right objects (e.g., classroom1 can work for office scenes if it has chairs and desks)
 - Consider space for background actors (enhance realism)
-- Include linked episodes if they also meet requirements
+- Include linked episodes if they also meet requirements naturally
+- Include unlinked episodes if they are needed for scene transitions (first there is a scene in the house, then a scene in the gym, even if they are not linked directly, the actors will be teleported between scenes / episodes)
 - Order by preference: best fit first, then viable alternatives
+- Keep episode groups short: e.g. all linked episodes that fit the scene, or single unlinked episodes that fit, or small sets of unlinked episodes that fit together
 
 OUTPUT FORMAT:
 Return a JSON object with:
-- "placements": {scene_id: [episode_name1, episode_name2, ...], ...}
-- "reasoning": {scene_id: {episode_name1: "Why this fits", episode_name2: "Why this also fits", ...}, ...}
+- "episode_groups": {{group_name1: [episode_name1, episode_name2, ...], ...}} <-- within the same scene, some actions happen in episode_name1, some in episode_name2
+- "placements": {{scene_id: [group_name1, group_name2, ...], ...}}
+- "reasoning": {scene_id: {group_name1: "Why this fits", group_name2: "Why this also fits", ...}, ...}
 
-Example:
+Example: DO NOT USE YOUR LOGIC TO FILL THIS, IT IS JUST AN ILLUSTRATION OF THE FORMAT
 {
+  "episode_groups": {
+    "house_group1": ["house9", "garden"],
+    "house_group1": ["house1_sweet", "garden"],
+    "office_group": ["classroom1"],
+    "gym_group1": ["gym1_a"],
+    "gym_group2": ["gym2_a"],
+    "gym_group3": ["gym3"]
+  },
   "placements": {
-    "lunch_scene": ["office2", "office1", "house"],
-    "workout_scene": ["gym1_a", "gym2_a", "gym3"]
+    "office_meeting": ["office_group", "house_group1"],
+    "workout_scene": ["gym_group1", "gym_group2", "gym_group3"]
   },
   "reasoning": {
-    "lunch_scene": {
-      "office2": "Office2 has 8 chairs and 4 desks, sufficient for 2 protagonists with space for 2-4 background workers to enhance realism. Has food and drinks available.",
-      "office1": "Office1 has 6 chairs and 3 desks, adequate for 2 protagonists with room for 1-2 extras. Has food available.",
-      "house": "House has dining table with 4 chairs, can accommodate 2 protagonists for a lunch scene with homey atmosphere."
+    "office_meeting": {
+      "classroom1": "Classroom1 has 18 chairs and 6 desks - perfect for office meeting despite name. Sufficient space for 2 protagonists plus 4-6 background workers.",
+      "house9": "House9 has 14 chairs and 2 desks, links to garden. Can accommodate office scene with good space for extras. Fits story where actors come in turns from outside."
     },
     "workout_scene": {
       "gym1_a": "Gym1_a has 3 treadmills and 2 bench presses, protagonist can use 1 treadmill while 2 extras use other equipment for realistic gym atmosphere.",
@@ -118,12 +130,12 @@ Example:
 }
 
 IMPORTANT:
-- LIST ALL VALID EPISODES for each scene (not just one)
-- ORDER episodes by preference (best fit first)
-- BE SPECIFIC in reasoning for each episode (mention object counts, space estimates)
+- LIST ALL VALID GROUPS OF EPISODES for each scene (not just one group)
+- ORDER groups by preference (best fit first, linked first, unlinked later)
+- BE SPECIFIC in reasoning for each episode group (mention object counts, space estimates, for each episode in the group)
 - CONSIDER extras when estimating space (protagonist count + optional extras typically)
 - ENSURE all listed episodes have required object types for the scene's narrative
-- A scene with no valid episodes should have an empty list []"""
+- A scene MUST have at least one group with one episode. The actions and objects will be converted to equivalent complexity in the selected episode(s) at later stages."""
 
     def build_user_prompt(self, context: Dict[str, Any]) -> str:
         """Build user prompt with episode catalog and leaf scenes.
@@ -166,12 +178,13 @@ IMPORTANT:
 {scenes_str}
 
 TASK:
-Assign each leaf scene to the most appropriate episode.
+Assign each leaf scene to the most appropriate group of episodes.
 Consider:
 1. Location type match
 2. Sufficient objects for protagonists
 3. Extra space for background actors (2-4 extras typically)
-4. Narrative coherence
+4. Narrative coherence and fit for actions within scene
+5. Enough regions that can be used as backstage areas beforehand for groups of actors
 
 Provide clear reasoning for each assignment."""
 
@@ -351,16 +364,18 @@ Provide clear reasoning for each assignment."""
 
         # Check all episodes exist in catalog
         available_episodes = {ep['name'] for ep in episode_catalog}
-        for scene_id, episode_list in result.placements.items():
-            # episode_list is now a list of episode names
-            for episode_name in episode_list:
-                if episode_name not in available_episodes:
-                    logger.error(
-                        "invalid_episode",
-                        scene_id=scene_id,
-                        episode_name=episode_name
-                    )
-                    raise ValueError(f"Invalid episode '{episode_name}' for scene '{scene_id}'")
+        for scene_id, possible_groups in result.placements.items():
+            for episode_group_id in possible_groups:
+                episode_list = result.episode_groups.get(episode_group_id, [])
+                # episode_list is now a list of episode names
+                for episode_name in episode_list:
+                    if episode_name not in available_episodes:
+                        logger.error(
+                            "invalid_episode",
+                            scene_id=scene_id,
+                            episode_name=episode_name
+                        )
+                        raise ValueError(f"Invalid episode '{episode_name}' for scene '{scene_id}'")
 
         # Check reasoning consistency
         if not result.validate_consistency():
@@ -374,7 +389,7 @@ Provide clear reasoning for each assignment."""
         all_valid_placements: EpisodePlacementOutput,
         seed: int | None = None
     ) -> Dict[str, str]:
-        """Randomly select one episode per scene from all valid options.
+        """Randomly select one episode per scene from all valid options. Keeps scenes in same episode group if possible.
 
         Args:
             all_valid_placements: EpisodePlacementOutput with lists of valid episodes
@@ -391,29 +406,44 @@ Provide clear reasoning for each assignment."""
         if seed is not None:
             random.seed(seed)
 
-        selected = {}
-        for scene_id, episode_list in all_valid_placements.placements.items():
-            if not episode_list:
+        selected_groups = {}
+        for scene_id, episode_groups_list in all_valid_placements.placements.items():
+            if not episode_groups_list:
                 logger.error(
                     "no_valid_episodes_for_scene",
                     scene_id=scene_id
                 )
                 raise ValueError(f"No valid episodes found for scene '{scene_id}'")
 
+            # If was already selected for other scenes, keep same episode group
+            already_selected_groups = set(selected_groups.values())
+            intersection = already_selected_groups.intersection(set(episode_groups_list))
+            if intersection:
+                selected_episode_group = intersection.pop()
+                selected_groups[scene_id] = selected_episode_group
+                logger.info(
+                    "episode_group_reused",
+                    scene_id=scene_id,
+                    selected_episode_group=selected_episode_group,
+                    episodes_in_group=all_valid_placements.episode_groups.get(selected_episode_group, []),
+                )
+                continue
+
             # Randomly select one episode from the list
-            selected_episode = random.choice(episode_list)
-            selected[scene_id] = selected_episode
+            selected_episode_group = random.choice(episode_groups_list)
+            selected_groups[scene_id] = selected_episode_group
 
             logger.info(
-                "episode_selected",
+                "episode_group_randomly_selected",
                 scene_id=scene_id,
-                selected_episode=selected_episode,
-                available_count=len(episode_list)
+                selected_episode_group=selected_episode_group,
+                episodes_in_group=all_valid_placements.episode_groups.get(selected_episode_group, []),
+                available_count=len(episode_groups_list)
             )
 
         logger.info(
             "random_selection_complete",
-            total_scenes=len(selected)
+            total_scenes=len(selected_groups)
         )
 
-        return selected
+        return selected_groups

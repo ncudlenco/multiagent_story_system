@@ -407,6 +407,7 @@ GAME COMPATIBILITY REQUIREMENTS:
    - office, classroom, gym, bedroom, kitchen
    - street, garden, porch, driveway
    - living room, bathroom, hallway
+   - WHEN NARRATIVE SEEDS ARE PROVIDED: DO NOT MENTION LOCATION IF NOT EXPLICITLY IN THE SEED
 
    DO NOT use invented locations like "alley", "newsroom", "studio" - these don't exist.
 
@@ -813,8 +814,8 @@ YOUR TASK:
    - Use varied settings, genres, and character types
    - Every story should be unique
    - Envision complex interactions between characters (as defined in action chains)
-10. Whenever possible prefer generic locations from available episodes (e.g., office, classroom, gym, bedroom, kitchen, street, garden, porch, driveway, living, bathroom, hallway)
-11. Locations can be left as prefixes of original region names -> the simulation environment handles mapping to actual episode locations e.g.: gym main room -> gym -> the simulation environment maps gym to an actual episode location that starts with "gym"
+10. ONLY MENTION LOCATIONS if EXPLICIT IN THE NARRATIVE - otherwise DO NOT add locations and DO NOT Mention them in the narrative.
+11. IF locations are added, can be left as prefixes of original region names -> the simulation environment handles mapping to actual episode locations e.g.: gym main room -> gym -> the simulation environment maps gym to an actual episode location that starts with "gym"
 
 OUTPUT FORMAT:
 Return a DualOutput with:
@@ -827,7 +828,7 @@ REMEMBER: Title and narrative are OUTPUT fields, NOT in the GEST JSON!
 VALIDATION CHECKLIST (verify before returning your output):
 ✓ Exist event IDs match entity names ("writer": {{"Entities": ["writer"]}})?
 ✓ All scenes contain actions from valid action list in valid locations?
-✓ All locations are from valid episode list and are generic?
+✓ All locations IF mentioned are from valid episode list and are generic?
 """
 
         return prompt

@@ -4,6 +4,8 @@
         "general_instructions": {
             "rules": [
                 "Actions MUST follow defined sequences.",
+                "ONLY ONE PickUp ed object at a time is allowed",
+                "Standing PickUp can ONLY be done for objects that can be PickedUp while standing (exclude seated pickupables)",
                 "The exact concrete possible actions that can be performed in a POI are defined in that POI's actions list.",
                 "Each action from a POI has a list of possible next actions that can be performed after it. If there is more than one possible next action, any of them can be chosen. The additional option is ALWAYS to NOT perform a next action, leaving the actor in the current state until the story ends. Otherwise, if a next action MUST be executed, it can only be from the list of possible actions.",
                 "Actions that put actors in a state that does something (e.g., SitDown, TypeOnKeyboard, Sleep, TaiChi) leave the actor with an animation looping in that state (no need for additional actions of same time to make the animation longer). The animation stops when the next valid action is performed or the story ends.",
@@ -30,23 +32,20 @@
         },
         "sitting": {
             "always_available": [
-                "LookAt",
                 "TakeOut",
                 "Stash"
             ],
             "description": "Sitting at location with POI-specific middle actions",
-            "note": "While sitting: LookAt, TakeOut, and Stash are ALWAYS available. Other actions (eat, laptop usage, etc.) are ONLY available if defined in that specific POI's allActions. The actual available actions are indicated in individual POI definitions, not as a generic list. Note that Drink is not available while sitting. Note that food actions are ONLY available on chairs with food (not laptop, sofa or armchair).\n\n Actors CAN be left in any seated state before standing up. Context switches (moving between linked episodes of other actors) while some actors are left looping in a state cause bugs on context switch back. BEST PRACTICE: Don't leave actors looping during context switches. Re-sit and follow with previously seated action off camera (include actions in graph but don't record them).",
+            "note": "While sitting: TakeOut, and Stash are ALWAYS available. Other actions (eat, laptop usage, etc.) are ONLY available if defined in that specific POI's allActions. The actual available actions are indicated in individual POI definitions, not as a generic list. Note that Drink is not available while sitting. Note that food actions are ONLY available on chairs with food (not laptop, sofa or armchair).\n\n Actors CAN be left in any seated state before standing up. Context switches (moving between linked episodes of other actors) while some actors are left looping in a state cause bugs on context switch back. BEST PRACTICE: Don't leave actors looping during context switches. Re-sit and follow with previously seated action off camera (include actions in graph but don't record them).",
             "variations": {
                 "sofa": [
                     "SitDown",
-                    "[Optional]LookAt",
                     "[Optional]TakeOut",
                     "[Optional]Stash",
                     "StandUp"
                 ],
                 "armchair": [
                     "SitDown",
-                    "[Optional]LookAt",
                     "[Optional]TakeOut",
                     "[Optional]Stash",
                     "StandUp"
@@ -83,7 +82,7 @@
             ]
         },
         "observation_actions": {
-            "note": "LookAt can be directed at actors or objects but it must be used rarely since it performs no animation. Wave is typically a gesture. These actions can be performed standalone. LookAt can be performed while sitting/standing. LookAt is already a part of interaction animations.",
+            "note": "LookAt can be directed ONLY at actors but it must be used rarely since it performs no animation. Wave is typically a gesture. These actions can be performed standalone. LookAt can be performed while sitting/standing. LookAt is already a part of interaction animations.",
             "description": "Actions for observing and gesturing.",
             "actions": [
                 "LookAt",
@@ -11146,8 +11145,6 @@
             "Stash",
             "Drink",
             "Smoke",
-            "LookAtObject",
-            "LookAt",
             "Wave",
             "TalkPhone",
             "AnswerPhone",

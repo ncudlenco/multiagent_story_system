@@ -5,7 +5,7 @@ Handles loading and validation of system configuration using Pydantic.
 Supports YAML configuration files with environment variable injection.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Literal, Optional
 from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
@@ -27,6 +27,10 @@ class OpenAIConfig(BaseModel):
         default=None,
         ge=1,
         description="Max completion tokens (output). None = no limit (GPT-5 decides)"
+    )
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
+        default="medium",
+        description="Reasoning effort level for the model"
     )
 
 

@@ -3,6 +3,7 @@
 
 openai:
   model: "gpt-5"  # Default model for all agents
+  reasoning_effort: "minimal"  # Default reasoning effort level: minimal, low, medium, high
   # temperature: 1.0  # GPT-5 with structured outputs only supports 1 (omit to use default)
   # max_tokens: null  # No limit - let GPT-5 decide output length
   # api_key loaded from .env file (OPENAI_API_KEY)

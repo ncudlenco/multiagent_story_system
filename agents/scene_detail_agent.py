@@ -1,25 +1,30 @@
-"""Scene Detail Agent - Expands leaf scenes to concrete game actions.
+"""Scene Detail Agent - Translates screenplay to executable GEST events.
 
-This agent is the third stage of the story generation pipeline.
-It takes abstract leaf scenes from the casting phase and expands them
-into detailed, executable game actions with proper temporal chains,
-spatial relations, and background actors for realism.
+This agent is the final stage of the story generation pipeline (after SetupAgent and ScreenplayAgent).
+It takes pre-planned screenplay action sequences and translates them into detailed, executable
+GEST events with proper temporal chains, spatial relations, and complete validation.
 
 Key Features:
-- Expands abstract actions to concrete game action sequences
-- Creates Exists events for all actors and objects
+- Translates screenplay actions to concrete GEST events
+- Maps generic objects to specific IDs (chair → chair1, chair2)
 - Builds complete temporal chains (next for same actor, relations for cross-actor)
-- Adds background actors when space/resources permit
-- Validates resource constraints (object availability)
+- Adds spatial relations for object disambiguation
+- Creates Exists events for all actors and objects
+- Validates resource constraints and temporal structure
 - Uses only actions/objects available in the assigned episode
 
+Pipeline Context:
+    1. SetupAgent: PickUp workaround + backstage positioning (ONCE)
+    2. ScreenplayAgent: Action planning for all scenes (ONCE)
+    3. SceneDetailAgent (this): Translate screenplay to GEST (PER SCENE)
+
 Example:
-    Input (leaf scene): "lunch_break" with 2 actors in "office"
-    Output: SitDown, OpenLaptop, TypeOnKeyboard, PickUp, Eat, Talk, etc.
-            + background actors (office_worker_1, office_worker_2) if space permits
+    Input (screenplay): actor1: [Move(office), SitDown(chair), Talk(actor2)]
+    Output: Complete GEST with events, temporal chains, spatial relations, validation
 """
 
 import json
+from multiprocessing import context
 import structlog
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -239,96 +244,21 @@ class SceneDetailAgent(BaseAgent[DualOutput]):
 
         return graphs
 
-    def _build_previous_state_section(self, context: Dict[str, Any]) -> str:
-        """Build the previous scene state section for the user prompt.
+    def _build_existing_objects_section(self, context: Dict[str, Any]) -> str:
+        """Build section listing objects accumulated from previous scenes.
 
         Args:
-            context: Context dictionary with previous_scene_state
-
+            context: Context dictionary containing 'existing_objects' list
+        existing_objects: List of object IDs already created in previous scenes
         Returns:
-            Formatted string describing previous scene state, or message if N/A
+            Formatted string section listing existing objects
         """
         previous_scene_state = context.get('previous_scene_state')
 
         if not previous_scene_state:
-            return """**This is the FIRST scene** - no previous state to maintain.
-You can start actors in any compatible initial state."""
+            return """**This is the FIRST scene** - no objects created so far."""
 
-        last_actions = previous_scene_state.get('last_actions_by_actor', {})
-        last_locations = previous_scene_state.get('last_locations_by_actor', {})
-        last_stateful_actions = previous_scene_state.get('last_stateful_action_by_actor', {})
         created_objects = previous_scene_state.get('created_objects', {})
-
-        # Build last actions and locations section
-        last_actions_section = ""
-        if last_actions:
-            last_actions_section = """**Last Actions and Locations by Actor** (you MUST maintain continuity):
-
-The following actors ended their previous scenes with these actions and locations.
-You MUST ensure BOTH action and spatial continuity:
-
-**Action Continuity**:
-- If last action was SitDown, start with StandUp or another sitting-compatible action
-- If last action was stateful (sitting, smoking, typing), account for state transition
-- If actor is not in THIS scene, you can ignore their state
-
-**Spatial Continuity** (CRITICAL):
-- Check where each actor ended up (Location field)
-- Current scene actions MUST make spatial sense given these locations
-- Example: If actor is in bedroom, don't have them interact with livingroom objects without Move
-- Example: If actor is in livingroom, waving/talking to them from bedroom makes NO SENSE
-
-**Last Actions**:
-```json
-"""
-            last_actions_section += json.dumps(last_actions, indent=2)
-            last_actions_section += "\n```\n\n"
-
-            # Add location info if available
-            if last_locations:
-                last_actions_section += """**Last Locations**:
-```json
-"""
-                last_actions_section += json.dumps(last_locations, indent=2)
-                last_actions_section += "\n```\n\n"
-
-        # Build last stateful actions section
-        stateful_actions_section = ""
-        if last_stateful_actions:
-            stateful_actions_section = """**Last Stateful Actions by Actor** (CRITICAL - ACTOR STATE):
-
-The following actors have ACTIVE STATES that MUST be resolved.
-Each entry shows the COMPLETE stateful action event with entities, location, etc.
-
-**Stateful Action Types:**
-- SitDown → Actor is SITTING, needs StandUp before walking/moving
-- GetOn → Actor is ON OBJECT (bed/equipment/etc.), needs GetOff before other actions
-
-**Complete Stateful Action Events:**
-```json
-"""
-            # Convert GESTEvent objects to dicts for JSON serialization
-            stateful_actions_dict = {
-                actor_id: event.model_dump()
-                for actor_id, event in last_stateful_actions.items()
-            }
-            stateful_actions_section += json.dumps(stateful_actions_dict, indent=2)
-            stateful_actions_section += "\n```\n\n"
-
-            stateful_actions_section += """**CRITICAL STATE RULES**:
-- If actor has stateful action **SitDown**: They are SITTING right now
-  → Check event Entities to see which object they're sitting on
-  → Must StandUp before Walk/Move or do sitting-compatible actions (Talk, LookAt)
-
-- If actor has stateful action **GetOn**: They are ON THE OBJECT right now
-  → Check event Entities[1] to see what object (Bed, benchpress, treadmill, etc.)
-  → Must GetOff before standing/walking actions
-
-- **Location matters**: Check event.Location to see where the stateful action happened
-  → Actor is still at that location unless they moved
-
-**If actor NOT in this list**: They are in neutral standing state, can start any action.
-"""
 
         # Build created objects section
         created_objects_section = ""
@@ -352,143 +282,8 @@ You CAN reference these without creating new Exists events:
             }
             created_objects_section += json.dumps(simplified_objects, indent=2)
             created_objects_section += "\n```\n\n"
+        return created_objects_section
 
-        # Build continuity rules
-        continuity_rules = """**CONTINUITY RULES (CRITICAL):**
-
-1. **Actor State Continuity**: Check last_stateful_action_by_actor above (MOST IMPORTANT):
-   - If actor has stateful action: They are STILL in that state (sitting/sleeping/exercising)
-   - MUST resolve state before incompatible actions (StandUp after SitDown, GetOff after GetOn)
-   - Can do state-compatible actions without resolving (Talk while sitting, LookAt while sitting)
-   - If actor NOT in last_stateful_action_by_actor: They are in neutral standing state
-
-2. **Spatial Continuity** (CRITICAL - CHECK LOCATIONS): Check last_locations_by_actor above:
-   - If an actor ended in bedroom, they're still in bedroom (unless scene shows them moving)
-   - Interactions (wave, talk, give) require actors in SAME location or visible proximity
-   - Cannot interact with objects in different rooms without Move action first
-   - Examples of VIOLATIONS:
-     * ❌ Actor in bedroom waves at actor in livingroom (impossible)
-     * ❌ Actor picks up kitchen object while in bedroom (need Move first)
-     * ✅ Actor in livingroom waves at another actor in livingroom (valid)
-
-3. **Object Reuse**: Check created_objects above. If you need an object that exists there:
-   - DO NOT create a new Exists event for it
-   - Reference the existing object_id directly
-   - Objects persist across scenes in their last known location
-
-4. **New Actors/Objects**: If an actor is NOT in last_actions_by_actor or an object is NOT in created_objects:
-   - You MUST create their Exists event normally
-   - This is their first appearance in the story
-
-**STATEFUL ACTION EXAMPLE (CRITICAL)**:
-Scenario: player_42 previous scene ended with SitDown → LookAt (last action = LookAt)
-- Check last_stateful_action_by_actor:
-  ```
-  "player_42": {
-    "Action": "SitDown",
-    "Entities": ["player_42", "chair1"],
-    "Location": ["livingroom"],
-    ...
-  }
-  ```
-- Player is STILL SITTING on chair1 in livingroom (even though last action was LookAt)
-- You can see: Actor sat on "chair1" (Entities[1]) in "livingroom" (Location)
-- ✅ Start with StandUp, then Walk (resolves sitting state)
-- ✅ Start with Talk (sitting-compatible, no state change needed)
-- ❌ Start with Walk without StandUp (incompatible - still sitting!)
-
-**GETON EXAMPLE**:
-If last_stateful_action_by_actor shows:
-  ```
-  "player_43": {
-    "Action": "GetOn",
-    "Entities": ["player_43", "bed1"],
-    "Location": ["bedroom"],
-    ...
-  }
-  ```
-- Player is ON bed1 in bedroom right now
-- Must GetOff before doing other actions
-- ✅ Start with GetOff, then other actions
-- ❌ Start with Walk (incompatible - still on bed!)
-
-**SPATIAL CONTINUITY EXAMPLE**:
-If player_42 last location was ["bedroom"] and player_43 last location was ["livingroom"]:
-- ❌ player_43 waves at player_42 (different rooms - impossible)
-- ✅ player_43 moves to bedroom, then waves at player_42 (valid - same location now)
-- ✅ player_42 and player_43 both already in livingroom, wave at each other (valid)
-"""
-
-        return last_actions_section + stateful_actions_section + created_objects_section + continuity_rules
-
-    def _build_future_scenes_section(self, context: Dict[str, Any]) -> str:
-        """Build the future scenes lookahead section for the user prompt.
-
-        Args:
-            context: Context dictionary with future_scenes
-
-        Returns:
-            Formatted string describing upcoming scenes, or message if none
-        """
-        future_scenes = context.get('future_scenes')
-
-        if not future_scenes or len(future_scenes) == 0:
-            return """**This is the LAST scene** - no future scenes to consider.
-You can place actors anywhere that makes sense for the current narrative."""
-
-        future_scenes_section = """**Future Scenes Lookahead** (plan ahead for spatial/narrative coherence):
-
-The following scenes will happen AFTER the current scene.
-Consider their requirements when making location and setup decisions NOW:
-
-"""
-
-        for idx, future_scene in enumerate(future_scenes, 1):
-            scene_id = future_scene.get('scene_id', 'unknown')
-            narrative = future_scene.get('narrative', 'No narrative')
-            actor_names = future_scene.get('actor_names', [])
-            location = future_scene.get('location', ['unknown'])
-            episode_name = future_scene.get('episode_name', 'unknown')
-
-            # Format location as comma-separated string
-            location_str = ', '.join(location) if isinstance(location, list) else str(location)
-
-            future_scenes_section += f"""
-**Scene {idx}: {scene_id}**
-- **Narrative**: {narrative}
-- **Actors**: {', '.join(actor_names)}
-- **Location**: {location_str}
-- **Episode**: {episode_name}
-
-"""
-
-        # Add lookahead rules
-        lookahead_rules = """**LOOKAHEAD PLANNING RULES (CRITICAL):**
-
-1. **Spatial Preparation**: If a future scene requires actors in a specific location (e.g., livingroom):
-   - Consider placing actors there NOW if it makes sense
-   - Avoid placing actors in incompatible locations (e.g., bedroom if they need to interact in livingroom)
-
-2. **Location Accessibility**: Check if future interactions require spatial proximity:
-   - Example: If Scene 2 has "waves at them", actors must be in same location or visible proximity
-   - Don't place actors in separate rooms if future scenes need them to interact without Move actions
-
-3. **Object Setup**: If future scenes mention objects:
-   - Create objects in locations where they'll be needed
-   - Avoid creating objects in wrong locations that would require complex retrieval
-
-4. **Narrative Flow**: Ensure current scene sets up logical transitions to future scenes:
-   - If Scene 2 mentions "enters livingroom", Scene 1 shouldn't already have that actor there
-   - If Scene 2 describes continuation of activity, Scene 1 should position actors appropriately
-
-**EXAMPLE**:
-- Current Scene: "Two people chat"
-- Future Scene: "Someone enters livingroom and waves at them"
-- ✅ CORRECT: Place initial actors in livingroom (or visible from livingroom entrance)
-- ❌ WRONG: Place actors in bedroom (cannot see livingroom entrance, waving makes no sense)
-"""
-
-        return future_scenes_section + lookahead_rules
 
     def build_system_prompt(self, context: Dict[str, Any]) -> str:
         """Build comprehensive system prompt with all rules and examples.
@@ -526,18 +321,12 @@ You are a SCENE DETAIL AGENT for story generation.
 You are part of a multi-stage pipeline to create cinematic stories that can be simulated in a 3D environment.
 
 ## YOUR TASK:
-Given the narrative of the whole story and a single abstract scene:
+Given the narrative of the whole story and a single abstract scene + the screenplay for the whole story:
 - Expand a single abstract leaf scene into concrete, executable actions in the simulation environment.
-- Transform high-level narrative descriptions into detailed action sequences
-  using ONLY actions and objects available in the assigned episode.
-- Based on how the current scene fits into the overall story narrative, envision if the scene should be long or short (fewer actions)
-  e.g., when the narrative describes a brief, specific moment, keep it concise.
-- You directly control what actors should do with what objects or actors, where, and when.
-- Given the game constraints, you must ensure that when the recording of specific events from the scene starts,
-  to illustrate the appropriate part of the narrative for that scene, all actors are preset in the correct state, with the correct objects.
-  e.g., if an actor needs to be holding a phone at the start of the scene, you must first have them TakeOut the phone before starting the recording of the scene.
-  e.g., if you introduce a background actor that needs to be sitting at the start of the scene, you must first have them SitDown before starting the recording of the scene.
-  e.g., if you introduce an action to Give an object, you must first have the giver PickUp the object before starting the recording of the scene (you cannot give what you don't have).
+- The screenplay already provides a pre-planned sequence of actions for each actor to illustrate the narrative.
+- REUSE the objects from previous scenes, make sure object coherence and consystency is preserved across scenes.
+- BASED on that, directly control what actors should do with what objects or actors, where, and when.
+- Given the game constraints, and screenplay actions, you must ensure that when the recording of specific events happens or not.
 - You will also ensure temporal coherence between same actor actions and cross-actor actions, indirectly controlling the timeline of the recording, such that the recorded scenes best illustrate the intended narrative.
 - All while grounding what needs to be illustrated in concrete bounds of the simulation environment (available actions, objects, locations).
 - The output GEST expanded for the scene must be directly executable in the simulation engine (all expanded scenes will be stitched together later).
@@ -545,8 +334,10 @@ Given the narrative of the whole story and a single abstract scene:
 PIPELINE CONTEXT:
 1. Concept Phase: Created a hierarchical abstract story structure, from high-level parent scenes to lower-level leaf scenes
 2. Casting Phase: Assigned specific SkinIds to actors based on narrative roles
-3. **Detail Phase (YOU)**: Expand leaf scenes to concrete actions
-4. Validation Phase: Execute in simulation engine
+3. **Detail Phase SetUp**: Positioned actors backstage, applied PickUp for objects that need to be held at the start of scenes (once per story)
+4. **Detail Phase Screenplay**: Planned action sequences for all scenes in the story (once per story), and integrated SetUp actions and locations
+5. **Detail Phase (YOU)**: Expand leaf scenes to concrete actions as a complete and valid GEST structure (per scene) that follows the screenplay
+6. Validation Phase: Execute in simulation engine to verify feasibility
 
 ---
 
@@ -554,9 +345,10 @@ PIPELINE CONTEXT:
 
 You will receive:
 1. **Leaf Scene Event**: Abstract scene with narrative and protagonist actors to be expanded NOW
-2. **Episode Data**: Complete episode JSON with regions, objects, POIs, actions
-3. **Protagonist Names**: Main actors from casting phase (have character names)
-4. **Environment Capabilities**: Rules about actions, interactions, camera commands, and other constraints of the simulation engine
+2. **Screenplay**: Pre-planned action sequences for ALL actors in the story (from ScreenplayAgent) and narrative
+3. **Episode Data**: Complete list of episodes as JSON with regions, objects, POIs, actions
+4. **Protagonist Names**: Main actors from casting phase (have character names)
+5. **Environment Capabilities**: Rules about actions, interactions, camera commands, and other constraints of the simulation engine
 
 Example Leaf Scene:
 ```json
@@ -612,17 +404,36 @@ THE RULES DEFINED HERE ARE CRITICAL. THE SIMULATION ENVIRONMENT WILL NOT ACCEPT 
 - PickUp must be followed by an action different than PutDown
 ---
 
-## SETTING THE SCENE BEFORE RECORDING:
-Before starting the recorded actions that illustrate the scene narrative, ensure that:
-- All actors are in the correct initial state
-e.g., SitDown actors that need to be sitting at the start of the recorded actions
-- All objects needed for the recorded actions are in the correct possession/location
-- You MUST first PickUp objects from other locations / other linked episodes, then move the actors to the initial location according to your narrative if the narrative directly states that they must put something down.
-- ONLY add actions for background actors that involve something additional to only looking at something: e.g., sit down, then look at something.
-- DO NOT add strangers / neighbours on the property of the protagonists unless the narrative explicitly requires it. E.g., there is only one porch in the episode, and the protagonist does something there: the neighbour has no business on being on their porch
-- WHEN the narrative explicitly states events that happen after / before other events, you MUST spawn the actors that are NOT part of the initial event to a different location.
-- YOU MUST ensure that the actors who appear in narrative at a certain time, are NOT visible in the scene and recorded video before that time.
-e.g., a man does something in location x, then a woman enters location x: the woman MUST NOT be present in location x before she enters.
+## SCREENPLAY INPUT (from ScreenplayAgent):
+
+You will receive a PRE-PLANNED action sequence for each actor from the ScreenplayAgent.
+The ScreenplayAgent has already:
+- Translated narrative to concrete action sequences
+- Added minimal waiting actions (idle prevention)
+- Replaced unsimulatable actions with alternatives
+- Integrated actions and locations from the setup phase
+- Adapted the narrative to fit the simulation environment
+- Ensured spatial and temporal continuity across scenes
+
+**Your task is to translate this screenplay into complete executable valid GEST**.
+
+The screenplay provides WHAT actions should happen.
+YOU provide the technical implementation:
+- Concrete object IDs (chair → chair1, chair2) reused across scenes
+- Temporal relations (action ordering via starts_with, before, after)
+- Spatial relations needed for disambiguation of actor actions (chair1 behind desk1, etc.)
+- Complete event structure with validation
+
+**Actor Initial States** (from SetupAgent):
+- Actors are ALREADY positioned in their initial locations (check protagonist_exists_events Location field)
+- Some actors may be holding objects (from setup PickUp workaround)
+- You must take into account IsOnCamera flags and properly assign camera commands
+
+**Backstage Positioning and Camera Visibility**:
+- Actors in different regions won't see each other until they Move together
+- SetupAgent handled initial positioning to prevent early visibility
+- You enforce temporal ordering to control when actions execute and when actors appear on camera
+- Use before/after relations to sequence entries from different regions
 
 ## BACKGROUND ACTORS:
 
@@ -705,6 +516,10 @@ ALL actors are provided in protagonist_exists_events - distinguish by IsBackgrou
 ```
 
 **Object Exists:**
+- DO NOT EXHAUSTIVELY CREATE exists actions for all objects in the episodes!
+- ONLY CREATE exists actions for objects that are USED or IMPLIED TO BE USED in the scene actions (e.g., chair1 if someone sits on it, laptop1 if someone uses it)
+- REUSE objects provided from other scenes for the same actor (do not sit down on one object and stand up from another)
+- USE THE EXACT ENTITY IDS From the SCREENPLAY ACTIONS when creating object Exists events (e.g., if screenplay has SitDown(chair2), create Exists for chair2)
 ```json
 "chair1": {{
   "Action": "Exists",
@@ -809,36 +624,24 @@ POSSIBLE SPATIAL RELATION TYPES:
 4. **Temporal Completeness**: Every actor needs complete chains of events from starting_actions linked with next until null, and cross-actor relations where needed
 5. **Narrative Fidelity**: Stay true to original scene narrative as much as possible
 6. **Simulation Feasibility**: If something can't be simulated, skip it gracefully
-7. **State Continuity** (CRITICAL): If previous scene state is provided in the prompt:
-   - Check each actor's last action from previous scenes
-   - Start actors with compatible actions (e.g., StandUp after SitDown)
+7. **State Continuity** (CRITICAL): already handled by screenplay, through entity ids:
    - Never create duplicate Exists events for objects already created in previous scenes
-   - Maintain temporal and logical coherence across scene boundaries
-   - Account for stateful actions (sitting, smoking, typing, etc.) when transitioning
-   - Example violations:
-   * ❌ Actor stood up in previous scene, another stand up now (redundant)
-   * ❌ Actor sitting down now after already sitting in previous scene (incompatible)
-8. **Spatial Logic** (CRITICAL): Actions MUST make spatial sense:
-   - Check previous scene locations: If actor was in bedroom, current actions must account for that
+   - Never create objects with a different entity id than the one used in the screenplay actions
+   - Maintain temporal and logical coherence across scene boundaries by reusing objects from previous scenes by their entity ids
+8. **Spatial Logic** (CRITICAL): Actions MUST make spatial sense, locations are put accordingly with sense by the screenplay:
    - Interactions require proximity: Cannot wave/talk/give from different rooms
-   - Check future scene locations: Plan ahead for where actors need to be
+   - Use the same locations as in screenplay
    - Example violations:
-     * ❌ Actor in bedroom waves at actor in livingroom (impossible - different rooms)
-     * ❌ Actor in kitchen picks up bedroom object without Move action
-     * ✅ Actor in livingroom waves at actor also in livingroom (valid - same location)
+     * ❌ For an Action from screenplay used a different location than the one in screenplay
 
 ---
 
-## STAY TRUE TO NARRATIVE:
+## STAY TRUE TO SCREENPLAY:
 
-- Honor the original scene's intent and mood
-- Preserve protagonist relationships and interactions
-- Maintain narrative coherence
-- BUT: Skip elements that can't be simulated in the game
-- Adapt creatively when exact match impossible but make the replaced action logical given the context
+- Screenplay already adapted narrative to fit simulation environment
+- Your expansion must follow screenplay actions closely
 - CRITICAL: your adapted narrative must match exactly the events unfolding in the expanded GEST without the ones of background actors AND without the setting the scene part: essentially without the events that are not recorded.
 - CRITICAL: in your narrative use either the names of the actors if available, or generic descriptions based on gender. e.g., a man, first man, second man, a woman, another woman. Never use the ids of actors since these are not readable.
-- The actions that you replace with must have a meaning -> think cinematographically, does it fit the story presented in the casting narrative?
 
 ---
 
@@ -858,8 +661,6 @@ Return a DualOutput with:
 
 3. **title**: Scene title
 
-## GRAPHS TO BE USED AS REFERENCE:
-{ref_graphs_section}
 
 ---
 
@@ -874,13 +675,14 @@ Before returning, verify:
 ✓ No cross-actor "next" pointers (use relations instead)?
 ✓ All actions from assigned episode's action list?
 ✓ Object counts don't exceed episode availability?
+✓ All objects used in actions exist specifically in episode objects or spawnable objects? - NOT INVENTED out side of the simulation world!
 ✓ Background actors added only if resources permit?
 ✓ Background actors have generic names?
 ✓ Exists events for all entities, including spawnable objects?
 ✓ Narrative coherence maintained?
 ✓ Original narrative style preserved (no bloat)?
-✓ Did you properly set the scene? e.g.: No Give actions without prior PickUp of the object?
-✓ Did you insert all the pickup actions in the setting the scene phase for actors that are supposed to bring something?
+✓ Screenplay translated faithfully? All planned actions included?
+✓ Actors with held objects (from setup) use them appropriately?
 ✓ Are you avoiding nonsense chains of actions? e.g., sitdown -> look -> sitdown; pickup -> putdown; give -> receive (without using object)?
 
 ---
@@ -903,9 +705,8 @@ YOU ARE READY. Expand the scene with precision and creativity regarding conveyin
         """
         scene_event = context['scene_event']
         scene_id = context['scene_id']
-        casting_narrative = context['casting_narrative']
+        screenplay = context['screenplay']
         episode_data = context['episode_data']
-        episode_name = context['episode_name']
         full_capabilities = context['full_capabilities']
         protagonist_names = context['protagonist_names']
         protagonist_exists_events = context['protagonist_exists_events']
@@ -914,25 +715,19 @@ YOU ARE READY. Expand the scene with precision and creativity regarding conveyin
 
         # Minimize the size of the linked episodes data by removing POIs and stripping down regions
         episodes_data_without_pois = [{
-            "name": episode_data["name"],
-            "episode_links": episode_data["episode_links"],
-            "objects": episode_data["objects"],
-            "regions": episode_data["regions"],
-        }]
+            "name": episode["name"],
+            "episode_links": episode["episode_links"],
+            "objects": episode["objects"],
+            "regions": episode["regions"],
+        } for episode in episode_data]
 
-        linked_episodes = [episode for episode in full_capabilities.get("episodes", []) if episode.get("name") in episode_data.get("linked_episodes", [])]
-        for episode in linked_episodes:
-            episodes_data_without_pois.append({
-                "name": episode["name"],
-                "episode_links": episode["episode_links"],
-                "objects": episode["objects"],
-                "regions": episode["regions"],
-            })
-
-        episode_json = json.dumps(episode_data, indent=2)
+        episode_json = json.dumps(episodes_data_without_pois, indent=2)
 
         # Extract narrative
         narrative = scene_event.Properties.get('narrative', 'No narrative provided')
+
+        screenplay_narrative = screenplay.get('narrative', 'No screenplay narrative provided')
+        scene_screenplay_json = json.dumps(screenplay["scene"] if context.get('screenplay') else {}, indent=2)
 
         # Format protagonist list
         protagonist_list = ', '.join(protagonist_names)
@@ -954,21 +749,19 @@ YOU ARE READY. Expand the scene with precision and creativity regarding conveyin
 
 **Scene Narrative**: {narrative}
 
-**Casting Narrative Context** (for reference, not for expansion or inclusion in output):
-{casting_narrative}
+**Screenplay Narrative** (for reference, not for expansion or inclusion in output):
+{screenplay_narrative}
 
 ---
 
-## POTENTIAL ASSIGNED EPISODE:
+## POTENTIAL ASSIGNED EPISODES:
 
-**Episode Name**: {episode_name}
-
-**Complete Episode Data**:
+**Complete Episodes Data**:
 ```json
 {episode_json}
 ```
 
-**Spawnable Objects in Episode**: {spawnable_objects}
+**Spawnable Objects in Episodes**: {spawnable_objects}
 When using a spawnable object, you MUST still add an Exists event for them.
 ---
 
@@ -1000,27 +793,33 @@ DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
 {json.dumps(scene_event.Properties.get('extra_narratives', {}), indent=2)}
 ```
 
----
-
-## PREVIOUS SCENE STATE (CRITICAL - MAINTAIN CONTINUITY):
-
-{self._build_previous_state_section(context)}
+## OBJECTS ACCUMULATED FROM OTHER SCENES SO FAR (for reuse):
+{self._build_existing_objects_section(context)}
 
 ---
 
-## FUTURE SCENES (LOOKAHEAD - PLAN AHEAD FOR SPATIAL COHERENCE):
+## SCREENPLAY FOR THIS SCENE:
 
-{self._build_future_scenes_section(context)}
+**Scene Screenplay**:
+```json
+{scene_screenplay_json}
+```
+
+**Note**: This is the pre-planned action sequence from ScreenplayAgent.
+Your task is to translate these screenplay actions into executable GEST events.
+MAINTAIN the spatial and temporal continuity from the screenplay!
 
 ---
+
+
 
 ## YOUR TASK:
-0. **Set the scene first**
-    - Pick up all objects that actors need to bring into the scene according to the narrative
-    - Have actors preset in the correct state before starting the recorded actions.
 
-1. **Expand the scene** "{scene_id}" using ONLY actions and objects from episode "{episode_name}" and its linked episodes + interactions, Wave, LookAt, and actions that involve spawnable objects (Cigarette or MobilePhone) - TakeOut -> chain of actions with the spawned objects -> Stash
-    - The scene MUST be coherent with the original casting narrative.
+1. **Translate screenplay to executable GEST** for scene "{scene_id}" using ONLY actions and objects from the listed episodes + interactions, Wave, and actions that involve spawnable objects (Cigarette or MobilePhone)
+    - The scene MUST be coherent with the original screenplay and casting narrative.
+    - Map screenplay actions to concrete events with specific object IDs (chair → chair1, chair2)
+    - Build complete temporal structure (starting_actions, next chains, cross-actor relations)
+    - CRITICAL: USE the same exact entity IDs from the screenplay: these are used for cross-scene temporal and spatial coherence.
 
 2. **Expand actions for ALL actors in scene Entities**:
    - For protagonists (IsBackgroundActor: false): Use main scene narrative
@@ -1048,12 +847,7 @@ DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
    - Properties indicating they are background actors (they will never get camera focus)
    - Example: "IsBackgroundActor": true
 
-6. **Plan setting the scene actions**
-    - Actions needed to preset actors before starting the recorded scene
-    - e.g., the concept narrative indicates that someone puts down something, or is bringing something.
-    -----You MUST first have them PickUp a pickupable object from the location where it will be put down, and move them to their initial location from which they are supposed to start. This will result in a movie where the person brings something and puts it somewhere or gives it to someone.
-
-6. **Build temporal structure**:
+5. **Build temporal structure** (CRITICAL):
    - starting_actions: Map ALL actors to their first action event
    - Actor chains: Use "next" for same-actor sequences
    - Cross-actor relations: Use "relations" + relation IDs
@@ -1082,9 +876,9 @@ DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
    - DO NOT mention background actors in the narrative
    - FOCUS ONLY on the scene narrative, not the whole story narrative that comes from  the casting phase
 
-10. **Assign proper camera commands**:
-    - You might want first to put all the actors in a certain state before starting shooting the scene
-    - E.g. First start the routines of all the extras, pick up or take out any objects the protagonists need to have in their hands at the start of the scene
+6. **Assign proper camera commands**:
+    - Control which events are recorded vs off-camera
+    - Coordinate camera with temporal relations for best cinematic effect
 
 ---
 
@@ -1092,7 +886,7 @@ DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
 
 - Expand to AS MANY actions as needed (NO LIMIT)
 - VALIDATE resources before adding extras
-- Use ONLY actions/objects located in appropriate regions from "{episode_name}" and linked episodes - DO NOT create an action with an object in location: [region_a] if that object does not exist in region_a in the episode
+- Use ONLY actions/objects located in appropriate regions from the listed episodes - DO NOT create an action with an object in location: [region_a] if that object does not exist in region_a in the episode
 - The equivalent for Location in episode is region name
 - EVERY actor needs complete temporal chain
 - Stay true to the narrative intent
@@ -1106,12 +900,13 @@ DO NOT regenerate, modify, or alter ANY properties EXCEPT Location.
 - Do not forget TakeOut and Stash actions for spawnable objects (phone, cigarette)
 - Do not disrupt the original scene narrative intent
 - Do not rename protagonists - only extras get generic names
+- DO NOT use objects not present in the episode or spawnable objects
 - Put a Property for extras indicating they are background actors (they will never get camera focus)
 - IF you have the liberty to choose between multiple valid regions, pick the one that is most common across that type of episode (e.g., most houses have a livingroom and a bedroom <-- choose these, but not all houses have a barroom <-- discard it)
 - NEVER EVER add starts_with, after, or before relations between events of the same actor - use next for that
 - DO NOT confuse the action Talk with TalkPhone - these are different actions. When you synchronize two actors doing an interaction do the matching by the action name (e.g., Talk↔Talk, TalkPhone↔TalkPhone, Give↔INV-Give).
-- I REPEAT, DO NOT SKIP SETTING THE SCENE.
-- VERY IMPORTANT: DO NOT ADD MEANINGLESS SUCCESSIONS OF ACTIONS: e.g. PickUp -> PutDown instead do e.g. PickUp -> Give -> Receive -> Give -> Receive -> PutDown; or PickUp -> Eat -> PutDown
+- TRANSLATE SCREENPLAY FAITHFULLY: Follow the screenplay action plan, don't deviate
+- VERY IMPORTANT: DO NOT ADD MEANINGLESS SUCCESSIONS OF ACTIONS: e.g. PickUp -> PutDown (screenplay handles PickUp for setup, you handle usage)
 ---
 
 BEGIN EXPANSION NOW."""
@@ -1122,26 +917,26 @@ BEGIN EXPANSION NOW."""
         story_id: str,
         scene_event: GESTEvent,
         casting_narrative: str,
-        episode_name: str,
         episode_data: Dict[str, Any],
         protagonist_names: list[str],
         full_capabilities: Dict[str, Any],
         protagonist_exists_events: Dict[str, GESTEvent],
         use_cached: Optional[bool] = False,
         previous_scene_state: Optional[Dict[str, Any]] = None,
-        future_scenes: Optional[list[Dict[str, Any]]] = None
+        future_scenes: Optional[list[Dict[str, Any]]] = None,
+        screenplay: Optional[Any] = None
     ) -> DualOutput:
-        """Expand a single leaf scene to concrete game actions.
+        """Translate screenplay to executable GEST events for a single scene.
 
         This is the main method called by the workflow for each leaf scene.
-        It expands one scene at a time with full episode context.
+        It translates pre-planned screenplay actions into detailed GEST with
+        temporal relations, spatial positioning, and complete validation.
 
         Args:
             scene_id: ID of the scene event
             story_id: ID of the story
             scene_event: GESTEvent representing the leaf scene
             casting_narrative: Narrative text from casting phase
-            episode_name: Name of assigned episode
             episode_data: Complete episode data with regions, objects, POIs
             protagonist_names: List of main actor names from casting
             full_capabilities: Full game capabilities (for action validation)
@@ -1149,6 +944,7 @@ BEGIN EXPANSION NOW."""
             use_cached: Whether to use cached results if available
             previous_scene_state: State from previous scenes (last actions, created objects)
             future_scenes: List of upcoming scenes for spatial/narrative lookahead
+            screenplay: Pre-planned action sequences from ScreenplayAgent (NEW)
 
         Returns:
             DualOutput with expanded GEST and narrative
@@ -1163,7 +959,6 @@ BEGIN EXPANSION NOW."""
         logger.info(
             "expanding_leaf_scene",
             scene_id=scene_id,
-            episode_name=episode_name,
             protagonist_count=len(protagonist_names),
             has_previous_state=previous_scene_state is not None,
             future_scenes_count=len(future_scenes) if future_scenes else 0
@@ -1174,13 +969,13 @@ BEGIN EXPANSION NOW."""
             'scene_id': scene_id,
             'scene_event': scene_event,
             'casting_narrative': casting_narrative,
-            'episode_name': episode_name,
             'episode_data': episode_data,
             'protagonist_names': protagonist_names,
             'full_capabilities': full_capabilities,
             'protagonist_exists_events': protagonist_exists_events,
             'previous_scene_state': previous_scene_state,
-            'future_scenes': future_scenes
+            'future_scenes': future_scenes,
+            'screenplay': screenplay  # Pass screenplay from ScreenplayAgent
         }
 
         # Use cached output if requested

@@ -6,7 +6,7 @@ No manual JSON parsing required - API returns validated Pydantic models directly
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, Type, TypeVar, Generic
+from typing import Dict, Any, Literal, Optional, Type, TypeVar, Generic
 from pydantic import BaseModel
 import structlog
 from openai import OpenAI
@@ -42,7 +42,9 @@ class BaseAgent(ABC, Generic[T]):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         use_structured_outputs: bool = True,
-        prompt_logger=None
+        prompt_logger=None,
+        reasoning_effort: Literal["minimal", "low", "medium", "high"] = None,
+        model: Optional[str] = None
     ):
         """
         Initialize agent.
@@ -56,6 +58,7 @@ class BaseAgent(ABC, Generic[T]):
             use_structured_outputs: If True, use OpenAI structured outputs API.
                                    If False, use manual JSON parsing (for complex schemas like GEST)
             prompt_logger: Optional PromptLogger instance for logging prompts/responses
+            reasoning_effort: Optional override for reasoning effort level
         """
         self.config = config
         self.agent_name = agent_name
@@ -65,9 +68,10 @@ class BaseAgent(ABC, Generic[T]):
 
         # OpenAI client
         self.client = OpenAI(api_key=config['openai']['api_key'])
-        self.model = config['openai']['model']
+        self.model = model if model is not None else config['openai']['model']
         self.temperature = temperature if temperature is not None else config['openai']['temperature']
         self.max_tokens = max_tokens if max_tokens is not None else config['openai']['max_tokens']
+        self.reasoning_effort = reasoning_effort if reasoning_effort is not None else config['openai']['reasoning_effort']
 
         logger.info(
             "agent_initialized",
@@ -172,6 +176,7 @@ class BaseAgent(ABC, Generic[T]):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
+            "reasoning_effort": self.reasoning_effort
         }
 
         # Temperature (GPT-5 compatible)

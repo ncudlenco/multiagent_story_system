@@ -1,18 +1,24 @@
-"""Detail Workflow - Scene expansion to concrete game actions.
+"""Detail Workflow - Three-agent screenplay-based story expansion.
 
-This workflow orchestrates Phase 3 of story generation:
+This workflow orchestrates Phase 3 of story generation using three specialized agents:
+
+**Architecture:**
 1. Episode Placement: Assigns each leaf scene to a specific game episode
-2. Scene Expansion (with integrated merging):
-   a. Expand all scenes in parallel
-   b. Order scenes by temporal relations
-   c. Merge expansions in correct narrative order
-   d. Track scene info during merge (first/last actions per actor)
-   e. Add cross-scene temporal relations (scene-to-scene BEFORE)
-   f. Link same-actor chains across scene boundaries
-3. Finalization: Save GEST and narrative artifacts
+2. ONE-TIME PREPARATION (before all scenes):
+   a. SetupAgent: PickUp workaround + backstage positioning for all actors
+   b. ScreenplayAgent: Action planning for all scenes (faithful to narrative)
+3. PER-SCENE EXECUTION (sequential):
+   a. SceneDetailAgent: Translates screenplay to executable GEST
+   b. Immediate merge with state tracking
+   c. Cross-scene temporal linking
+4. Finalization: Save GEST and narrative artifacts
+
+**Three-Agent Pipeline:**
+- SetupAgent: Handles off-camera setup (PickUp objects, position actors backstage)
+- ScreenplayAgent: Plans what actions tell the story (faithful translation)
+- SceneDetailAgent: Technical execution (GEST events, temporal relations, validation)
 
 The workflow processes casting GEST and produces validation-ready detail GEST.
-All merge logic is now consolidated in the expand_scenes node (no separate merge nodes).
 """
 
 from copy import deepcopy
@@ -26,6 +32,8 @@ import structlog
 from schemas.gest import GEST, GESTEvent, DualOutput
 from agents.episode_placement_agent import EpisodePlacementAgent
 from agents.scene_detail_agent import SceneDetailAgent
+from agents.setup_agent import SetupAgent
+from agents.screenplay_agent import ScreenplayAgent
 
 logger = structlog.get_logger(__name__)
 
@@ -94,7 +102,8 @@ def get_episode_for_scene(episode_name: str, full_capabilities: Dict[str, Any]) 
     episodes = full_capabilities.get('episodes', [])
     for episode in episodes:
         if episode.get('name') == episode_name:
-            return episode
+            episode_data = preprocess_episode_data(episode)  # Categorize objects by pickup mode
+            return episode_data
 
     raise ValueError(f"Episode '{episode_name}' not found in capabilities")
 
@@ -228,7 +237,10 @@ def place_episodes_node(state: DetailState) -> DetailState:
     )
 
     # Update state with selected mapping
-    state['episode_mapping'] = selected_mapping
+    state['episode_mapping'] = {
+        **selected_mapping,
+        "episode_groups": all_valid_placements.episode_groups
+    }
 
     logger.info(
         "episode_selection_complete",
@@ -236,15 +248,16 @@ def place_episodes_node(state: DetailState) -> DetailState:
         selected_episodes=selected_mapping
     )
 
-    # Save selected episode mapping (backward compatible format)
+    # Save selected episode mapping (backward incompatible format)
     mapping_path = output_dir / "episode_mapping.json"
     with open(mapping_path, 'w', encoding='utf-8') as f:
         json.dump({
             'placements': selected_mapping,
             'reasoning': {
-                scene_id: all_valid_placements.reasoning[scene_id][selected_episode]
-                for scene_id, selected_episode in selected_mapping.items()
-            }
+                scene_id: all_valid_placements.reasoning[scene_id][selected_episode_group]
+                for scene_id, selected_episode_group in selected_mapping.items()
+            },
+            'episode_groups': all_valid_placements.episode_groups
         }, f, indent=2)
 
     logger.info("saved_selected_episode_mapping", path=str(mapping_path))
@@ -252,11 +265,45 @@ def place_episodes_node(state: DetailState) -> DetailState:
     return state
 
 
-def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int) -> GEST:
+def extract_screenplay_entity_ids(scene_screenplay) -> set:
+    """Extract all entity IDs from screenplay actions.
+
+    Parses all actions in the screenplay to collect entity IDs that should be preserved
+    across scenes for object reuse.
+
+    Args:
+        scene_screenplay: SceneScreenplay object with actor_actions
+
+    Returns:
+        Set of entity IDs mentioned in screenplay (excludes actor IDs)
+    """
+    entity_ids = set()
+
+    if not scene_screenplay:
+        return entity_ids
+
+    # Extract entities from all actor actions
+    for actor_id, actions in scene_screenplay.actor_actions.items():
+        for action in actions:
+            # Add all entities except the actor themselves
+            for entity_id in action.Entities:
+                if entity_id != actor_id:
+                    entity_ids.add(entity_id)
+
+    logger.info(
+        "extracted_screenplay_entity_ids",
+        entity_count=len(entity_ids),
+        entity_ids=list(entity_ids)
+    )
+
+    return entity_ids
+
+
+def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int, preserve_ids: Optional[set] = None) -> GEST:
     """Make all event and relation IDs unique by appending scene_id and index.
 
     Comprehensively renames:
-    - All event IDs (except protagonist Exists with IsBackgroundActor=False)
+    - All event IDs (except protagonist Exists with IsBackgroundActor=False and screenplay entities)
     - All temporal/semantic/logical relation IDs
     - ALL references: Entities, source, target, next, relations, spatial keys, camera keys
 
@@ -264,11 +311,16 @@ def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int) -> GEST:
         gest: Expansion GEST with potentially duplicate IDs
         scene_id: Scene identifier (e.g., "mix_compose")
         scene_index: Global scene counter (0-based)
+        preserve_ids: Set of entity IDs from screenplay to preserve (not rename)
 
     Returns:
         GEST with globally unique IDs
     """
     suffix = f"_{scene_id}_{scene_index}"
+
+    # Initialize preserve_ids if not provided
+    if preserve_ids is None:
+        preserve_ids = set()
 
     # ========== PASS 1: Build ID Mappings ==========
 
@@ -286,8 +338,16 @@ def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int) -> GEST:
         # Keep scene event IDs unchanged (referenced across phases)
         elif event.Properties and event.Properties.get('scene_type') in ['leaf', 'parent']:
             event_id_mapping[event_id] = event_id
+        # Keep screenplay entity IDs unchanged (for cross-scene object reuse)
+        elif event_id in preserve_ids:
+            event_id_mapping[event_id] = event_id
+            logger.info(
+                "preserving_screenplay_entity_id",
+                entity_id=event_id,
+                scene_id=scene_id
+            )
         else:
-            # Rename: objects and actions only (NOT actors)
+            # Rename: objects and actions only (NOT actors or screenplay entities)
             event_id_mapping[event_id] = f"{event_id}{suffix}"
 
     # Temporal relation ID mapping
@@ -419,6 +479,7 @@ def make_event_ids_unique(gest: GEST, scene_id: str, scene_index: int) -> GEST:
         scene_id=scene_id,
         scene_index=scene_index,
         events_renamed=len([k for k, v in event_id_mapping.items() if k != v]),
+        events_preserved=len([k for k, v in event_id_mapping.items() if k == v and k in preserve_ids]),
         relations_renamed=len([k for k, v in relation_id_mapping.items() if k != v]),
         total_events=len(renamed_events),
         total_temporal_keys=len(renamed_temporal),
@@ -503,6 +564,73 @@ def expand_scenes_node_sequential(state: DetailState) -> DetailState:
     scene_sequence = get_scene_sequence(state['casting_gest'], state['leaf_scenes'])
     logger.info("derived_scene_sequence", sequence=scene_sequence)
 
+    # STEPS 1.1 and 1.2: STORY SETUP (Setup + Screenplay agents)
+    logger.info("starting_one_time_story_preparation")
+
+    # Extract all leaf scenes for setup and screenplay
+    all_leaf_scenes = {
+        scene_id: state['casting_gest'].events[scene_id]
+        for scene_id in scene_sequence
+    }
+
+    # Get all used episodes data for setup and screenplay agents
+    all_episodes = []
+    for scene in scene_sequence:
+        episodes_names = state['episode_mapping']['episode_groups'][state['episode_mapping'][scene]]
+        for episode_name in episodes_names:
+            episode_data = get_episode_for_scene(episode_name, state['full_capabilities'])
+            all_episodes.append(episode_data)
+
+    # 1.2: Run SetupAgent (off-camera initial setup planning)
+    logger.info("running_setup_agent")
+    setup_agent = SetupAgent(state['config'], prompt_logger=state.get('prompt_logger'))
+
+    setup_result = setup_agent.plan_setup(
+        all_scenes=all_leaf_scenes,
+        all_actors=all_actor_exists_events,
+        episode_data=all_episodes,
+        full_capabilities=state['full_capabilities']
+    )
+
+    logger.info(
+        "setup_complete",
+        total_setup_actions=sum(len(actions) for actions in setup_result.setup_actions.values()),
+        actors_positioned=len(setup_result.initial_locations),
+        held_objects=len(setup_result.held_objects)
+    )
+
+    # Update actor Exists events with initial locations from setup
+    for actor_id, initial_location in setup_result.initial_locations.items():
+        if actor_id in all_actor_exists_events:
+            all_actor_exists_events[actor_id].Location = [initial_location]
+            logger.debug(
+                "updated_actor_initial_location",
+                actor_id=actor_id,
+                location=initial_location
+            )
+
+    # 1.2: Run ScreenplayAgent (whole-story action planning)
+    logger.info("running_screenplay_agent")
+    screenplay_agent = ScreenplayAgent(state['config'], prompt_logger=state.get('prompt_logger'))
+
+    actor_initial_states = {
+        'initial_locations': setup_result.initial_locations,
+        'held_objects': setup_result.held_objects,
+        'setup_actions': {k: [x.model_dump() for x in v] for k, v in setup_result.setup_actions.items()}
+    }
+
+    screenplay_result = screenplay_agent.write_whole_story_screenplay(
+        all_scenes=all_leaf_scenes,
+        actor_initial_states=actor_initial_states,
+        episode_data=all_episodes,
+        full_capabilities=state['full_capabilities']
+    )
+
+    logger.info(
+        "screenplay_complete",
+        total_scenes_planned=len(screenplay_result.scenes)
+    )
+
     # Initialize accumulated state for tracking across scenes
     accumulated_state = {
         'last_actions_by_actor': {},          # actor_id → last_action_event_id
@@ -524,9 +652,12 @@ def expand_scenes_node_sequential(state: DetailState) -> DetailState:
 
         # Prepare scene data
         scene_event = state['casting_gest'].events[scene_id]
-        episode_name = state['episode_mapping'][scene_id]
-        episode_data = get_episode_for_scene(episode_name, state['full_capabilities'])
-        episode_data = preprocess_episode_data(episode_data)  # Categorize objects by pickup mode
+        episode_group = state['episode_mapping'][scene_id]
+        episodes_names = state['episode_mapping']['episode_groups'][episode_group]
+        episode_data = []
+        for episode_name in episodes_names:
+            data = get_episode_for_scene(episode_name, state['full_capabilities'])
+            episode_data.append(data)
 
         # Get ALL actors (protagonists + background actors) for this scene
         scene_actor_exists_events = {
@@ -573,21 +704,35 @@ def expand_scenes_node_sequential(state: DetailState) -> DetailState:
                 future_scene_ids=[fs['scene_id'] for fs in future_scenes]
             )
 
+        # Get screenplay for this scene
+        scene_screenplay = screenplay_result.scenes.get(scene_id)
+        if not scene_screenplay:
+            logger.warning(
+                "screenplay_missing_for_scene",
+                scene_id=scene_id
+            )
+            scene_screenplay = None
+
+        forwarded_screenplay = {
+            "scene": scene_screenplay.model_dump() if scene_screenplay else {},
+            "narrative": screenplay_result.overall_narrative
+        }
+
         try:
-            # Expand scene with previous state and future lookahead
+            # Expand scene with previous state, future lookahead, and screenplay
             expansion_result = agent.expand_leaf_scene(
                 scene_id=scene_id,
                 story_id=state['story_id'],
                 scene_event=scene_event,
                 casting_narrative=state['casting_narrative'],
-                episode_name=episode_name,
                 episode_data=episode_data,
                 protagonist_names=actor_names,
                 full_capabilities=state['full_capabilities'],
                 protagonist_exists_events=scene_actor_exists_events,
                 use_cached=state['use_cached'],
                 previous_scene_state=previous_scene_state,
-                future_scenes=future_scenes  # NEW: Pass future scenes for lookahead
+                future_scenes=future_scenes,
+                screenplay=forwarded_screenplay  # Pass screenplay from ScreenplayAgent
             )
 
             logger.info(
@@ -596,11 +741,15 @@ def expand_scenes_node_sequential(state: DetailState) -> DetailState:
                 expanded_event_count=len(expansion_result.gest.events)
             )
 
-            # Make event IDs unique for this scene
+            # Extract screenplay entity IDs to preserve across scenes
+            screenplay_entity_ids = extract_screenplay_entity_ids(scene_screenplay)
+
+            # Make event IDs unique for this scene (preserving screenplay entities)
             unique_gest = make_event_ids_unique(
                 expansion_result.gest,
                 scene_id,
-                idx
+                idx,
+                preserve_ids=screenplay_entity_ids
             )
 
             # Create new DualOutput with renamed GEST
