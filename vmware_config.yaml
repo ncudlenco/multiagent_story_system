@@ -1,0 +1,131 @@
+# VMware Orchestration Configuration
+# Configuration for vmware_orchestrator.py to manage parallel batch generation across VMs
+
+vmware:
+  # Path to master VM (base for cloning)
+  master_vm_path: "W:\\VMs\\2\\Windows 10 and later x64.vmx"
+
+  # Snapshot name to use for linked clones (must exist)
+  # Create with: vmrun snapshot "master.vmx" Ready
+  master_snapshot: "Ready"
+
+  # Directory where worker VMs will be created
+  # Each batch creates: {workers_dir}/vm_batch_{timestamp}/worker{N}/
+  workers_dir: "W:\\VMs\\workers"
+
+  # Paths to search for vmrun.exe (in order)
+  vmrun_paths:
+    - "C:\\Program Files (x86)\\VMware\\VMware Player\\vmrun.exe"  # VMware Player (x86)
+    - "C:\\Program Files (x86)\\VMware\\VMware Workstation\\vmrun.exe"
+    - "C:\\Program Files\\VMware\\VMware Workstation\\vmrun.exe"
+    - "C:\\Program Files\\VMware\\VMware Player\\vmrun.exe"
+
+  # Guest OS credentials for vmrun operations
+  guest_os:
+    username: "user"
+    password: "user"
+
+    # Working directory inside guest (where multiagent_story_system is located)
+    work_dir: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system"
+
+    # Python executable name (must be in PATH or use full path)
+    python_exe: "python.exe"
+
+    # Startup wait time after starting VM (seconds)
+    startup_wait_seconds: 60
+
+    # Time to wait for VMware Tools to be ready (max, seconds)
+    tools_ready_timeout_seconds: 180
+
+orchestration:
+  # Base directory for output on host machine
+  # Each batch creates: {output_base_dir}/vm_batch_{timestamp}/
+  output_base_dir: "output/vm_batches"
+
+  # Merge all worker outputs into single consolidated batch
+  merge_output: true
+
+  # Delete worker VM files after batch completes
+  cleanup_workers: true
+
+  # Delete individual worker output folders after merging (only if merge_output=true)
+  # If false, keeps both worker outputs and merged output
+  cleanup_worker_outputs: false
+
+  # Monitoring settings
+  monitoring:
+    # How often to poll worker progress (seconds)
+    poll_interval_seconds: 30
+
+    # How often to update live status display (seconds)
+    display_update_interval_seconds: 5
+
+    # Consider worker hung if log file hasn't changed in this many seconds
+    log_silence_threshold_seconds: 600  # 10 minutes
+
+    # Maximum number of restart attempts per worker before giving up
+    max_restart_attempts: 3
+
+    # Initial wait time before restarting crashed/hung worker (seconds)
+    # Increases exponentially: 60s, 120s, 240s, ...
+    restart_backoff_seconds: 60
+
+    # Check if VM process is alive every N seconds
+    vm_health_check_interval_seconds: 60
+
+# Google Drive Integration
+google_drive:
+  # Enable Google Drive uploads (can be overridden with --google-drive-folder CLI flag)
+  enabled: false
+
+  # Path to Google Drive OAuth credentials JSON
+  # Download from Google Cloud Console: APIs & Services > Credentials
+  credentials_path: "credentials/google_drive_credentials.json"
+
+  # Path to cached OAuth token (auto-generated after first authentication)
+  token_path: "credentials/token.json"
+
+  # Keep local copies after uploading to Drive (can be overridden with --keep-local CLI flag)
+  keep_local: false
+
+  # Create worker subfolders in Drive (worker1/, worker2/, etc.)
+  # Each worker uploads to its own subfolder to avoid conflicts
+  create_worker_subfolders: true
+
+  # Share uploaded folders publicly (anyone with link can view)
+  make_public: true
+
+# Batch generation parameters (passed to batch_generate.py in workers)
+# These are defaults - can be overridden via CLI flags
+batch_defaults:
+  # Story generation parameters
+  num_actors: 2
+  num_extras: 1
+  num_actions: 5
+  scene_number: 4
+
+  # Variation parameters
+  same_story_generation_variations: 1  # Detail "takes" per story
+  same_story_simulation_variations: 1  # Simulations per take
+
+  # Retry parameters
+  generation_retries: 3
+  simulation_retries: 3
+  simulation_timeout: 600  # seconds
+
+  # Always collect artifacts (videos + logs)
+  collect_simulation_artifacts: true
+
+  # Narrative seeds (optional)
+  seeds: []
+
+# Logging
+logging:
+  # Log level for orchestrator (DEBUG, INFO, WARNING, ERROR)
+  level: "INFO"
+
+  # Log file for orchestrator
+  log_file: "logs/vmware_orchestrator.log"
+
+  # Log format
+  format: "json"

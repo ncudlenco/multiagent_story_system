@@ -199,7 +199,8 @@ class SceneDetailAgent(BaseAgent[DualOutput]):
             agent_name="scene_detail_agent",
             output_schema=DualOutput,
             use_structured_outputs=False,  # Use manual parsing like other agents
-            prompt_logger=prompt_logger
+            prompt_logger=prompt_logger,
+            # reasoning_effort="high"
         )
 
         # Load reference graphs for examples

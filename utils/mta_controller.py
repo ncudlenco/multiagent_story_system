@@ -18,6 +18,14 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from enum import Enum
 
+# Windows-specific imports for window management
+try:
+    import win32gui
+    import win32con
+    WIN32_AVAILABLE = True
+except ImportError:
+    WIN32_AVAILABLE = False
+
 logger = structlog.get_logger(__name__)
 
 
@@ -195,6 +203,29 @@ class MTAController:
             else:
                 raise ValueError("graph_file must be provided for SIMULATION mode")
             config["ARTIFACT_COLLECTION_ENABLED"] = collect_artifacts
+            # Disable all DEBUG flags for clean simulation runs
+            config["DEBUG"] = False
+            config["DEBUG_PROCESSACTIONS"] = False
+            config["DEBUG_PROCESSREGIONS"] = False
+            config["DEBUG_TEMPLATES"] = False
+            config["DEBUG_LOCATION_CANDIDATES"] = False
+            config["DEBUG_METAEPISODE"] = False
+            config["DEBUG_PATHFINDING"] = False
+            config["DEBUG_VALIDATION"] = False
+            config["DEBUG_ACTION_VALIDATION"] = False
+            config["DEBUG_LOGGER"] = False
+            config["DEBUG_SCREENSHOTS"] = False
+            config["DEBUG_OBJECTS"] = False
+            config["DEBUG_EPISODE"] = False
+            config["DEBUG_ACTIONS"] = False
+            config["DEBUG_CHAIN_LINKED_ACTIONS"] = False
+            config["DEBUG_CAMERA"] = False
+            config["DEBUG_ACTIONS_ORCHESTRATOR"] = False
+            config["DEBUG_POI_ORCHESTRATION"] = False
+            config["DEBUG_SPATIAL"] = False
+            config["DEBUG_EPISODE_GROUPS"] = False
+            config["DEBUG_CAMERA_VALIDATION"] = False
+            config["DEBUG_WAIT_SYNC"] = False
         elif mode == MTAMode.VALIDATION:
             # Validation mode is same as simulation mode
             config["EXPORT_MODE"] = False
@@ -254,12 +285,22 @@ class MTAController:
         self.status = MTAServerStatus.STARTING
 
         try:
-            # Start server process (no output capture - let console be visible)
-            self.process = subprocess.Popen(
-                [str(self.server_exe)],
-                cwd=str(self.server_root),
-                creationflags=subprocess.CREATE_NEW_CONSOLE if psutil.WINDOWS else 0
-            )
+            # Start server process with console minimized to avoid covering MTA client
+            if psutil.WINDOWS:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 6  # SW_MINIMIZE = 6
+                self.process = subprocess.Popen(
+                    [str(self.server_exe)],
+                    cwd=str(self.server_root),
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                    startupinfo=startupinfo
+                )
+            else:
+                self.process = subprocess.Popen(
+                    [str(self.server_exe)],
+                    cwd=str(self.server_root)
+                )
 
             if wait:
                 wait_seconds = self.mta_config['startup_wait_seconds']
@@ -314,6 +355,92 @@ class MTAController:
 
         except Exception as e:
             logger.error("mta_client_start_error", error=str(e))
+            return False
+
+    def set_mta_window_topmost(self, max_wait_seconds: int = 30, retry_interval: float = 1.0) -> bool:
+        """
+        Find the MTA San Andreas window and set it as always-on-top (topmost).
+
+        This is required for screen capture to work correctly since MTA needs
+        to be the foreground window.
+
+        Args:
+            max_wait_seconds: Maximum time to wait for window to appear
+            retry_interval: Time between retries when searching for window
+
+        Returns:
+            True if window was found and set to topmost
+        """
+        if not WIN32_AVAILABLE:
+            logger.warning("win32_not_available",
+                          message="pywin32 not installed, cannot set window topmost")
+            return False
+
+        # Window title patterns to search for
+        window_titles = [
+            "MTA: San Andreas",
+            "Multi Theft Auto",
+            "GTA: San Andreas"
+        ]
+
+        start_time = time.time()
+        hwnd = None
+
+        logger.info("searching_for_mta_window", titles=window_titles)
+
+        while time.time() - start_time < max_wait_seconds:
+            # Enumerate all windows and find MTA
+            def enum_windows_callback(window_handle, results):
+                if win32gui.IsWindowVisible(window_handle):
+                    window_title = win32gui.GetWindowText(window_handle)
+                    for pattern in window_titles:
+                        if pattern.lower() in window_title.lower():
+                            results.append((window_handle, window_title))
+                return True
+
+            found_windows = []
+            try:
+                win32gui.EnumWindows(enum_windows_callback, found_windows)
+            except Exception as e:
+                logger.warning("enum_windows_error", error=str(e))
+                time.sleep(retry_interval)
+                continue
+
+            if found_windows:
+                # Use the first matching window
+                hwnd, title = found_windows[0]
+                logger.info("mta_window_found", hwnd=hwnd, title=title)
+                break
+
+            time.sleep(retry_interval)
+
+        if not hwnd:
+            logger.warning("mta_window_not_found",
+                          waited_seconds=max_wait_seconds,
+                          message="Could not find MTA window to set topmost")
+            return False
+
+        try:
+            # Set window to topmost (always on top)
+            # HWND_TOPMOST = -1
+            # SWP_NOMOVE = 0x0002
+            # SWP_NOSIZE = 0x0001
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_TOPMOST,
+                0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE
+            )
+
+            # Also bring window to foreground
+            win32gui.SetForegroundWindow(hwnd)
+
+            logger.info("mta_window_set_topmost", hwnd=hwnd,
+                       message="MTA window set to always-on-top")
+            return True
+
+        except Exception as e:
+            logger.error("set_topmost_error", hwnd=hwnd, error=str(e))
             return False
 
     def stop_server(self, wait: bool = True) -> bool:
@@ -586,6 +713,10 @@ class MTAController:
             if not self.start_client(wait=True):
                 return False, "Failed to start MTA client"
 
+            # 5.5 Set MTA window to always-on-top for screen capture
+            # This is done in a background-friendly way with retries
+            self.set_mta_window_topmost(max_wait_seconds=30)
+
             # 6. Wait briefly for simulation folder creation
             logger.info("waiting_for_simulation_folder_creation")
             time.sleep(3)
@@ -612,10 +743,17 @@ class MTAController:
             client_log_pos = 0
             start_time = time.time()
             last_server_activity_time = start_time  # Track server log activity for freeze detection
+            last_topmost_time = 0  # Track when we last set topmost
 
             logger.info("starting_enhanced_simulation_monitoring_loop")
 
             while True:
+                # Periodically re-apply topmost status (every 5 seconds)
+                # This ensures the window stays on top even if focus is lost
+                current_time = time.time()
+                if current_time - last_topmost_time >= 5.0:
+                    self.set_mta_window_topmost(max_wait_seconds=2, retry_interval=0.5)
+                    last_topmost_time = current_time
                 # Check process health (detect crashes)
                 server_alive, client_alive, process_error = self.check_processes_alive()
 

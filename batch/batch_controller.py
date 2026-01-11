@@ -7,6 +7,7 @@ comprehensive error handling.
 """
 
 import json
+import random
 import shutil
 import structlog
 import uuid
@@ -14,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 from core.config import Config
 from batch.schemas import BatchConfig, StoryStatus, BatchState, SimulationResult
@@ -21,6 +24,7 @@ from batch.retry_manager import RetryManager, RetryableError
 from batch.artifact_collector import ArtifactCollector
 from utils.file_manager import FileManager
 from utils.mta_controller import MTAController
+from simple_gest_random_generator import SimpleGESTRandomGenerator
 
 # Import generation functions from main
 from main import (
@@ -72,6 +76,7 @@ class BatchController:
 
         # State
         self.batch_state: Optional[BatchState] = None
+        self._state_lock = Lock()  # Thread-safe state management
 
         logger.info(
             "batch_controller_initialized",
@@ -156,15 +161,25 @@ class BatchController:
                     )
                     continue
 
-                # Simulate all variations
-                simulation_success = self._simulate_story_with_variations(story_status)
-
-                if simulation_success:
+                # Simulate all variations (if not skipped)
+                if self.batch_config.skip_simulation:
+                    # Skip simulation - mark as success
                     story_status.status = 'success'
                     self.batch_state.success_count += 1
+                    logger.info(
+                        "simulation_skipped",
+                        story_id=story_status.story_id,
+                        reason="skip_simulation flag"
+                    )
                 else:
-                    story_status.status = 'failed'
-                    self.batch_state.failure_count += 1
+                    simulation_success = self._simulate_story_with_variations(story_status)
+
+                    if simulation_success:
+                        story_status.status = 'success'
+                        self.batch_state.success_count += 1
+                    else:
+                        story_status.status = 'failed'
+                        self.batch_state.failure_count += 1
 
                 story_status.completed_at = datetime.now().isoformat()
                 self._save_state()
@@ -219,7 +234,121 @@ class BatchController:
 
     def _generate_story_with_variations(self, story_status: StoryStatus) -> bool:
         """
-        Generate a story with all requested variations.
+        Generate a story with variations (router method).
+
+        Routes to appropriate generator based on batch_config.generator_type:
+        - "llm": LLM-based multi-phase generation
+        - "simple_random": Simple random action chain generation
+
+        Args:
+            story_status: Story status tracker
+
+        Returns:
+            True if at least one variation succeeds
+        """
+        if self.batch_config.generator_type == "simple_random":
+            return self._generate_story_simple_random(story_status)
+        else:  # Default to "llm"
+            return self._generate_story_llm(story_status)
+
+    def _generate_story_simple_random(self, story_status: StoryStatus) -> bool:
+        """
+        Generate a story using simple random generator.
+
+        Note: simple_random ignores same_story_generation_variations since there's
+        no concept/casting to vary. Each random generation is completely independent.
+        Always generates exactly 1 take per story.
+
+        Args:
+            story_status: Story status tracker
+
+        Returns:
+            True if generation succeeds
+        """
+        story_dir = Path(story_status.output_dir)
+        story_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get capabilities file path from config
+        capabilities_path = Path(self.config.paths.simulation_environment_capabilities)
+        if not capabilities_path.is_absolute():
+            capabilities_path = self.file_manager.project_root / capabilities_path
+
+        # Set random seed if provided (use story_number offset for distinct stories)
+        if self.batch_config.random_seed is not None:
+            seed_with_offset = self.batch_config.random_seed + story_status.story_number
+            random.seed(seed_with_offset)
+            logger.info(
+                "using_simple_random_generator",
+                story_id=story_status.story_id,
+                capabilities_path=str(capabilities_path),
+                seed=seed_with_offset,
+                note="same_story_generation_variations ignored for simple_random"
+            )
+        else:
+            logger.info(
+                "using_simple_random_generator",
+                story_id=story_status.story_id,
+                capabilities_path=str(capabilities_path),
+                seed=None,
+                note="same_story_generation_variations ignored for simple_random"
+            )
+
+        # Mark as phase 3 (simple random skips phases 1-2)
+        story_status.status = 'phase3'
+        story_status.current_phase = 3
+        story_status.current_take = 1  # Always take 1 for simple_random
+        self._save_state()
+
+        logger.info(
+            "generating_simple_random_story",
+            story_id=story_status.story_id,
+            chains_per_actor=self.batch_config.random_chains_per_actor
+        )
+
+        try:
+            # Create generator instance
+            generator = SimpleGESTRandomGenerator(str(capabilities_path))
+
+            # Generate GEST with specified chains per actor
+            gest_dict = generator.generate(chains_per_actor=self.batch_config.random_chains_per_actor)
+
+            # Create nested directory structure matching LLM format
+            # This ensures compatibility with simulation code
+            take_dir = story_dir / "detail" / "take1"
+            take_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save to file with LLM-compatible naming
+            take_file = take_dir / "detail_gest.json"
+            with open(take_file, 'w', encoding='utf-8') as f:
+                json.dump(gest_dict, f, indent=2, ensure_ascii=False)
+
+            logger.info(
+                "simple_random_story_generated",
+                story_id=story_status.story_id,
+                file=str(take_file)
+            )
+
+            # Update story metadata
+            meta_keys = {'temporal', 'spatial', 'semantic', 'camera', 'title', 'narrative'}
+            event_count = sum(1 for k in gest_dict.keys() if k not in meta_keys)
+            story_status.event_count = event_count
+            story_status.scene_count = 1  # Random generation creates single scene
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "simple_random_generation_failed",
+                story_id=story_status.story_id,
+                error=str(e),
+                exc_info=True
+            )
+            story_status.errors.append(f"Random generation failed: {e}")
+            return False
+
+    def _generate_story_llm(self, story_status: StoryStatus) -> bool:
+        """
+        Generate a story using LLM-based generation with all requested variations.
 
         Phases 1-2 run once, Phase 3 runs N times (for N variations).
 
@@ -807,25 +936,26 @@ class BatchController:
             return RetryableError.SIMULATION_ERROR
 
     def _save_state(self) -> None:
-        """Save current batch state to JSON file."""
+        """Save current batch state to JSON file (thread-safe)."""
         if not self.batch_state:
             return
 
-        state_path = Path(self.batch_state.batch_output_dir) / "batch_state.json"
+        with self._state_lock:
+            state_path = Path(self.batch_state.batch_output_dir) / "batch_state.json"
 
-        try:
-            with open(state_path, 'w', encoding='utf-8') as f:
-                json.dump(self.batch_state.to_dict(), f, indent=2)
+            try:
+                with open(state_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.batch_state.to_dict(), f, indent=2)
 
-            logger.debug("batch_state_saved", path=str(state_path))
+                logger.debug("batch_state_saved", path=str(state_path))
 
-        except Exception as e:
-            logger.error(
-                "batch_state_save_failed",
-                path=str(state_path),
-                error=str(e),
-                exc_info=True
-            )
+            except Exception as e:
+                logger.error(
+                    "batch_state_save_failed",
+                    path=str(state_path),
+                    error=str(e),
+                    exc_info=True
+                )
 
     def _backup_state(self) -> Path:
         """
@@ -1752,6 +1882,403 @@ class BatchController:
 
         return self.batch_state
 
+    def _process_single_text_file(
+        self,
+        story_number: int,
+        text_file_path: str,
+        story_output_dir: Path,
+        concept_capabilities: Dict[str, Any],
+        full_indexed_capabilities: Dict[str, Any],
+        all_capabilities: Dict[str, Any]
+    ) -> StoryStatus:
+        """
+        Process a single text file to generate a story (worker function for parallel processing).
+
+        Args:
+            story_number: 1-based story index
+            text_file_path: Path to text file containing narrative seeds
+            story_output_dir: Output directory for this story
+            concept_capabilities: Concept-level capabilities
+            full_indexed_capabilities: Full indexed capabilities
+            all_capabilities: All capabilities
+
+        Returns:
+            StoryStatus for this story
+
+        Raises:
+            Exception: If story generation fails
+        """
+        story_id = Path(text_file_path).stem  # Use filename as story ID
+        story_uuid = uuid.uuid4().hex[:8]  # Generate UUID for unique identification
+
+        # Create StoryStatus
+        story_status = StoryStatus(
+            story_number=story_number,
+            story_id=story_uuid,
+            status='pending',
+            output_dir=str(story_output_dir)
+        )
+
+        logger.info(
+            "text_file_processing_started",
+            story_number=story_number,
+            story_id=story_uuid,
+            text_file=text_file_path
+        )
+
+        story_status.status = 'running'
+        story_status.started_at = datetime.now().isoformat()
+
+        try:
+            # Read text file
+            text_file = Path(text_file_path)
+            if not text_file.exists():
+                raise FileNotFoundError(f"Text file not found: {text_file_path}")
+
+            text_content = text_file.read_text(encoding='utf-8').strip()
+            narrative_seeds = [line.strip() for line in text_content.split('\n') if line.strip()]
+
+            logger.info(
+                "text_file_loaded",
+                story_number=story_number,
+                line_count=len(narrative_seeds)
+            )
+
+            print(f"\n{'='*70}")
+            print(f"Story {story_number}: {text_file.name}")
+            print(f"{'='*70}")
+            print(f"  Loaded {len(narrative_seeds)} sentences")
+
+            # Generate story using run_recursive_concept workflow
+            result = run_recursive_concept(
+                config=self.config.to_dict(),
+                story_id=story_uuid,
+                target_scene_count=self.batch_config.scene_number or 4,
+                num_distinct_actions=self.batch_config.num_distinct_actions,
+                max_num_protagonists=-1,  # Infer from text
+                max_num_extras=self.batch_config.max_num_extras,
+                narrative_seeds=narrative_seeds,
+                concept_capabilities=concept_capabilities,
+                output_dir_override=story_output_dir
+            )
+
+            # Phase 2 complete - extract casting results
+            casting_gest = result.gest
+            casting_narrative = result.narrative
+
+            # Save casting outputs
+            casting_dir = story_output_dir / "casting"
+            casting_dir.mkdir(exist_ok=True)
+            (casting_dir / "casting_gest.json").write_text(
+                json.dumps(casting_gest.model_dump(), indent=2),
+                encoding='utf-8'
+            )
+            (casting_dir / "casting_narrative.txt").write_text(
+                casting_narrative,
+                encoding='utf-8'
+            )
+
+            logger.info(
+                "phase_2_completed",
+                story_id=story_uuid,
+                story_number=story_number
+            )
+            print(f"  Phase 1+2 complete (Concept + Casting)")
+
+            # Phase 3: Generate detail variations
+            story_status.status = 'phase3'
+            successful_takes = 0
+            num_variations = self.batch_config.same_story_generation_variations
+
+            logger.info(
+                "phase_3_started",
+                story_id=story_uuid,
+                num_variations=num_variations
+            )
+
+            for take_num in range(1, num_variations + 1):
+                story_status.current_take = take_num
+
+                logger.info(
+                    "generating_take",
+                    story_id=story_uuid,
+                    take=take_num,
+                    total_takes=num_variations
+                )
+
+                print(f"  Generating take {take_num}/{num_variations}...")
+
+                try:
+                    detail_result = _execute_phase_3_detail(
+                        config=self.config,
+                        story_id=story_uuid,
+                        casting_gest=casting_gest,
+                        casting_narrative=casting_narrative,
+                        all_capabilities=all_capabilities,
+                        use_cached=False,
+                        take_number=take_num,
+                        output_dir_override=story_output_dir
+                    )
+
+                    successful_takes += 1
+                    logger.info(
+                        "take_generation_succeeded",
+                        story_id=story_uuid,
+                        take=take_num
+                    )
+                    print(f"    ✓ Take {take_num} complete")
+
+                except Exception as e:
+                    logger.error(
+                        "take_generation_failed",
+                        story_id=story_uuid,
+                        take=take_num,
+                        error=str(e),
+                        exc_info=True
+                    )
+                    story_status.errors.append(f"Take {take_num}: {str(e)}")
+                    print(f"    ✗ Take {take_num} failed: {str(e)}")
+
+            # Mark Phase 3 as complete (enables simulation-only resume)
+            story_status.current_phase = 3
+
+            # Simulate all generated takes (if not skipped)
+            if successful_takes > 0:
+                if self.batch_config.skip_simulation:
+                    # Skip simulation - mark as success
+                    story_status.status = 'success'
+                    logger.info(
+                        "text_file_processing_completed",
+                        story_number=story_number,
+                        story_id=story_uuid,
+                        successful_takes=successful_takes,
+                        total_takes=num_variations,
+                        status='success',
+                        simulation_skipped=True
+                    )
+                    print(f"  [SUCCESS] {successful_takes}/{num_variations} takes completed (simulation skipped)")
+                else:
+                    # Run simulation
+                    story_status.status = 'simulating'
+
+                    logger.info(
+                        "simulation_phase_started",
+                        story_id=story_uuid,
+                        num_takes=successful_takes
+                    )
+
+                    print(f"  Simulating {successful_takes} take(s)...")
+
+                    # Reuse existing simulation method (handles retry, artifacts, etc.)
+                    simulation_success = self._simulate_story_with_variations(story_status)
+
+                    if simulation_success:
+                        story_status.status = 'success'
+                        logger.info(
+                            "text_file_processing_completed",
+                            story_number=story_number,
+                            story_id=story_uuid,
+                            successful_takes=successful_takes,
+                            total_takes=num_variations,
+                            status='success'
+                        )
+                        print(f"  [SUCCESS] {successful_takes}/{num_variations} takes completed and simulated")
+                    else:
+                        story_status.status = 'failed'
+                        story_status.errors.append("All simulations failed")
+                        logger.info(
+                            "text_file_processing_completed",
+                            story_number=story_number,
+                            story_id=story_uuid,
+                            status='failed',
+                            reason='simulation_failed'
+                        )
+                        print(f"  [FAILED] All simulations failed")
+
+                story_status.completed_at = datetime.now().isoformat()
+            else:
+                raise Exception("All takes failed")
+
+        except Exception as e:
+            logger.error(
+                "text_file_processing_failed",
+                story_number=story_number,
+                story_id=story_uuid,
+                text_file=text_file_path,
+                error=str(e),
+                exc_info=True
+            )
+            story_status.status = 'failed'
+            story_status.errors.append(f"Generation error: {str(e)}")
+            story_status.completed_at = datetime.now().isoformat()
+
+            print(f"  [FAILED] {str(e)}")
+
+        return story_status
+
+    def run_batch_from_text_files_parallel(self, text_file_paths: List[str]) -> BatchState:
+        """
+        Generate stories from text files in parallel (from-text-files mode with parallel workers).
+
+        Args:
+            text_file_paths: List of paths to text files containing narratives
+
+        Returns:
+            Final batch state
+
+        Raises:
+            Exception: If critical error occurs during batch processing
+        """
+        import os
+
+        # Initialize batch state
+        batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_text_parallel"
+        batch_output_dir = Path(self.batch_config.output_base_dir) / batch_id
+
+        self.batch_state = BatchState(
+            batch_id=batch_id,
+            config=self.batch_config,
+            batch_output_dir=str(batch_output_dir)
+        )
+
+        # Create output directory
+        batch_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Determine number of workers
+        max_workers = self.batch_config.parallel_workers
+        if max_workers is None:
+            max_workers = os.cpu_count() or 4  # Auto-detect CPU count
+
+        logger.info(
+            "batch_text_files_parallel_started",
+            batch_id=batch_id,
+            num_files=len(text_file_paths),
+            max_workers=max_workers,
+            output_dir=str(batch_output_dir)
+        )
+
+        print(f"\n{'='*70}")
+        print(f"PARALLEL BATCH MODE: {len(text_file_paths)} stories with {max_workers} workers")
+        print(f"{'='*70}\n")
+
+        # Load capabilities once for all stories (shared read-only)
+        logger.info("loading_capabilities", message="Loading capabilities once for all workers")
+        concept_capabilities, full_indexed_capabilities, all_capabilities = _load_capabilities(
+            self.file_manager
+        )
+
+        # Pre-create story status entries and output directories
+        story_tasks = []
+        for story_idx, text_file_path in enumerate(text_file_paths):
+            story_number = story_idx + 1
+            story_id = Path(text_file_path).stem
+            story_output_dir = batch_output_dir / f"story_{story_number:05d}_{story_id}"
+            story_output_dir.mkdir(parents=True, exist_ok=True)
+
+            story_tasks.append({
+                'story_number': story_number,
+                'text_file_path': text_file_path,
+                'story_output_dir': story_output_dir
+            })
+
+        # Process stories in parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_story = {
+                executor.submit(
+                    self._process_single_text_file,
+                    task['story_number'],
+                    task['text_file_path'],
+                    task['story_output_dir'],
+                    concept_capabilities,
+                    full_indexed_capabilities,
+                    all_capabilities
+                ): task
+                for task in story_tasks
+            }
+
+            # Process completed stories
+            for future in as_completed(future_to_story):
+                task = future_to_story[future]
+                story_number = task['story_number']
+
+                try:
+                    story_status = future.result()
+
+                    # Thread-safe update of batch state
+                    with self._state_lock:
+                        self.batch_state.stories.append(story_status)
+
+                        if story_status.status == 'success':
+                            self.batch_state.success_count += 1
+                        else:
+                            self.batch_state.failure_count += 1
+
+                        self._save_state()
+
+                    logger.info(
+                        "parallel_story_completed",
+                        story_number=story_number,
+                        story_id=story_status.story_id,
+                        status=story_status.status,
+                        progress=f"{len(self.batch_state.stories)}/{len(text_file_paths)}"
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        "parallel_story_failed",
+                        story_number=story_number,
+                        error=str(e),
+                        exc_info=True
+                    )
+
+                    # Create failed story status
+                    story_uuid = uuid.uuid4().hex[:8]
+                    failed_status = StoryStatus(
+                        story_number=story_number,
+                        story_id=story_uuid,
+                        status='failed',
+                        output_dir=str(task['story_output_dir']),
+                        started_at=datetime.now().isoformat(),
+                        completed_at=datetime.now().isoformat()
+                    )
+                    failed_status.errors.append(f"Worker exception: {str(e)}")
+
+                    # Thread-safe update
+                    with self._state_lock:
+                        self.batch_state.stories.append(failed_status)
+                        self.batch_state.failure_count += 1
+                        self._save_state()
+
+        # Finalize batch
+        self.batch_state.completed_at = datetime.now().isoformat()
+        self.batch_state.update_progress()
+
+        # Update retry statistics
+        retry_stats = self.retry_manager.get_total_retries()
+        self.batch_state.total_generation_retries = retry_stats['total_generation']
+        self.batch_state.total_simulation_retries = retry_stats['total_simulation']
+
+        self._save_state()
+
+        logger.info(
+            "batch_text_files_parallel_completed",
+            batch_id=batch_id,
+            success_count=self.batch_state.success_count,
+            failure_count=self.batch_state.failure_count,
+            max_workers=max_workers
+        )
+
+        print(f"\n{'='*70}")
+        print(f"PARALLEL BATCH COMPLETE")
+        print(f"{'='*70}")
+        print(f"  Success: {self.batch_state.success_count}/{len(text_file_paths)}")
+        print(f"  Failed: {self.batch_state.failure_count}/{len(text_file_paths)}")
+        print(f"  Workers: {max_workers}")
+        print(f"{'='*70}\n")
+
+        return self.batch_state
+
     def run_batch_from_text_files(self, text_file_paths: List[str]) -> BatchState:
         """
         Generate stories from text files (from-text-files mode).
@@ -1783,6 +2310,11 @@ class BatchController:
             batch_id=batch_id,
             num_files=len(text_file_paths),
             output_dir=str(batch_output_dir)
+        )
+
+        # Load capabilities once for all stories
+        concept_capabilities, full_indexed_capabilities, all_capabilities = _load_capabilities(
+            self.file_manager
         )
 
         # Process each text file
@@ -1837,30 +2369,165 @@ class BatchController:
 
                 # Generate story using run_recursive_concept workflow
                 result = run_recursive_concept(
-                    config=self.config,
-                    output_path=str(story_output_dir),
-                    target_scene_count=self.batch_config.scene_number or 4,  # Will be inferred from text
+                    config=self.config.to_dict(),
+                    story_id=story_uuid,
+                    target_scene_count=self.batch_config.scene_number or 4,
+                    num_distinct_actions=self.batch_config.num_distinct_actions,
                     max_num_protagonists=-1,  # Infer from text
                     max_num_extras=self.batch_config.max_num_extras,
-                    num_distinct_actions=self.batch_config.num_distinct_actions,  # Will be inferred from text
-                    narrative_seeds=narrative_seeds,  # TEXT INPUT HERE
-                    stop_phase=3  # Generate through detail phase
+                    narrative_seeds=narrative_seeds,
+                    concept_capabilities=concept_capabilities,
+                    output_dir_override=story_output_dir
                 )
 
-                # Mark as success
-                story_status.status = 'success'
-                story_status.completed_at = datetime.now().isoformat()
-                self.batch_state.success_count += 1
-                self._save_state()
+                # Phase 2 complete - extract casting results
+                casting_gest = result.gest
+                casting_narrative = result.narrative
+
+                # Save casting outputs
+                casting_dir = story_output_dir / "casting"
+                casting_dir.mkdir(exist_ok=True)
+                (casting_dir / "casting_gest.json").write_text(
+                    json.dumps(casting_gest.model_dump(), indent=2),
+                    encoding='utf-8'
+                )
+                (casting_dir / "casting_narrative.txt").write_text(
+                    casting_narrative,
+                    encoding='utf-8'
+                )
 
                 logger.info(
-                    "text_file_processing_completed",
-                    story_number=story_number,
+                    "phase_2_completed",
                     story_id=story_uuid,
-                    status='success'
+                    story_number=story_number
+                )
+                print(f"  Phase 1+2 complete (Concept + Casting)")
+
+                # Load full indexed capabilities for Phase 3 detail generation
+                _, _, all_capabilities = _load_capabilities(self.file_manager)
+
+                # Phase 3: Generate detail variations
+                story_status.status = 'phase3'
+                successful_takes = 0
+                num_variations = self.batch_config.same_story_generation_variations
+
+                logger.info(
+                    "phase_3_started",
+                    story_id=story_uuid,
+                    num_variations=num_variations
                 )
 
-                print(f"  [SUCCESS] Story generated")
+                for take_num in range(1, num_variations + 1):
+                    story_status.current_take = take_num
+                    self._save_state()
+
+                    logger.info(
+                        "generating_take",
+                        story_id=story_uuid,
+                        take=take_num,
+                        total_takes=num_variations
+                    )
+
+                    print(f"  Generating take {take_num}/{num_variations}...")
+
+                    try:
+                        detail_result = _execute_phase_3_detail(
+                            config=self.config,
+                            story_id=story_uuid,
+                            casting_gest=casting_gest,
+                            casting_narrative=casting_narrative,
+                            all_capabilities=all_capabilities,
+                            use_cached=False,
+                            take_number=take_num,
+                            output_dir_override=story_output_dir
+                        )
+
+                        successful_takes += 1
+                        logger.info(
+                            "take_generation_succeeded",
+                            story_id=story_uuid,
+                            take=take_num
+                        )
+                        print(f"    ✓ Take {take_num} complete")
+
+                    except Exception as e:
+                        logger.error(
+                            "take_generation_failed",
+                            story_id=story_uuid,
+                            take=take_num,
+                            error=str(e),
+                            exc_info=True
+                        )
+                        story_status.errors.append(f"Take {take_num}: {str(e)}")
+                        print(f"    ✗ Take {take_num} failed: {str(e)}")
+
+                # Mark Phase 3 as complete (enables simulation-only resume)
+                story_status.current_phase = 3
+                self._save_state()
+
+                # Simulate all generated takes (if not skipped)
+                if successful_takes > 0:
+                    if self.batch_config.skip_simulation:
+                        # Skip simulation - mark as success
+                        story_status.status = 'success'
+                        self.batch_state.success_count += 1
+                        logger.info(
+                            "text_file_processing_completed",
+                            story_number=story_number,
+                            story_id=story_uuid,
+                            successful_takes=successful_takes,
+                            total_takes=num_variations,
+                            status='success',
+                            simulation_skipped=True
+                        )
+                        print(f"  [SUCCESS] {successful_takes}/{num_variations} takes completed (simulation skipped)")
+                        story_status.completed_at = datetime.now().isoformat()
+                        self._save_state()
+                    else:
+                        # Run simulation
+                        story_status.status = 'simulating'
+                        self._save_state()
+
+                        logger.info(
+                            "simulation_phase_started",
+                            story_id=story_uuid,
+                            num_takes=successful_takes
+                        )
+
+                        print(f"  Simulating {successful_takes} take(s)...")
+
+                        # Reuse existing simulation method (handles retry, artifacts, etc.)
+                        simulation_success = self._simulate_story_with_variations(story_status)
+
+                        if simulation_success:
+                            story_status.status = 'success'
+                            self.batch_state.success_count += 1
+                            logger.info(
+                                "text_file_processing_completed",
+                                story_number=story_number,
+                                story_id=story_uuid,
+                                successful_takes=successful_takes,
+                                total_takes=num_variations,
+                                status='success'
+                            )
+                            print(f"  [SUCCESS] {successful_takes}/{num_variations} takes completed and simulated")
+                        else:
+                            story_status.status = 'failed'
+                            self.batch_state.failure_count += 1
+                            story_status.errors.append("All simulations failed")
+                            logger.info(
+                                "text_file_processing_completed",
+                                story_number=story_number,
+                                story_id=story_uuid,
+                                status='failed',
+                                reason='simulation_failed'
+                            )
+                            print(f"  [FAILED] All simulations failed")
+
+                        story_status.completed_at = datetime.now().isoformat()
+                        self._save_state()
+                else:
+                    raise Exception("All takes failed")
 
             except Exception as e:
                 logger.error(
@@ -1886,7 +2553,7 @@ class BatchController:
         # Update retry statistics
         retry_stats = self.retry_manager.get_total_retries()
         self.batch_state.total_generation_retries = retry_stats['total_generation']
-        self.batch_state.total_simulation_retries = 0  # No simulation in text files mode
+        self.batch_state.total_simulation_retries = retry_stats['total_simulation']
 
         self._save_state()
 

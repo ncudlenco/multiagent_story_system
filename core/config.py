@@ -86,6 +86,18 @@ class PromptLoggingConfig(BaseModel):
     separate_files: bool = Field(default=True, description="Save separate files per agent/iteration")
 
 
+class GoogleDriveConfig(BaseModel):
+    """Google Drive integration configuration"""
+    credentials_path: str = Field(
+        default="credentials/google_drive_credentials.json",
+        description="Path to Google Drive OAuth credentials JSON"
+    )
+    default_folder_id: Optional[str] = Field(
+        default=None,
+        description="Default Google Drive folder ID for uploads"
+    )
+
+
 class Config(BaseModel):
     """
     Root configuration for the multiagent story system.
@@ -99,6 +111,7 @@ class Config(BaseModel):
     validation: ValidationConfig
     logging: LoggingConfig
     prompt_logging: PromptLoggingConfig = Field(default_factory=PromptLoggingConfig)
+    google_drive: GoogleDriveConfig = Field(default_factory=GoogleDriveConfig)
 
     class Config:
         extra = "allow"  # Allow additional fields for extensibility

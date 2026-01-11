@@ -53,6 +53,17 @@ class BatchConfig:
     # From text files mode
     from_text_files_path: Optional[str] = None
 
+    # Parallel processing settings
+    parallel_workers: Optional[int] = None  # Number of parallel workers (None = auto-detect CPU count)
+    skip_simulation: bool = False  # Skip MTA simulation phase (generation only)
+
+    # Generator selection
+    generator_type: str = "llm"  # "llm" or "simple_random"
+
+    # Simple random generator parameters
+    random_chains_per_actor: int = 3  # Only used when generator_type="simple_random"
+    random_seed: Optional[int] = None  # Optional seed for reproducibility
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -79,6 +90,11 @@ class BatchConfig:
             'keep_local': self.keep_local,
             'from_existing_stories_path': self.from_existing_stories_path,
             'from_text_files_path': self.from_text_files_path,
+            'parallel_workers': self.parallel_workers,
+            'skip_simulation': self.skip_simulation,
+            'generator_type': self.generator_type,
+            'random_chains_per_actor': self.random_chains_per_actor,
+            'random_seed': self.random_seed,
         }
 
     @classmethod

@@ -78,7 +78,7 @@ class ScreenplayAgent(BaseAgent[ScreenplayOutput]):
             output_schema=ScreenplayOutput,
             use_structured_outputs=False,
             prompt_logger=prompt_logger,
-            reasoning_effort="high",
+            # reasoning_effort="high",
         )
 
         logger.info(

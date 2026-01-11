@@ -9,6 +9,7 @@ import structlog
 import sys
 import logging
 import uuid
+import random
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -19,8 +20,11 @@ from utils.preprocess_capabilities import CapabilitiesPreprocessor
 from utils.prompt_logger import PromptLogger
 from workflows.recursive_concept import run_recursive_concept
 from workflows.detail_workflow import run_detail_workflow
+from workflows.react_detail_workflow import run_reactive_detail_workflow
 from agents.casting_agent import CastingAgent
+from agents.episode_placement_agent import EpisodePlacementAgent
 from schemas.gest import GEST
+from schemas.episode_placement import EpisodePlacementOutput
 
 
 # Configure structured logging
@@ -525,9 +529,11 @@ def _execute_phase_3_detail(
     casting_narrative: str,
     all_capabilities: Dict[str, Any],
     use_cached: bool = False,
+    use_react: bool = False,
     prompt_logger=None,
     take_number: int = 1,
-    output_dir_override: Optional[Path] = None
+    output_dir_override: Optional[Path] = None,
+    resume_from_stage: Optional[int] = None
 ) -> Dict[str, Any]:
     """Execute Phase 3: Scene Detail (shared by generate and resume).
 
@@ -538,6 +544,7 @@ def _execute_phase_3_detail(
         casting_narrative: Casting narrative from Phase 2
         all_capabilities: Original game capabilities with episodes
         use_cached: Whether to use cached expansions if available
+        use_react: Whether to use reactive (tool-based) workflow
         prompt_logger: Optional PromptLogger instance
         take_number: Take number for variations (default: 1)
         output_dir_override: Override output directory (for batch processing)
@@ -546,23 +553,108 @@ def _execute_phase_3_detail(
         Detail workflow result state
     """
     if take_number == 1:
-        print("\nPhase 3: Scene Detail...")
+        workflow_type = "Reactive" if use_react else "Standard"
+        print(f"\nPhase 3: Scene Detail ({workflow_type} Workflow)...")
     else:
-        print(f"\nPhase 3: Scene Detail (Take {take_number})...")
+        workflow_type = "Reactive" if use_react else "Standard"
+        print(f"\nPhase 3: Scene Detail (Take {take_number}, {workflow_type} Workflow)...")
 
-    detail_result = run_detail_workflow(
-        story_id=story_id,
-        casting_gest=casting_gest,
-        casting_narrative=casting_narrative,
-        full_capabilities=all_capabilities,
-        config=config.to_dict(),
-        use_cached=use_cached,
-        prompt_logger=prompt_logger,
-        take_number=take_number,
-        output_dir_override=output_dir_override
-    )
-    print(f"  [OK] Expanded {len(detail_result['scenes_expanded'])} scenes to {len(detail_result['current_gest'].events)} events")
-    print("  [OK] Saved detail outputs")
+    if use_react:
+        # Use reactive workflow with tool-based validation
+        # Run episode placement first (CRITICAL: casting GEST doesn't have episode info)
+        logger.info("running_episode_placement_for_reactive_workflow")
+
+        ep_agent = EpisodePlacementAgent(config.to_dict(), prompt_logger=prompt_logger)
+
+        # Place episodes (agent extracts leaf scenes internally)
+        placement_output: EpisodePlacementOutput = ep_agent.place_scenes(
+            story_id=story_id,
+            casting_gest=casting_gest,
+            full_capabilities=all_capabilities,
+            use_cached=use_cached
+        )
+
+        logger.info(
+            "episode_placement_complete",
+            placement_count=len(placement_output.placements),
+            group_count=len(placement_output.episode_groups)
+        )
+
+        # Random selection (following standard workflow pattern from detail_workflow.py:234-237)
+        selected_mapping = {"episode_groups": placement_output.episode_groups}
+        for scene_id, group_options in placement_output.placements.items():
+            selected_group = random.choice(group_options)
+            selected_mapping[scene_id] = selected_group
+            logger.info(
+                "scene_episode_selected",
+                scene_id=scene_id,
+                selected_group=selected_group,
+                options=group_options
+            )
+
+        # Extract all unique episodes from selected groups
+        all_episodes = set()
+        for episodes_list in selected_mapping["episode_groups"].values():
+            all_episodes.update(episodes_list)
+        episode_options = list(all_episodes)
+
+        logger.info(
+            "episode_options_extracted",
+            episode_count=len(episode_options),
+            episodes=episode_options
+        )
+
+        # Determine output directory
+        if output_dir_override:
+            output_dir = output_dir_override / "react_detail"
+        else:
+            output_dir = Path(config.paths.output_dir) / f"story_{story_id}" / "react_detail"
+
+        # Run reactive workflow with both episode_options and episode_mapping
+        from schemas.gest import DualOutput
+        dual_output: DualOutput = run_reactive_detail_workflow(
+            narrative=casting_narrative,
+            episode_options=episode_options,
+            config=config.to_dict(),
+            output_dir=output_dir,
+            save_intermediates=True,
+            story_id=story_id,
+            resume_from_stage=resume_from_stage,
+            episode_mapping=selected_mapping
+        )
+
+        # Convert to compatible format
+        detail_result = {
+            "current_gest": dual_output.gest,
+            "current_narrative": dual_output.narrative,
+            "scenes_expanded": list(dual_output.gest.events.keys()),  # All events
+            "workflow_type": "reactive"
+        }
+
+        # Save outputs
+        detail_gest_path = output_dir / "detail_gest.json"
+        with open(detail_gest_path, 'w', encoding='utf-8') as f:
+            import json
+            json.dump(dual_output.gest.model_dump(), f, indent=2, ensure_ascii=False)
+
+        print(f"  [OK] Generated {len(dual_output.gest.events)} events using reactive workflow")
+        print(f"  [OK] Saved detail outputs to {output_dir}")
+
+    else:
+        # Use standard workflow
+        detail_result = run_detail_workflow(
+            story_id=story_id,
+            casting_gest=casting_gest,
+            casting_narrative=casting_narrative,
+            full_capabilities=all_capabilities,
+            config=config.to_dict(),
+            use_cached=use_cached,
+            prompt_logger=prompt_logger,
+            take_number=take_number,
+            output_dir_override=output_dir_override
+        )
+        print(f"  [OK] Expanded {len(detail_result['scenes_expanded'])} scenes to {len(detail_result['current_gest'].events)} events")
+        print("  [OK] Saved detail outputs")
 
     return detail_result
 
@@ -572,6 +664,7 @@ def generate_story(
     # Resume parameters (None = fresh generation)
     resume_story_id: Optional[str] = None,
     resume_from_phase: Optional[int] = None,
+    resume_from_stage: Optional[int] = None,  # For reactive workflow stage resume (1-5)
     # Generation parameters
     max_num_protagonists: Optional[int] = None,
     max_num_extras: Optional[int] = None,
@@ -580,6 +673,7 @@ def generate_story(
     scene_number: Optional[int] = None,
     stop_phase: Optional[int] = None,
     use_cached_detail: Optional[bool] = False,
+    use_react: Optional[bool] = False,
     # Prompt logging parameters
     save_prompts: bool = False,
     save_raw_responses: bool = False
@@ -591,6 +685,7 @@ def generate_story(
         config: System configuration
         resume_story_id: If provided, resume this story (8-char UUID)
         resume_from_phase: Phase to resume from (1=concept, 2=casting, 3=detail)
+        resume_from_stage: Stage to resume reactive workflow from (1=grounding, 2=segmentation, 3=setup, 4=screenplay, 5=translation)
         num_protagonists: Number of protagonist actors (required for fresh, optional for resume)
         num_extras: Number of background actors (required for fresh, optional for resume)
         num_distinct_actions: Target distinct actions (required for fresh)
@@ -598,6 +693,7 @@ def generate_story(
         scene_number: Target scene count (optional)
         stop_phase: Stop after this phase (optional)
         use_cached_detail: Whether to use cached detail expansions (optional)
+        use_react: Whether to use reactive detail workflow (optional)
 
     Returns:
         True if successful, False otherwise
@@ -763,7 +859,7 @@ def generate_story(
 
         # PHASE 3
         if start_phase <= 3 and (stop_phase is None or stop_phase >= 3):
-            _execute_phase_3_detail(config, story_id, casting_gest, casting_narrative, all_capabilities, use_cached_detail, prompt_logger)
+            _execute_phase_3_detail(config, story_id, casting_gest, casting_narrative, all_capabilities, use_cached_detail, use_react, prompt_logger, resume_from_stage=resume_from_stage)
 
         # Save prompt summary if enabled
         if prompt_logger:
@@ -903,6 +999,14 @@ Examples:
     )
 
     parser.add_argument(
+        '--resume-from-stage',
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        metavar='STAGE',
+        help='Resume reactive detail workflow from stage N (1=grounding, 2=segmentation, 3=setup, 4=screenplay, 5=translation). Only works with --use-react.'
+    )
+
+    parser.add_argument(
         '--config',
         default='config.yaml',
         help='Path to configuration file (default: config.yaml)'
@@ -960,6 +1064,12 @@ Examples:
         help='Include raw LLM responses in prompt logs (verbose, requires --save-prompts)'
     )
 
+    parser.add_argument(
+        '--use-react',
+        action='store_true',
+        help='Use reactive (tool-based) detail workflow instead of standard workflow'
+    )
+
     args = parser.parse_args()
 
     # Adjust log level if verbose
@@ -981,6 +1091,21 @@ Examples:
         logger.info("Loading configuration", config_path=args.config)
         config = Config.load(args.config)
         logger.info("Configuration loaded successfully")
+
+        # Configure logging level from config (if not already set by --verbose)
+        if not args.verbose:
+            log_level_map = {
+                "DEBUG": logging.DEBUG,
+                "INFO": logging.INFO,
+                "WARNING": logging.WARNING,
+                "ERROR": logging.ERROR
+            }
+            log_level = log_level_map.get(config.logging.level.upper(), logging.INFO)
+            if log_level == logging.DEBUG:
+                structlog.configure(
+                    wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG)
+                )
+                logger.debug("Debug logging enabled from config")
 
         if args.export_capabilities:
             # Export game capabilities
@@ -1036,6 +1161,7 @@ Examples:
                 config=config,
                 resume_story_id=args.resume,  # None if --generate
                 resume_from_phase=args.from_phase,  # None if --generate
+                resume_from_stage=args.resume_from_stage,  # None if not resuming reactive workflow
                 max_num_protagonists=args.max_num_protagonists,
                 max_num_extras=args.max_num_extras,
                 num_distinct_actions=args.num_actions,
@@ -1043,6 +1169,7 @@ Examples:
                 scene_number=args.scene_number,
                 stop_phase=args.stop_phase,
                 use_cached_detail=args.use_cached_detail,
+                use_react=args.use_react,
                 save_prompts=args.save_prompts,
                 save_raw_responses=args.save_raw_responses
             )

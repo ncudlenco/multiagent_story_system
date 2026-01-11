@@ -1,0 +1,110 @@
+# VM Worker Config Template
+# This template is used by vmware_orchestrator.py to generate per-worker config.yaml files
+# Placeholders (substituted by orchestrator):
+#   {OUTPUT_SHARED_FOLDER} - Path to VMware shared folder for output collection
+#   {WORKER_ID} - Worker identifier (worker1, worker2, etc.)
+
+# Multiagent Story Generation System - Configuration
+# Phase 0: Foundation + Phase 1: Preprocessing
+
+openai:
+  model: "gpt-5"  # Default model for all agents
+  reasoning_effort: "minimal"  # Default reasoning effort level: minimal, low, medium, high
+  # temperature: 1.0  # GPT-5 with structured outputs only supports 1 (omit to use default)
+  # max_tokens: null  # No limit - let GPT-5 decide output length
+  # api_key loaded from .env file (OPENAI_API_KEY)
+
+mta:
+  server_root: "C:\\mta1.6\\server"
+  resource_path: "mods/deathmatch/resources/sv2l"
+  server_executable: "MTA Server.exe"
+  client_shortcut: "Multi Theft Auto.exe - Shortcut.lnk"
+  client_executable: "Multi Theft Auto.exe"
+  server_log: "mods/deathmatch/logs/server.log"
+  client_log: "../MTA/logs/clientscript.log"
+  startup_wait_seconds: 20
+  shutdown_wait_seconds: 3
+
+paths:
+  simulation_environment_capabilities: "data/simulation_environment_capabilities.json"
+  game_capabilities_source: "../sv2l/simulation_environment_capabilities.json"
+  game_capabilities_concept: "data/cache/game_capabilities_concept.json"
+  game_capabilities_full_indexed: "data/cache/game_capabilities_full_indexed.json"
+
+  # OUTPUT PATH - Substituted by orchestrator to use VMware shared folder
+  # Workers write directly to host via: \\vmware-host\Shared Folders\output
+  output_dir: "{OUTPUT_SHARED_FOLDER}"
+
+  logs_dir: "logs"
+  cache_dir: "data/cache"
+  reference_graphs: "examples/reference_graphs"
+  documentation: "data/documentation"
+
+# Phase 1: Preprocessing agents configuration
+preprocessing:
+  # Whether to include episode summaries by default
+  include_episode_summaries: true
+
+  # Skin categorization agent
+  skin_categorization:
+    model: "gpt-5"  # Large context window for all 249 skins
+    # temperature: 1.0  # GPT-5 structured outputs only supports 1 (omit for default)
+    # max_tokens: null  # No limit - GPT-5 decides
+
+  # Episode summarization agent
+  episode_summarization:
+    model: "gpt-5"  # Large context window for all 13 episodes
+    # temperature: 1.0  # GPT-5 structured outputs only supports 1 (omit for default)
+    # max_tokens: null  # No limit - GPT-5 decides
+
+# Phase 3: Detail workflow configuration
+detail:
+  # Whether to expand scenes in parallel using ThreadPoolExecutor
+  parallel_expansion: true
+
+  # Maximum number of scenes to expand concurrently (default: 5)
+  # Recommended: 3-5 for optimal balance between speed and API rate limits
+  max_parallel_scenes: 5
+
+validation:
+  max_attempts: 3
+  simulation_timeout_seconds: 600
+  scene_1_max_retries: 2
+  require_video_output: false
+  # Freeze/crash detection settings
+  max_server_log_silence_seconds: 60  # Detect freeze after 60s of no server logs
+  process_check_interval: 2  # Check process health every 2 seconds
+  error_patterns:
+    - "[ErrorHandler] ERROR DETECTED!"
+    - "We could not find any valid episodes for the file"
+  success_patterns:
+    - "No more graphs to process\\. Shutting down the server\\. story completed successfully"
+
+logging:
+  level: "DEBUG"
+  format: "json"
+
+# Prompt logging configuration
+# Use --save-prompts CLI flag to enable (overrides this setting)
+prompt_logging:
+  enabled: false  # Disabled by default (enable with --save-prompts flag)
+  save_system_prompt: true  # Save system prompts
+  save_user_prompt: true  # Save user prompts
+  save_response_raw: false  # Save raw LLM responses (use --save-raw-responses flag)
+  save_response_parsed: true  # Save parsed responses
+  separate_files: true  # Save separate files per agent/iteration
+
+# Batch generation configuration
+batch:
+  default_output_dir: "batch_output"  # Default output directory for batch runs
+  compress_archives: false  # Whether to compress batch outputs to .zip
+  max_generation_retries: 3  # Maximum retries for failed generation phases
+  max_simulation_retries: 1  # Maximum retries for failed simulations
+  simulation_timeout_first: 300  # Timeout for first simulation attempt (seconds)
+  simulation_timeout_retry: 900  # Timeout for retry attempts (seconds, longer)
+  keep_intermediates: true  # Keep intermediate files (scene_detail_agent/, concept_N/)
+
+# Google Drive integration configuration
+google_drive:
+  credentials_path: "credentials/google_drive_credentials.json"  # Path to Google Drive credentials
+  default_folder_id: null  # Optional default Google Drive folder ID (overridden by orchestrator)

@@ -277,10 +277,40 @@ Examples:
         help='Number of scenes per story (default: 4)'
     )
     parser.add_argument(
+        '--parallel-workers',
+        type=int,
+        default=None,
+        help='Number of parallel workers for text file mode (default: 1 for sequential, None for auto CPU count)'
+    )
+    parser.add_argument(
+        '--skip-simulation',
+        action='store_true',
+        help='Skip MTA simulation phase (generation only, for text file mode)'
+    )
+    parser.add_argument(
         '--seeds',
         nargs='*',
         default=[],
         help='Narrative seed sentences'
+    )
+    parser.add_argument(
+        '--generator-type',
+        type=str,
+        choices=['llm', 'simple_random'],
+        default='llm',
+        help='Story generator type: "llm" for LLM-based generation, "simple_random" for random generator (default: llm)'
+    )
+    parser.add_argument(
+        '--random-chains-per-actor',
+        type=int,
+        default=3,
+        help='Number of action chains per actor for simple_random generator (default: 3)'
+    )
+    parser.add_argument(
+        '--random-seed',
+        type=int,
+        default=None,
+        help='Random seed for reproducibility in simple_random generator (default: None)'
     )
 
     # Variation parameters
@@ -620,7 +650,12 @@ Examples:
                 from_existing_stories_path=args.from_existing_stories,
                 upload_to_drive=bool(args.output_g_drive),
                 drive_folder_id=args.output_g_drive,
-                keep_local=args.keep_local
+                keep_local=args.keep_local,
+                parallel_workers=args.parallel_workers,
+                skip_simulation=args.skip_simulation,
+                generator_type=args.generator_type,
+                random_chains_per_actor=args.random_chains_per_actor,
+                random_seed=args.random_seed
             )
 
             # Handle from-existing-stories mode
@@ -681,7 +716,17 @@ Examples:
 
                 # Generate stories from text files
                 controller = BatchController(config, batch_config)
-                batch_state = controller.run_batch_from_text_files(text_file_paths)
+
+                # Route to parallel or sequential method based on parallel_workers
+                if batch_config.parallel_workers and batch_config.parallel_workers > 1:
+                    logger.info(
+                        "using_parallel_processing",
+                        workers=batch_config.parallel_workers
+                    )
+                    batch_state = controller.run_batch_from_text_files_parallel(text_file_paths)
+                else:
+                    logger.info("using_sequential_processing")
+                    batch_state = controller.run_batch_from_text_files(text_file_paths)
 
             else:
                 # Standard batch generation mode

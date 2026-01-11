@@ -1,0 +1,197 @@
+[
+  {
+    "episodes": [
+      {
+        "name": "test_episode_1",
+        "regions": [
+          {
+            "name": "test_region_office",
+            "max_actors": 4
+          },
+          {
+            "name": "test_region_park",
+            "max_actors": 6
+          }
+        ],
+        "points_of_interest": [
+          {
+            "id": "chair_1",
+            "type": "chair",
+            "region": "test_region_office",
+            "actions": ["SitDown"]
+          },
+          {
+            "id": "chair_2",
+            "type": "chair",
+            "region": "test_region_office",
+            "actions": ["SitDown"]
+          },
+          {
+            "id": "desk_1",
+            "type": "desk",
+            "region": "test_region_office",
+            "actions": []
+          },
+          {
+            "id": "phone_1",
+            "type": "phone",
+            "region": "test_region_office",
+            "actions": ["TalkPhone"]
+          },
+          {
+            "id": "computer_1",
+            "type": "computer",
+            "region": "test_region_office",
+            "actions": ["UseComputer"]
+          },
+          {
+            "id": "bench_1",
+            "type": "bench",
+            "region": "test_region_park",
+            "actions": ["SitDown"]
+          },
+          {
+            "id": "bench_2",
+            "type": "bench",
+            "region": "test_region_park",
+            "actions": ["SitDown"]
+          },
+          {
+            "id": "tree_1",
+            "type": "tree",
+            "region": "test_region_park",
+            "actions": []
+          }
+        ],
+        "objects": [
+          {
+            "id": "laptop_1",
+            "type": "laptop",
+            "region": "test_region_office",
+            "pickupable": true,
+            "spawnable": false
+          },
+          {
+            "id": "laptop_2",
+            "type": "laptop",
+            "region": "test_region_office",
+            "pickupable": true,
+            "spawnable": false
+          },
+          {
+            "id": "pen_1",
+            "type": "pen",
+            "region": "test_region_office",
+            "pickupable": true,
+            "spawnable": true
+          },
+          {
+            "id": "coffee_cup_1",
+            "type": "coffee_cup",
+            "region": "test_region_office",
+            "pickupable": true,
+            "spawnable": true
+          },
+          {
+            "id": "document_1",
+            "type": "document",
+            "region": "test_region_office",
+            "pickupable": true,
+            "spawnable": true
+          },
+          {
+            "id": "ball_1",
+            "type": "ball",
+            "region": "test_region_park",
+            "pickupable": true,
+            "spawnable": true
+          },
+          {
+            "id": "book_1",
+            "type": "book",
+            "region": "test_region_park",
+            "pickupable": true,
+            "spawnable": false
+          }
+        ]
+      }
+    ],
+    "actions": [
+      "Walk",
+      "Run",
+      "SitDown",
+      "StandUp",
+      "Talk",
+      "PickUp",
+      "Drop",
+      "Give",
+      "INV-Give",
+      "TalkPhone",
+      "UseComputer",
+      "Eat",
+      "Drink",
+      "HandShake",
+      "Wave",
+      "Point",
+      "Crouch",
+      "Jump",
+      "Turn",
+      "Look"
+    ],
+    "action_chains": {
+      "SitDown": {
+        "requires_state": "standing",
+        "creates_state": "sitting",
+        "next_actions": ["StandUp", "Talk", "Eat", "Drink"]
+      },
+      "StandUp": {
+        "requires_state": "sitting",
+        "creates_state": "standing",
+        "next_actions": ["Walk", "Run", "SitDown", "PickUp"]
+      },
+      "PickUp": {
+        "requires_state": "standing",
+        "requires_holding": false,
+        "creates_holding": true,
+        "next_actions": ["Drop", "Give", "Walk"]
+      },
+      "Drop": {
+        "requires_holding": true,
+        "creates_holding": false,
+        "next_actions": ["Walk", "PickUp"]
+      },
+      "Give": {
+        "requires_holding": true,
+        "creates_holding": false,
+        "synchronized_with": "INV-Give",
+        "next_actions": ["Talk", "Walk"]
+      },
+      "INV-Give": {
+        "requires_holding": false,
+        "creates_holding": true,
+        "synchronized_with": "Give",
+        "next_actions": ["Drop", "Give"]
+      },
+      "TalkPhone": {
+        "requires_state": "standing",
+        "requires_poi": "phone",
+        "next_actions": ["StandUp", "Walk"]
+      },
+      "UseComputer": {
+        "requires_state": "sitting",
+        "requires_poi": "computer",
+        "next_actions": ["StandUp"]
+      },
+      "Talk": {
+        "synchronized_with": "Talk",
+        "next_actions": ["Walk", "Wave", "HandShake"]
+      }
+    },
+    "spawnable_objects": [
+      "pen",
+      "coffee_cup",
+      "document",
+      "ball"
+    ]
+  }
+]

@@ -266,7 +266,7 @@
             ]
         },
         "movement": {
-            "note": "Move action has two locations in Entities array: [source, target]",
+            "note": "Move action has two locations in Location array: [source_region, target_region]. the actor_id that performs the move in Entities array: [actor_id]",
             "description": "Location change requirement",
             "pattern": "Must use Move before acting in different location. Otherwise, a move action is inserted automatically by the system."
         },
@@ -332,6 +332,19 @@
         }
     },
         "action_catalog": {
+            "Move": {
+                "description": "Actor move",
+                "category": "positional",
+                "requires_object": false,
+                "entities": [
+                    "Actor"
+                ],
+                "locations": [
+                    "source_region",
+                    "target_region"
+                ],
+                "compatible_objects": []
+            },
             "SmokeIn": {
                 "description": "Actor smoke in",
                 "category": "activity",
@@ -4230,12 +4243,12 @@
                             "Chair (chair)",
                             "Table (table)",
                             "Food (red apple)",
-                            "Plate (plate)",
-                            "Plate (plate)",
-                            "Plate (plate)",
-                            "Plate (plate)",
+
+
+
+
                             "Remote (remote)",
-                            "Furniture (wooden chest of drawers)",
+
                             "Televisor (TV)"
                         ],
                         "pois": [
@@ -4277,7 +4290,7 @@
                     {
                         "objects": [
                             "Sink (sink)",
-                            "GasCooker (gas cooker)",
+
                             "Drinks (bottle of alcohol)",
                             "Drinks (cup of soda)",
                             "MobilePhone (mobile phone)",
@@ -4296,11 +4309,7 @@
                             "Chair (chair)",
                             "Chair (chair)",
                             "Chair (chair)",
-                            "Table (table)",
-                            "Plate (plate)",
-                            "Plate (plate)",
-                            "Plate (plate)",
-                            "Plate (plate)"
+                            "Table (table)"
                         ],
                         "pois": [
                             "kitchen sink",
@@ -4330,7 +4339,7 @@
                             "Drinks (glass of beer)",
                             "Sofa (sofa)",
                             "Remote (remote)",
-                            "Furniture (wooden chest of drawers)",
+
                             "Televisor (TV)",
                             "Chair (chair)",
                             "Laptop (closed lid laptop)",
@@ -7102,11 +7111,6 @@
                         "region": "livingroom"
                     },
                     {
-                        "type": "Furniture",
-                        "description": "wooden chest of drawers",
-                        "region": "livingroom"
-                    },
-                    {
                         "type": "Televisor",
                         "description": "TV",
                         "region": "livingroom"
@@ -7766,7 +7770,6 @@
                 "regions": [
                     {
                         "objects": [
-                            "CommonInterior (object)"
                         ],
                         "pois": [
                             "living 1",
@@ -7917,13 +7920,6 @@
                         ],
                         "actions": [],
                         "interactions_only": false
-                    }
-                ],
-                "objects": [
-                    {
-                        "type": "CommonInterior",
-                        "description": "object",
-                        "region": "livingroom"
                     }
                 ]
             },
@@ -9836,11 +9832,6 @@
                 "spawnable": false,
                 "instance_count": 14
             },
-            "Furniture": {
-                "actions": [],
-                "spawnable": false,
-                "instance_count": 2
-            },
             "Drinks": {
                 "actions": [
                     "Drink",
@@ -9896,9 +9887,11 @@
             },
             "Cigarette": {
                 "actions": [
+                    "TakeOut",
                     "SmokeIn",
                     "Smoke",
-                    "SmokeOut"
+                    "SmokeOut",
+                    "Stash"
                 ],
                 "spawnable": true,
                 "instance_count": 9
@@ -9917,9 +9910,11 @@
             },
             "MobilePhone": {
                 "actions": [
-                    "HangUp",
+                    "TakeOut",
+                    "AnswerPhone",
                     "TalkPhone",
-                    "AnswerPhone"
+                    "HangUp",
+                    "Stash"
                 ],
                 "spawnable": true,
                 "instance_count": 10
