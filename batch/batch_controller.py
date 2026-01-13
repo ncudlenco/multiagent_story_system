@@ -309,8 +309,12 @@ class BatchController:
             # Create generator instance
             generator = SimpleGESTRandomGenerator(str(capabilities_path))
 
-            # Generate GEST with specified chains per actor
-            gest_dict = generator.generate(chains_per_actor=self.batch_config.random_chains_per_actor)
+            # Generate GEST with specified parameters
+            gest_dict = generator.generate(
+                chains_per_actor=self.batch_config.random_chains_per_actor,
+                max_actors_per_region=self.batch_config.random_max_actors_per_region,
+                max_regions=self.batch_config.random_max_regions
+            )
 
             # Create nested directory structure matching LLM format
             # This ensures compatibility with simulation code

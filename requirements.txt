@@ -14,6 +14,7 @@ python-dotenv>=1.0.0
 
 # Process Management and System Utilities
 psutil>=5.9.0
+pywin32>=306  # Windows-specific window management
 
 # Logging and Monitoring
 structlog>=24.1.0

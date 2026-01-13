@@ -312,6 +312,18 @@ Examples:
         default=None,
         help='Random seed for reproducibility in simple_random generator (default: None)'
     )
+    parser.add_argument(
+        '--random-max-actors-per-region',
+        type=int,
+        default=None,
+        help='Maximum actors per region for simple_random generator (default: unlimited)'
+    )
+    parser.add_argument(
+        '--random-max-regions',
+        type=int,
+        default=None,
+        help='Maximum regions to visit for simple_random generator (default: unlimited)'
+    )
 
     # Variation parameters
     parser.add_argument(
@@ -655,7 +667,9 @@ Examples:
                 skip_simulation=args.skip_simulation,
                 generator_type=args.generator_type,
                 random_chains_per_actor=args.random_chains_per_actor,
-                random_seed=args.random_seed
+                random_seed=args.random_seed,
+                random_max_actors_per_region=args.random_max_actors_per_region,
+                random_max_regions=args.random_max_regions
             )
 
             # Handle from-existing-stories mode

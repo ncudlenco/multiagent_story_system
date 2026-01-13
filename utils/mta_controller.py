@@ -203,6 +203,12 @@ class MTAController:
             else:
                 raise ValueError("graph_file must be provided for SIMULATION mode")
             config["ARTIFACT_COLLECTION_ENABLED"] = collect_artifacts
+            if collect_artifacts:
+                # Enable image frame saving for artifact collection
+                config["ARTIFACT_NATIVE_SCREENSHOT_SAVE_IMAGES"] = True
+                # Keep segmentation and depth disabled
+                config["ARTIFACT_ENABLE_SEGMENTATION"] = False
+                config["ARTIFACT_ENABLE_DEPTH"] = False
             # Disable all DEBUG flags for clean simulation runs
             config["DEBUG"] = False
             config["DEBUG_PROCESSACTIONS"] = False
@@ -214,7 +220,8 @@ class MTAController:
             config["DEBUG_VALIDATION"] = False
             config["DEBUG_ACTION_VALIDATION"] = False
             config["DEBUG_LOGGER"] = False
-            config["DEBUG_SCREENSHOTS"] = False
+            # Enable screenshot debug logging when artifact collection is enabled
+            config["DEBUG_SCREENSHOTS"] = collect_artifacts
             config["DEBUG_OBJECTS"] = False
             config["DEBUG_EPISODE"] = False
             config["DEBUG_ACTIONS"] = False
@@ -443,6 +450,45 @@ class MTAController:
             logger.error("set_topmost_error", hwnd=hwnd, error=str(e))
             return False
 
+    def detect_crash_dialog(self) -> bool:
+        """
+        Detect if MTA crash dialog is visible.
+
+        When MTA crashes, a dialog appears that blocks further execution.
+        This method detects such dialogs so we can force-kill processes
+        and allow retry logic to work.
+
+        Returns:
+            True if crash dialog detected
+        """
+        if not WIN32_AVAILABLE:
+            return False
+
+        crash_patterns = [
+            "encountered a problem",
+            "has stopped working",
+            "not responding"
+        ]
+
+        def enum_callback(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd).lower()
+                for pattern in crash_patterns:
+                    if pattern in title and "mta" in title:
+                        results.append((hwnd, title))
+            return True
+
+        found = []
+        try:
+            win32gui.EnumWindows(enum_callback, found)
+        except Exception:
+            return False
+
+        if found:
+            logger.warning("crash_dialog_detected", window_title=found[0][1])
+            return True
+        return False
+
     def stop_server(self, wait: bool = True) -> bool:
         """
         Stop MTA server and client processes.
@@ -635,20 +681,33 @@ class MTAController:
 
     def _kill_orphaned_processes(self) -> int:
         """
-        Kill any orphaned MTA server processes.
+        Kill any orphaned MTA server and client processes.
+
+        This includes the server executable, client processes, and any
+        child processes like gta_sa.exe and proxy_sa.exe that might
+        be left running after a crash.
 
         Returns:
             Number of processes killed
         """
         killed_count = 0
 
+        # Process names to kill (server + common MTA child processes)
+        mta_process_names = [
+            self.server_exe.name.lower(),
+            'gta_sa.exe',
+            'proxy_sa.exe',
+            'mta_sa.exe'
+        ]
+
         try:
-            for proc in psutil.process_iter(['name', 'exe']):
+            for proc in psutil.process_iter(['name', 'pid']):
                 try:
-                    if proc.info['name'] == self.server_exe.name:
+                    proc_name = proc.info['name'].lower() if proc.info['name'] else ''
+                    if proc_name in mta_process_names:
+                        logger.info("killing_mta_subprocess", name=proc_name, pid=proc.info['pid'])
                         proc.kill()
                         killed_count += 1
-                        logger.info("killed_orphaned_process", pid=proc.pid)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
         except Exception as e:
@@ -736,16 +795,25 @@ class MTAController:
             if not simulation_folder:
                 logger.warning("simulation_folder_not_detected")
 
-            # 8. Main monitoring loop with enhanced freeze/crash detection
+            # 8. Main monitoring loop with ADAPTIVE TIMEOUT
+            # The adaptive timeout tracks actual action progress, not just elapsed time
+            # - If actions are executing: keep running (up to max_simulation_time)
+            # - If no action progress for no_action_progress_timeout: timeout as stuck
             server_log_path = self.get_server_log_path()
             client_log_path = self.get_client_log_path()
             server_log_pos = 0
             client_log_pos = 0
             start_time = time.time()
             last_server_activity_time = start_time  # Track server log activity for freeze detection
+            last_action_time = start_time  # Track last ACTION execution (for adaptive timeout)
             last_topmost_time = 0  # Track when we last set topmost
 
-            logger.info("starting_enhanced_simulation_monitoring_loop")
+            # Max total simulation time (much longer than before since adaptive timeout catches stuck cases)
+            max_simulation_time = self.config['validation'].get('max_simulation_time_seconds', 600)
+
+            logger.info("starting_adaptive_timeout_monitoring_loop",
+                       max_simulation_time=max_simulation_time,
+                       no_action_timeout=self.config['validation'].get('no_action_progress_timeout_seconds', 90))
 
             while True:
                 # Periodically re-apply topmost status (every 5 seconds)
@@ -754,6 +822,15 @@ class MTAController:
                 if current_time - last_topmost_time >= 5.0:
                     self.set_mta_window_topmost(max_wait_seconds=2, retry_interval=0.5)
                     last_topmost_time = current_time
+                # Check for crash dialog (must be detected early before timeout)
+                if self.detect_crash_dialog():
+                    logger.error("mta_crash_dialog_detected",
+                                message="Crash dialog found - killing all MTA processes")
+                    self.force_stop_all()
+                    final_success = False
+                    final_error = "MTA crashed (dialog detected)"
+                    break
+
                 # Check process health (detect crashes)
                 server_alive, client_alive, process_error = self.check_processes_alive()
 
@@ -769,15 +846,17 @@ class MTAController:
                     final_error = process_error or "Client process died unexpectedly"
                     break
 
-                # Monitor simulation progress (includes server log activity tracking)
-                status, message, server_log_pos, client_log_pos, last_server_activity_time = \
+                # Monitor simulation progress with ADAPTIVE TIMEOUT
+                # Returns last_action_time which is updated when actual actions execute
+                status, message, server_log_pos, client_log_pos, last_server_activity_time, last_action_time = \
                     self.monitor_simulation_progress(
                         server_log_path,
                         client_log_path,
                         simulation_folder,
                         server_log_pos,
                         client_log_pos,
-                        last_server_activity_time
+                        last_server_activity_time,
+                        last_action_time
                     )
 
                 if status == "COMPLETE":
@@ -791,12 +870,15 @@ class MTAController:
                     final_error = message
                     break
 
-                # Check global timeout
+                # Check ABSOLUTE max simulation time (safety net)
+                # This is much longer since adaptive timeout catches stuck cases
                 elapsed = time.time() - start_time
-                if elapsed > timeout_seconds:
-                    logger.warning("simulation_global_timeout", elapsed=elapsed)
+                if elapsed > max_simulation_time:
+                    logger.warning("simulation_max_time_exceeded",
+                                  elapsed=elapsed,
+                                  max_time=max_simulation_time)
                     final_success = False
-                    final_error = f"Simulation global timeout after {timeout_seconds} seconds"
+                    final_error = f"Simulation exceeded max time of {max_simulation_time} seconds"
                     break
 
                 # Poll interval (configurable)
@@ -1168,14 +1250,16 @@ class MTAController:
         simulation_folder: Optional[Path],
         server_log_pos: int,
         client_log_pos: int,
-        last_server_activity_time: float
-    ) -> Tuple[str, Optional[str], int, int, float]:
+        last_server_activity_time: float,
+        last_action_time: Optional[float] = None
+    ) -> Tuple[str, Optional[str], int, int, float, float]:
         """
         Monitor simulation progress by checking logs and error files.
 
-        This method now tracks server log activity to detect freezes.
-        If the server produces no new log lines for max_server_log_silence_seconds,
-        it indicates a likely freeze (client hung, server waiting, or deadlock).
+        This method uses ADAPTIVE TIMEOUT:
+        - Tracks when actual ACTIONS execute (not just any log line)
+        - Resets timeout on action progress
+        - Times out quickly only when stuck (no action progress)
 
         Args:
             server_log_path: Path to server.log
@@ -1184,9 +1268,10 @@ class MTAController:
             server_log_pos: Current byte position in server log
             client_log_pos: Current byte position in client log
             last_server_activity_time: Timestamp of last server log activity
+            last_action_time: Timestamp of last action execution (for adaptive timeout)
 
         Returns:
-            Tuple of (status, message, new_server_pos, new_client_pos, last_server_activity_time)
+            Tuple of (status, message, new_server_pos, new_client_pos, last_server_activity_time, last_action_time)
             where status = "COMPLETE" | "ERROR" | "RUNNING"
         """
         from utils.log_parser import MTALogParser
@@ -1194,10 +1279,14 @@ class MTAController:
         # Create log parser
         log_parser = MTALogParser(self.config)
 
+        current_time = time.time()
+        if last_action_time is None:
+            last_action_time = current_time
+
         # 1. Check for error files first (immediate failure detection)
         has_error, error_msg = self.check_for_error_files(simulation_folder)
         if has_error:
-            return "ERROR", error_msg, server_log_pos, client_log_pos, last_server_activity_time
+            return "ERROR", error_msg, server_log_pos, client_log_pos, last_server_activity_time, last_action_time
 
         # 2. Read new log lines
         server_new_lines, new_server_pos = log_parser.tail_logs(
@@ -1211,40 +1300,76 @@ class MTAController:
 
         all_new_lines = server_new_lines + client_new_lines
 
-        # 3. Track server log activity for freeze detection
-        current_time = time.time()
+        # 3. Track server log activity for basic activity detection
         if server_new_lines:
-            # Server produced new logs - update activity time
             last_server_activity_time = current_time
             logger.debug("server_log_activity_detected", new_lines=len(server_new_lines))
-        else:
-            # No new server logs - check if silent for too long
-            silence_duration = current_time - last_server_activity_time
-            max_silence = self.config['validation'].get('max_server_log_silence_seconds', 60)
 
-            if silence_duration > max_silence:
-                error_msg = (
-                    f"Server log silence detected: no server logs for {silence_duration:.1f} seconds "
-                    f"(max: {max_silence}s). This indicates a likely freeze or deadlock."
-                )
-                logger.error(
-                    "server_log_silence_timeout",
-                    silence_duration=silence_duration,
-                    max_silence=max_silence
-                )
-                return "ERROR", error_msg, new_server_pos, new_client_pos, last_server_activity_time
+        # 4. ADAPTIVE TIMEOUT: Check for actual action execution progress
+        # These patterns indicate real story progress (not just elapsed time logs)
+        action_progress_patterns = [
+            "OnGlobalActionFinished",
+            "Story actions nr",
+            "EnqueueActionLinear",
+            "action finished",
+            "EndStory:PausePerformer",
+        ]
 
-        # 4. Check for completion patterns
+        action_detected = False
+        for line in server_new_lines:
+            for pattern in action_progress_patterns:
+                if pattern in line:
+                    action_detected = True
+                    last_action_time = current_time
+                    logger.debug("action_progress_detected", pattern=pattern)
+                    break
+            if action_detected:
+                break
+
+        # 5. Check for NO ACTION PROGRESS timeout (adaptive)
+        # If no actions executing for too long, the simulation is stuck
+        no_action_timeout = self.config['validation'].get('no_action_progress_timeout_seconds', 90)
+        time_since_action = current_time - last_action_time
+
+        if time_since_action > no_action_timeout:
+            error_msg = (
+                f"No action progress for {time_since_action:.1f} seconds "
+                f"(max: {no_action_timeout}s). Simulation appears stuck."
+            )
+            logger.error(
+                "no_action_progress_timeout",
+                time_since_action=time_since_action,
+                no_action_timeout=no_action_timeout
+            )
+            return "ERROR", error_msg, new_server_pos, new_client_pos, last_server_activity_time, last_action_time
+
+        # 6. Check for server log silence (complete freeze)
+        silence_duration = current_time - last_server_activity_time
+        max_silence = self.config['validation'].get('max_server_log_silence_seconds', 60)
+
+        if silence_duration > max_silence:
+            error_msg = (
+                f"Server log silence detected: no server logs for {silence_duration:.1f} seconds "
+                f"(max: {max_silence}s). This indicates a likely freeze or deadlock."
+            )
+            logger.error(
+                "server_log_silence_timeout",
+                silence_duration=silence_duration,
+                max_silence=max_silence
+            )
+            return "ERROR", error_msg, new_server_pos, new_client_pos, last_server_activity_time, last_action_time
+
+        # 7. Check for completion patterns
         if log_parser.check_simulation_complete(all_new_lines):
-            return "COMPLETE", "Simulation completed successfully", new_server_pos, new_client_pos, last_server_activity_time
+            return "COMPLETE", "Simulation completed successfully", new_server_pos, new_client_pos, last_server_activity_time, last_action_time
 
-        # 5. Check for error patterns
+        # 8. Check for error patterns
         errors = log_parser.find_errors(all_new_lines)
         if errors:
             error_message = f"Errors detected in logs: {len(errors)} errors"
             error_message += "\n" + "\n".join(errors)
             logger.error("simulation_errors_detected", count=len(errors), errors=errors)
-            return "ERROR", error_message, new_server_pos, new_client_pos, last_server_activity_time
+            return "ERROR", error_message, new_server_pos, new_client_pos, last_server_activity_time, last_action_time
 
-        # 6. Still running
-        return "RUNNING", None, new_server_pos, new_client_pos, last_server_activity_time
+        # 9. Still running
+        return "RUNNING", None, new_server_pos, new_client_pos, last_server_activity_time, last_action_time

@@ -66,3 +66,8 @@ output/*
 cvpr2026/*
 test_artifacts/*
 test_batch/*
+
+# Batch test results
+batch_out/
+batch-gcloud-test/
+test_*/

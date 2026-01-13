@@ -447,6 +447,19 @@ class VMWareOrchestrator:
                 cmd_args.extend(["--same-story-simulation-variations",
                                str(batch_params["same_story_simulation_variations"])])
 
+            # Simple random generator parameters
+            if batch_params.get("generator_type"):
+                cmd_args.extend(["--generator-type", batch_params["generator_type"]])
+            if batch_params.get("random_chains_per_actor"):
+                cmd_args.extend(["--random-chains-per-actor",
+                               str(batch_params["random_chains_per_actor"])])
+            if batch_params.get("random_max_actors_per_region"):
+                cmd_args.extend(["--random-max-actors-per-region",
+                               str(batch_params["random_max_actors_per_region"])])
+            if batch_params.get("random_max_regions"):
+                cmd_args.extend(["--random-max-regions",
+                               str(batch_params["random_max_regions"])])
+
             # Add Google Drive upload (if configured)
             if worker_id in self.worker_folder_ids:
                 cmd_args.extend(["--output-g-drive", self.worker_folder_ids[worker_id]])
@@ -764,7 +777,12 @@ class VMWareOrchestrator:
             "scene_number": args.scene_number,
             "same_story_generation_variations": args.same_story_generation_variations,
             "same_story_simulation_variations": args.same_story_simulation_variations,
-            "keep_local": args.keep_local
+            "keep_local": args.keep_local,
+            # Simple random generator params
+            "generator_type": args.generator_type,
+            "random_chains_per_actor": args.random_chains_per_actor,
+            "random_max_actors_per_region": args.random_max_actors_per_region,
+            "random_max_regions": args.random_max_regions,
         }
 
         for worker in self.workers:
@@ -882,6 +900,16 @@ def main():
                        help="Detail variations per story")
     parser.add_argument("--same-story-simulation-variations", type=int, default=None,
                        help="Simulations per detail variation")
+
+    # Simple random generator parameters
+    parser.add_argument("--generator-type", type=str, choices=['llm', 'simple_random'],
+                       default='llm', help="Story generator type (default: llm)")
+    parser.add_argument("--random-chains-per-actor", type=int, default=None,
+                       help="Action chains per actor for simple_random generator")
+    parser.add_argument("--random-max-actors-per-region", type=int, default=None,
+                       help="Max actors per region for simple_random generator")
+    parser.add_argument("--random-max-regions", type=int, default=None,
+                       help="Max regions to visit for simple_random generator")
 
     args = parser.parse_args()
 

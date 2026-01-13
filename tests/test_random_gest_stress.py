@@ -41,8 +41,8 @@ COMPLEXITY_LEVELS = [
     ("small", 2, 2, 0, 100, 1, 110),      # Seed updated to generate events
     ("medium", 4, 3, 0, 200, 2, 102),
     ("large", 6, 5, 0, 300, 2, 103),
-    ("xlarge", 8, 8, 0, 500, 3, 104),
-    ("extreme", 10, 10, 0, 600, 4, 152),  # Seed updated to generate valid events
+    ("xlarge", 8, 8, 0, 1200, 3, 104),  # Increased max due to guaranteed fallback chains
+    ("extreme", 10, 10, 0, 1500, 4, 152),  # Increased max due to guaranteed fallback chains
 ]
 
 

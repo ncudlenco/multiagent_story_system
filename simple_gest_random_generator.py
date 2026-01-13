@@ -19,6 +19,7 @@ Algorithm:
 import json
 import random
 import argparse
+from collections import Counter
 from typing import Dict, List, Any, Optional, Tuple, Set
 from pathlib import Path
 from dataclasses import dataclass
@@ -63,6 +64,169 @@ class Episode:
     linked_episodes: List[str]
     regions: List[Dict[str, Any]]
     pois: List[POIInfo]
+
+
+class POICapacityTracker:
+    """
+    Tracks available POI capacity per object type per region.
+
+    Ensures the generator doesn't create more objects of a type than physically
+    exist in the region. This prevents POI conflicts at runtime where multiple
+    actors try to use the same limited resource (e.g., only 1 armchair but 3
+    actors try to sit).
+    """
+
+    # Object types that require exclusive POI access
+    # SitDown/StandUp: Chair, Sofa, ArmChair
+    # GetOn/GetOff: Bed, BenchPress, GymBike
+    EXCLUSIVE_POI_TYPES = {"Chair", "Sofa", "ArmChair", "Bed", "BenchPress", "GymBike"}
+
+    def __init__(self):
+        # {region: {object_type: available_count}}
+        self.capacity: Dict[str, Dict[str, int]] = {}
+        # {region: {object_type: set of allocated object_ids}}
+        self.allocated: Dict[str, Dict[str, Set[str]]] = {}
+        # {region: {object_type: list of (actor_id, sitdown_event_id, standup_event_id)}}
+        # Used for temporal ordering when capacity is exceeded
+        self.seat_usage: Dict[str, Dict[str, List[Tuple[str, str, Optional[str]]]]] = {}
+
+    def init_from_episode(self, episode_data: Dict[str, Any]) -> None:
+        """
+        Initialize capacity from episode's regions.
+
+        Args:
+            episode_data: Episode dict with 'regions' containing object lists
+        """
+        for region in episode_data.get("regions", []):
+            region_name = region.get("name")
+            if not region_name:
+                continue
+
+            self.capacity[region_name] = {}
+            self.allocated[region_name] = {}
+            self.seat_usage[region_name] = {}
+
+            for obj_str in region.get("objects", []):
+                # Parse "Type (description)" format
+                obj_type = obj_str.split(" (")[0].strip()
+                self.capacity[region_name][obj_type] = \
+                    self.capacity[region_name].get(obj_type, 0) + 1
+
+                if obj_type not in self.allocated[region_name]:
+                    self.allocated[region_name][obj_type] = set()
+                if obj_type not in self.seat_usage[region_name]:
+                    self.seat_usage[region_name][obj_type] = []
+
+    def get_capacity(self, region: str, obj_type: str) -> int:
+        """Get total capacity for object type in region."""
+        return self.capacity.get(region, {}).get(obj_type, 0)
+
+    def get_allocated_count(self, region: str, obj_type: str) -> int:
+        """Get number of currently allocated objects of this type."""
+        return len(self.allocated.get(region, {}).get(obj_type, set()))
+
+    def can_allocate(self, region: str, obj_type: str) -> bool:
+        """Check if another object of this type can be allocated."""
+        capacity = self.get_capacity(region, obj_type)
+        allocated = self.get_allocated_count(region, obj_type)
+        return allocated < capacity
+
+    def allocate(self, region: str, obj_type: str, obj_id: str) -> bool:
+        """
+        Allocate an object ID for this type in region.
+
+        Returns:
+            True if allocated successfully, False if at capacity
+        """
+        if not self.can_allocate(region, obj_type):
+            return False
+
+        if region not in self.allocated:
+            self.allocated[region] = {}
+        if obj_type not in self.allocated[region]:
+            self.allocated[region][obj_type] = set()
+
+        self.allocated[region][obj_type].add(obj_id)
+        return True
+
+    def is_allocated(self, region: str, obj_type: str, obj_id: str) -> bool:
+        """Check if a specific object ID is already allocated."""
+        return obj_id in self.allocated.get(region, {}).get(obj_type, set())
+
+    def release(self, region: str, obj_type: str, obj_id: str) -> bool:
+        """
+        Release an allocated object ID, making it available for reuse.
+
+        When an actor stands up from a chair, this method should be called to
+        free up that chair for another actor to use.
+
+        Args:
+            region: Region name
+            obj_type: Object type (Chair, ArmChair, etc.)
+            obj_id: Object ID being released
+
+        Returns:
+            True if released successfully, False if wasn't allocated
+        """
+        if region not in self.allocated:
+            return False
+        if obj_type not in self.allocated[region]:
+            return False
+        if obj_id not in self.allocated[region][obj_type]:
+            return False
+
+        self.allocated[region][obj_type].discard(obj_id)
+        print(f"    [POI RELEASE] Released {obj_type} ({obj_id}) in {region}")
+        return True
+
+    def record_seat_usage(self, region: str, obj_type: str, actor_id: str,
+                          sitdown_event_id: str, standup_event_id: Optional[str] = None) -> None:
+        """
+        Record an actor's seat usage for temporal ordering.
+
+        Args:
+            region: Region name
+            obj_type: Object type (Chair, Sofa, etc.)
+            actor_id: Actor using the seat
+            sitdown_event_id: Event ID of the SitDown action
+            standup_event_id: Event ID of the StandUp action (may be None if not yet known)
+        """
+        if region not in self.seat_usage:
+            self.seat_usage[region] = {}
+        if obj_type not in self.seat_usage[region]:
+            self.seat_usage[region][obj_type] = []
+
+        self.seat_usage[region][obj_type].append((actor_id, sitdown_event_id, standup_event_id))
+
+    def update_standup_event(self, region: str, obj_type: str, actor_id: str,
+                              standup_event_id: str) -> None:
+        """Update the standup event ID for an actor's seat usage."""
+        if region in self.seat_usage and obj_type in self.seat_usage[region]:
+            for i, (a_id, sit_id, _) in enumerate(self.seat_usage[region][obj_type]):
+                if a_id == actor_id:
+                    self.seat_usage[region][obj_type][i] = (a_id, sit_id, standup_event_id)
+                    break
+
+    def get_seat_users(self, region: str, obj_type: str) -> List[Tuple[str, str, Optional[str]]]:
+        """Get all actors who used this seat type in this region."""
+        return self.seat_usage.get(region, {}).get(obj_type, [])
+
+    def needs_temporal_ordering(self, region: str, obj_type: str) -> bool:
+        """
+        Check if temporal ordering is needed for this object type.
+
+        Returns True if more actors want to use this type than capacity allows.
+        """
+        capacity = self.get_capacity(region, obj_type)
+        users = len(self.get_seat_users(region, obj_type))
+        return users > capacity
+
+    def reset_for_region(self, region: str) -> None:
+        """Reset allocation tracking for a region (for re-generation)."""
+        if region in self.allocated:
+            self.allocated[region] = {k: set() for k in self.allocated[region]}
+        if region in self.seat_usage:
+            self.seat_usage[region] = {k: [] for k in self.seat_usage[region]}
 
 
 class SimpleGESTRandomGenerator:
@@ -112,6 +276,10 @@ class SimpleGESTRandomGenerator:
         self.actor_spawnables: Dict[str, Dict[str, str]] = {}  # actor_id -> {type -> obj_id}
         self.spawnable_objects_created: Set[Tuple[str, str]] = set()  # (actor_id, type) tuples
         self.actor_spawnable_chain_count: Dict[str, int] = {}  # actor_id -> count (limit per actor)
+
+        # POI capacity tracking (prevents over-allocation of limited objects)
+        self.poi_capacity_tracker: Optional[POICapacityTracker] = None
+        self.current_episode_name: Optional[str] = None
 
         self._load_capabilities()
 
@@ -815,6 +983,16 @@ class SimpleGESTRandomGenerator:
     # TEMPORARY BUFFER METHODS (for rollback-free chain generation)
     # ============================================================================
 
+    def _get_obj_type_from_id(self, obj_id: str, temp_events: Dict) -> Optional[str]:
+        """Get object type from object ID by checking Exists events."""
+        # Check main events
+        if obj_id in self.events:
+            return self.events[obj_id].get("Properties", {}).get("Type")
+        # Check temp events
+        if obj_id in temp_events:
+            return temp_events[obj_id].get("Properties", {}).get("Type")
+        return None
+
     def _create_temp_event(self, actor: Actor, action_type: str,
                            entities: List[str], region: str, poi: POIInfo,
                            prev_event_id: Optional[str],
@@ -849,7 +1027,19 @@ class SimpleGESTRandomGenerator:
             obj_id = entities[1] if len(entities) > 1 else None
             temp_actor_state['sitting_on'] = obj_id
             temp_actor_state['state'] = ActorState.SITTING
+            # Track seat usage for temporal ordering
+            temp_actor_state['sitdown_event_id'] = event_id
+            temp_actor_state['sitdown_obj_type'] = self._get_obj_type_from_id(obj_id, temp_events)
         elif action_type == "StandUp":
+            # Track standup event for temporal ordering
+            temp_actor_state['standup_event_id'] = event_id
+
+            # Release POI for object reuse - BEFORE clearing sitting_on
+            obj_id = temp_actor_state.get('sitting_on')
+            obj_type = temp_actor_state.get('sitdown_obj_type')
+            if obj_id and obj_type and self.poi_capacity_tracker:
+                self.poi_capacity_tracker.release(actor.current_location, obj_type, obj_id)
+
             temp_actor_state['sitting_on'] = None
             temp_actor_state['state'] = ActorState.STANDING
         elif action_type == "PickUp":
@@ -872,7 +1062,19 @@ class SimpleGESTRandomGenerator:
             obj_id = entities[1] if len(entities) > 1 else None
             temp_actor_state['lying_on'] = obj_id
             temp_actor_state['state'] = ActorState.SLEEPING
+            # Track seat usage for temporal ordering (same as SitDown)
+            temp_actor_state['sitdown_event_id'] = event_id
+            temp_actor_state['sitdown_obj_type'] = self._get_obj_type_from_id(obj_id, temp_events)
         elif action_type == "GetOff":
+            # Track standup event for temporal ordering (same as StandUp)
+            temp_actor_state['standup_event_id'] = event_id
+
+            # Release POI for object reuse - BEFORE clearing lying_on
+            obj_id = temp_actor_state.get('lying_on')
+            obj_type = temp_actor_state.get('sitdown_obj_type')  # Uses same field for GetOn/GetOff
+            if obj_id and obj_type and self.poi_capacity_tracker:
+                self.poi_capacity_tracker.release(actor.current_location, obj_type, obj_id)
+
             temp_actor_state['lying_on'] = None
             temp_actor_state['state'] = ActorState.STANDING
         elif action_type == "TakeOut":
@@ -893,21 +1095,66 @@ class SimpleGESTRandomGenerator:
         """Get or create object in temporary buffer.
 
         Object key strategy:
-        - Sittable objects (Chair, Sofa, Armchair, Bed): Per-actor unique (can't share seats)
+        - Exclusive POI objects (Chair, Sofa, ArmChair, Bed, BenchPress, GymBike):
+          - Capacity-checked creation
+          - First checks if this actor already has one allocated
+          - Then checks region capacity before creating new
+          - Returns None if at capacity (caller should skip this action)
         - Static region objects: Region-level with instance tracking
           - First checks for released/available instance to reuse
           - Creates new instance if none available (up to region's max count)
         """
-        SITTABLE_OBJECTS = {"Chair", "Sofa", "Armchair", "Bed", "ArmChair"}
+        # Objects that require exclusive POI access (can't be shared simultaneously)
+        EXCLUSIVE_POI_OBJECTS = {"Chair", "Sofa", "Armchair", "Bed", "ArmChair", "BenchPress", "GymBike"}
 
-        if obj_type in SITTABLE_OBJECTS:
+        if obj_type in EXCLUSIVE_POI_OBJECTS:
             # Per-actor key: each actor needs their own seat
             key = (poi.description, poi.region, obj_type, actor_id)
 
+            # Check if this actor already has this seat type allocated
             if key in temp_objects:
                 return temp_objects[key][0]
             if key in self.poi_object_instances:
                 return self.poi_object_instances[key]
+
+            # NEW: Check region capacity before creating new sittable object
+            if self.poi_capacity_tracker:
+                capacity = self.poi_capacity_tracker.get_capacity(poi.region, obj_type)
+                allocated = self.poi_capacity_tracker.get_allocated_count(poi.region, obj_type)
+
+                # Also count objects in temp_objects for this region+type
+                temp_count = 0
+                for k in temp_objects:
+                    if isinstance(k, tuple) and len(k) >= 4:
+                        # Sittable key format: (poi_desc, region, obj_type, actor_id)
+                        if k[1] == poi.region and k[2] == obj_type:
+                            temp_count += 1
+
+                total_allocated = allocated + temp_count
+
+                if total_allocated >= capacity:
+                    # At capacity! Cannot create more of this type
+                    print(f"    [POI CAPACITY] Cannot allocate {obj_type} in {poi.region}: "
+                          f"{total_allocated}/{capacity} allocated")
+                    return None
+
+            # Create new sittable object (capacity check passed)
+            matching = [obj for obj in poi.objects if obj.split("(")[0].strip() == obj_type]
+            if not matching:
+                return None
+
+            obj_name = random.choice(matching)
+            existing_obj_count = len([e for e in self.events if 'obj_' in e])
+            temp_obj_count = len(temp_objects)
+            obj_id = f"obj_{existing_obj_count + temp_obj_count}"
+            temp_objects[key] = (obj_id, obj_name)
+
+            # Register allocation with tracker
+            if self.poi_capacity_tracker:
+                self.poi_capacity_tracker.allocate(poi.region, obj_type, obj_id)
+
+            return obj_id
+
         else:
             # For non-sittable objects: find an available instance or create new
             # First, count how many instances exist in the region
@@ -947,18 +1194,6 @@ class SimpleGESTRandomGenerator:
             obj_id = f"obj_{existing_obj_count + temp_obj_count}"
             temp_objects[key] = (obj_id, obj_name)
             return obj_id
-
-        # For sittable objects - create new
-        matching = [obj for obj in poi.objects if obj.split("(")[0].strip() == obj_type]
-        if not matching:
-            return None
-
-        obj_name = random.choice(matching)
-        existing_obj_count = len([e for e in self.events if 'obj_' in e])
-        temp_obj_count = len(temp_objects)
-        obj_id = f"obj_{existing_obj_count + temp_obj_count}"
-        temp_objects[key] = (obj_id, obj_name)
-        return obj_id
 
     def _is_object_available_temp(self, obj_id: str, actor_id: str,
                                    temp_actor_state: Dict,
@@ -1007,10 +1242,19 @@ class SimpleGESTRandomGenerator:
                 prev_event_id = actor_obj.last_event_id if actor_id != actor.id else original_last_event_id
 
                 # Link previous chain to this chain
-                if prev_event_id and prev_event_id in self.temporal:
-                    self.temporal[prev_event_id]["next"] = first_temp_event
+                if prev_event_id:
+                    # Don't add actor Exists events to temporal - they shouldn't be there
+                    # Only link if prev_event_id is an actual action event (has underscore)
+                    if '_' in prev_event_id:
+                        if prev_event_id not in self.temporal:
+                            self.temporal[prev_event_id] = {"relations": [], "next": None}
+                        self.temporal[prev_event_id]["next"] = first_temp_event
+                    # If prev_event_id is actor Exists event, this is actor's first action
+                    else:
+                        if actor_id not in self.first_actions:
+                            self.first_actions[actor_id] = first_temp_event
 
-                # If this is actor's first action, record it
+                # Also record first action if prev_event_id equals actor_id
                 if prev_event_id == actor_id and actor_id not in self.first_actions:
                     self.first_actions[actor_id] = first_temp_event
 
@@ -1077,6 +1321,18 @@ class SimpleGESTRandomGenerator:
         actor.holding_object = temp_actor_state.get('holding_object')
         actor.lying_on = temp_actor_state.get('lying_on')
         actor.state = temp_actor_state['state']
+
+        # Record seat usage for temporal ordering (if actor sat down in this chain)
+        if self.poi_capacity_tracker and temp_actor_state.get('sitdown_event_id'):
+            sitdown_id = temp_actor_state['sitdown_event_id']
+            standup_id = temp_actor_state.get('standup_event_id')
+            obj_type = temp_actor_state.get('sitdown_obj_type')
+
+            if obj_type and actor.current_location:
+                self.poi_capacity_tracker.record_seat_usage(
+                    actor.current_location, obj_type, actor.id,
+                    sitdown_id, standup_id
+                )
 
         # NOTE: Receiver actors' states are updated in _generate_receiver_chain()
         # before the temp buffers are committed, so we don't need to update them here
@@ -1156,6 +1412,76 @@ class SimpleGESTRandomGenerator:
 
         return True, obj_id
 
+    def _generate_spawnable_chain_fallback(self, actor: Actor, region: str, spawnable_type: str) -> bool:
+        """
+        Generate spawnable chain as fallback - bypasses probability and limit checks.
+        Used when regular chains fail and we need to guarantee a chain.
+
+        Returns:
+            True if chain was generated successfully
+        """
+        # Initialize temp buffers
+        temp_events = {}
+        temp_temporal = {}
+        temp_objects = {}
+        temp_occupied = {}
+        temp_actor_state = {
+            'last_event_id': actor.last_event_id,
+            'sitting_on': actor.sitting_on,
+            'holding_object': actor.holding_object,
+            'lying_on': actor.lying_on,
+            'state': actor.state
+        }
+        original_last_event_id = actor.last_event_id
+
+        # Generate spawnable chain (NO POI dependency)
+        success, obj_id = self._generate_spawnable_chain(
+            actor, region, spawnable_type,
+            temp_events, temp_temporal, temp_objects,
+            temp_occupied, temp_actor_state
+        )
+
+        if success:
+            # Commit spawnable chain
+            self._commit_temp_chain(
+                temp_events, temp_temporal, temp_objects, temp_occupied,
+                temp_actor_state, actor, original_last_event_id
+            )
+            return True
+
+        return False
+
+    def _create_idle_chain(self, actor: Actor, region: str) -> None:
+        """
+        Create minimal Idle event as last resort fallback.
+        Actor simply waits/idles in the region.
+        This guarantees a chain is created even when all POIs are exhausted.
+        """
+        event_id = f"{actor.id}_{self._get_next_event_id()}"
+
+        # Create Idle event
+        self.events[event_id] = {
+            "Action": "Idle",
+            "Entities": [actor.id],
+            "Location": [region],
+            "Timeframe": None,
+            "Properties": {"Duration": random.uniform(2.0, 5.0)}
+        }
+
+        # Link to actor's chain
+        self.temporal[event_id] = {
+            "relations": [],
+            "next": None
+        }
+
+        if actor.last_event_id:
+            # Create temporal entry if needed (for Exists events)
+            if actor.last_event_id not in self.temporal:
+                self.temporal[actor.last_event_id] = {"relations": [], "next": None}
+            self.temporal[actor.last_event_id]["next"] = event_id
+
+        actor.last_event_id = event_id
+
     # ============================================================================
     # GIVE/RECEIVE FLOW HANDLING
     # ============================================================================
@@ -1172,9 +1498,15 @@ class SimpleGESTRandomGenerator:
             Tuple of (receiver_actor, receive_event_id, give_event_id) or (None, None, None) if no valid receiver
         """
         # Find actors in same room (exclude giver)
+        # CRITICAL: Also exclude actors who haven't started their chain yet.
+        # If an actor's first action is Receive (INV-Give), it depends on the giver's
+        # Give action via starts_with. This creates synchronization issues in MTA
+        # because the receiver's starting_action would depend on a non-starting action.
         potential_receivers = [
             a for a in all_actors
-            if a.id != giver.id and a.current_location == region
+            if a.id != giver.id
+            and a.current_location == region
+            and a.last_event_id != a.id  # Actor must have started their chain
         ]
 
         if not potential_receivers:
@@ -1238,13 +1570,15 @@ class SimpleGESTRandomGenerator:
                                   region: str, all_actors: List[Actor], giver: Actor,
                                   poi: POIInfo, receive_event_id: str,
                                   temp_events: Dict, temp_temporal: Dict,
-                                  temp_objects: Dict, temp_occupied: Dict) -> bool:
+                                  temp_objects: Dict, temp_occupied: Dict) -> Tuple[bool, Optional[str]]:
         """
         Generate action chain for actor who received an object.
         Must end with PutDown to complete the chain.
 
         Returns:
-            True if chain completed successfully, False otherwise
+            Tuple of (success, giver_last_event_id):
+            - success: True if chain completed successfully
+            - giver_last_event_id: If SitDownTogether happened, the giver's new last event ID
         """
         # CRITICAL FIX: Link Receive to receiver's prior chain
         if receiver.last_event_id and receiver.last_event_id != receive_event_id:
@@ -1295,7 +1629,7 @@ class SimpleGESTRandomGenerator:
             receiver.lying_on = temp_receiver_state.get('lying_on')
             receiver.state = temp_receiver_state['state']
 
-            return True
+            return True, None
 
         elif obj_type == "Drinks":
             # Drinks chain: Receive → Drink → PutDown
@@ -1319,7 +1653,7 @@ class SimpleGESTRandomGenerator:
             receiver.lying_on = temp_receiver_state.get('lying_on')
             receiver.state = temp_receiver_state['state']
 
-            return True
+            return True, None
 
         # For Remote: Receive → Random(PutDown, SitDownTogether)
         elif obj_type == "Remote":
@@ -1333,46 +1667,46 @@ class SimpleGESTRandomGenerator:
                 )
                 temp_occupied[object_id] = None
 
-                # CRITICAL FIX: Update receiver's Actor object with final state
+                # Update receiver's Actor object with final state
                 receiver.last_event_id = temp_receiver_state['last_event_id']
                 receiver.sitting_on = temp_receiver_state.get('sitting_on')
                 receiver.holding_object = temp_receiver_state.get('holding_object')
                 receiver.lying_on = temp_receiver_state.get('lying_on')
                 receiver.state = temp_receiver_state['state']
 
-                return True
+                return True, None
             else:
                 # SitDownTogether: Both actors sit on same sofa
-                success = self._create_synchronized_sitdown(
+                success, giver_standup_id = self._create_synchronized_sitdown(
                     receiver, giver, object_id, region, poi,
                     prev_event_id, temp_events, temp_temporal,
                     temp_objects, temp_occupied, temp_receiver_state
                 )
 
                 if success:
-                    # CRITICAL FIX: Update receiver's Actor object with final state
+                    # Update receiver's Actor object with final state
                     receiver.last_event_id = temp_receiver_state['last_event_id']
                     receiver.sitting_on = temp_receiver_state.get('sitting_on')
                     receiver.holding_object = temp_receiver_state.get('holding_object')
                     receiver.lying_on = temp_receiver_state.get('lying_on')
                     receiver.state = temp_receiver_state['state']
 
-                return success
+                return success, giver_standup_id
 
-        return False
+        return False, None
 
     def _create_synchronized_sitdown(self, receiver: Actor, giver: Actor,
                                       object_id: str, region: str, poi: POIInfo,
                                       prev_event_id: str,
                                       temp_events: Dict, temp_temporal: Dict,
                                       temp_objects: Dict, temp_occupied: Dict,
-                                      temp_receiver_state: Dict) -> bool:
+                                      temp_receiver_state: Dict) -> Tuple[bool, Optional[str]]:
         """
         Create synchronized SitDown events for both actors on same sofa,
         then both stand up, then receiver puts down the Remote.
 
         Returns:
-            True if successful
+            Tuple of (success, giver_standup_id) - giver's last event for chain linking
         """
         # Find or create Sofa in same room
         sofa_key = (poi.description, region, "Sofa", "shared")  # Shared sofa for both
@@ -1447,17 +1781,39 @@ class SimpleGESTRandomGenerator:
         # Link giver's sitdown to standup
         temp_temporal[giver_sitdown_id]["next"] = giver_standup_id
 
-        return True
+        # Link giver's Give event to SitDown
+        for event_id, event in temp_events.items():
+            if (event.get("Action") == "Give" and
+                event.get("Entities", [None])[0] == giver.id):
+                if event_id in temp_temporal:
+                    temp_temporal[event_id]["next"] = giver_sitdown_id
+                break
+
+        # Update giver's Actor object state
+        giver.last_event_id = giver_standup_id
+        giver.state = ActorState.STANDING
+
+        return True, giver_standup_id
 
     def _generate_single_chain(self, actor: Actor, pois: List[POIInfo],
                                all_actors: List[Actor],
-                               used_pois: Set[str]) -> Tuple[bool, Optional[str]]:
+                               used_pois: Set[str]) -> Tuple[bool, Optional[str], str]:
         """
         Generate one complete action chain for an actor using temporary buffers.
-        Returns (success, poi_description) tuple.
+        Returns (success, poi_description, failure_reason) tuple.
+
+        Failure reasons:
+        - "NO_POIS": No POIs available in region
+        - "ALL_POIS_USED": All POIs already used by this actor
+        - "NO_ACTIONS": Selected POI has no actions
+        - "POI_CAPACITY_FULL": Object not available (capacity constraint)
+        - "WRONG_OBJECT_TYPE": GetOn/GetOff with Bar object
+        - "RECEIVER_CHAIN_FAILED": Give/Receive flow failed
+        - "ACTION_NOT_FOUND": Next action not found in POI
+        - "SUCCESS": Chain generated successfully
         """
         if not pois:
-            return False, None
+            return False, None, "NO_POIS"
 
         # Filter out already-used POIs and POIs with spawnable-only actions
         available_pois = [poi for poi in pois
@@ -1465,20 +1821,30 @@ class SimpleGESTRandomGenerator:
                           and not self._has_spawnable_only_actions(poi)]
 
         if not available_pois:
-            return False, None
+            return False, None, "ALL_POIS_USED"
 
         # Select random POI from available ones
         poi = random.choice(available_pois)
         region = poi.region
 
         # CASE 1: Interactions-only POI with 2+ actors
+        # CRITICAL: Both actors must have started their chains already.
+        # If one actor's first action is a synchronized interaction (Hug/Kiss/Talk/Laugh),
+        # it creates synchronization issues in MTA because the interaction depends on
+        # both actors being ready simultaneously via starts_with.
         if poi.interactions_only and len(all_actors) >= 2:
-            partners = [a for a in all_actors if a.id != actor.id]
-            if partners:
+            # Only consider partners who have already started their chain
+            partners = [a for a in all_actors
+                        if a.id != actor.id
+                        and a.last_event_id != a.id]  # Partner must have started their chain
+            # Also check if current actor has started their chain
+            if partners and actor.last_event_id != actor.id:
                 partner = random.choice(partners)
                 interaction_type = random.choice(["Hug", "Kiss", "Talk", "Laugh"])
                 self._create_interaction(actor, partner, interaction_type, region, poi)
-            return True, poi.description
+                return True, poi.description, "SUCCESS"
+            # If we can't create an interaction (actors not ready), fall through to other POI types
+            # Don't return failure - let the chain generation try other options
 
         # CASE 2: Spawnable chain option (30% chance, works anywhere)
         # Limit: Max 1 spawnable chain per actor to prevent clustering
@@ -1516,12 +1882,12 @@ class SimpleGESTRandomGenerator:
                 )
                 # Increment actor's spawnable chain count (limit enforcement)
                 self.actor_spawnable_chain_count[actor.id] = actor_spawnable_count + 1
-                return True, f"{spawnable_type}_chain"
+                return True, f"{spawnable_type}_chain", "SUCCESS"
             # If failed, fall through to regular chain
 
         # CASE 3: Action chain POI
         if not poi.actions:
-            return False, None
+            return False, None, "NO_ACTIONS"
 
         # Initialize temporary buffers
         temp_events = {}
@@ -1570,14 +1936,14 @@ class SimpleGESTRandomGenerator:
                     obj_id, actor.id, temp_actor_state, temp_occupied
                 ):
                     # Cannot continue without object - FAILURE, discard temp buffers
-                    return False, None
+                    return False, None, "POI_CAPACITY_FULL"
 
                 # Defensive validation: ensure GetOn/GetOff don't use Bar objects
                 if action_type in ["GetOn", "GetOff"]:
                     obj_name_check = temp_objects.get((poi.description, poi.region, obj_type), ("", ""))[1]
                     if "Bar" in obj_name_check:
                         # Wrong object type - skip this POI
-                        return False, None
+                        return False, None, "WRONG_OBJECT_TYPE"
 
                 entities.append(obj_id)
 
@@ -1598,7 +1964,7 @@ class SimpleGESTRandomGenerator:
 
                     if receiver:
                         # Generate complete action chain for receiver (must end with PutDown)
-                        success = self._generate_receiver_chain(
+                        success, giver_last_event_id = self._generate_receiver_chain(
                             receiver, obj_id, obj_type, region, all_actors,
                             actor, poi, receive_event_id,
                             temp_events, temp_temporal, temp_objects, temp_occupied
@@ -1606,7 +1972,12 @@ class SimpleGESTRandomGenerator:
 
                         if not success:
                             # Receiver chain failed - FAILURE, discard temp buffers
-                            return False, None
+                            return False, None, "RECEIVER_CHAIN_FAILED"
+
+                        # If SitDownTogether happened, update giver's temp state
+                        if giver_last_event_id:
+                            temp_actor_state['last_event_id'] = giver_last_event_id
+                            temp_actor_state['state'] = ActorState.STANDING
                     else:
                         # No valid receiver, fallback to normal Give event
                         event_id = self._create_temp_event(
@@ -1666,7 +2037,7 @@ class SimpleGESTRandomGenerator:
 
             if not current_action:
                 # Action not found in POI - FAILURE, discard temp buffers
-                return False, None
+                return False, None, "ACTION_NOT_FOUND"
 
         # SUCCESS - commit temp buffers to main structures
         self._commit_temp_chain(
@@ -1674,76 +2045,134 @@ class SimpleGESTRandomGenerator:
             temp_actor_state, actor, original_last_event_id
         )
 
-        return True, poi.description
+        return True, poi.description, "SUCCESS"
 
-    def _chain_region_visits(self, region_visits: List[Tuple[str, List[str]]]) -> None:
+    def _add_poi_temporal_ordering(self, region_name: str) -> None:
         """
-        Create CROSS-ACTOR temporal relations between regions.
+        Add temporal ordering constraints for actors sharing limited POIs.
 
-        Rules:
-        - before/after relations are CROSS-ACTOR ONLY (same-actor uses 'next' field)
-        - Actor B's first action in region2 is AFTER Actor A's last action in region1
-        - For actors who moved, their Move event is their "last action in region1"
+        When multiple actors need the same POI type but there's only limited
+        capacity, we add BEFORE/AFTER relations so they take turns:
+        - Actor1's StandUp/GetOff BEFORE Actor2's SitDown/GetOn
 
-        Args:
-            region_visits: List of (region_name, last_event_ids) tuples in visit order
+        This prevents runtime deadlocks where actors wait for each other.
         """
-        if len(region_visits) < 2:
+        if not self.poi_capacity_tracker:
             return
 
-        for i in range(len(region_visits) - 1):
-            curr_region_name, curr_last_events = region_visits[i]
-            next_region_name, _ = region_visits[i + 1]
-
-            if not curr_last_events:
+        # Get all object types that need ordering in this region
+        for obj_type in POICapacityTracker.EXCLUSIVE_POI_TYPES:
+            if not self.poi_capacity_tracker.needs_temporal_ordering(region_name, obj_type):
                 continue
 
-            # Build map: actor_id -> their last event in current region
-            curr_actor_last_events = {}
-            for event_id in curr_last_events:
-                # Extract actor_id from event_id (e.g., "a0_5" -> "a0")
-                actor_id = event_id.split('_')[0]
-                curr_actor_last_events[actor_id] = event_id
+            users = self.poi_capacity_tracker.get_seat_users(region_name, obj_type)
+            capacity = self.poi_capacity_tracker.get_capacity(region_name, obj_type)
 
-            # For actors who moved, update to their Move event as "last in region"
-            for actor_id in list(curr_actor_last_events.keys()):
-                # Find their Move event going to next_region (if exists)
-                for event_id, event in self.events.items():
-                    if (event_id.startswith(actor_id + '_') and
-                        event.get("Action") == "Move"):
-                        loc = event.get("Location", [])
-                        if len(loc) >= 2 and loc[1] == next_region_name:
-                            curr_actor_last_events[actor_id] = event_id
-                            break
+            if len(users) <= capacity:
+                continue
 
-            # Get first non-Exists, non-Move events of actors in next region
-            # Note: Move events are the LAST action in source region, NOT first in destination
-            next_actor_first_events = {}
-            for actor in self.actors.values():
-                for event_id, event in self.events.items():
-                    if not event_id.startswith(actor.id):
-                        continue
-                    if event.get("Action") == "Exists":
-                        continue
-                    if event.get("Action") == "Move":
-                        continue  # Move is last in source region, not first in destination
-                    event_location = event.get("Location", [])
-                    if event_location and next_region_name in event_location[0]:
-                        next_actor_first_events[actor.id] = event_id
-                        break
+            print(f"    [POI ORDERING] {obj_type} in {region_name}: {len(users)} users, {capacity} capacity")
 
-            # Create CROSS-ACTOR relations only (skip same-actor pairs)
-            cross_actor_count = 0
-            for last_actor_id, last_event in curr_actor_last_events.items():
-                for first_actor_id, first_event in next_actor_first_events.items():
-                    # Skip same-actor pairs!
-                    if last_actor_id == first_actor_id:
-                        continue
-                    self._add_before_relation(last_event, first_event)
-                    cross_actor_count += 1
+            # Sort users by their sitdown event ID (roughly chronological)
+            users_sorted = sorted(users, key=lambda u: u[1])  # u[1] is sitdown_event_id
 
-            if cross_actor_count > 0:
-                print(f"  Created {cross_actor_count} cross-actor relations from {curr_region_name} to {next_region_name}")
+            # Add temporal constraints: earlier users must StandUp before later users SitDown
+            for i in range(len(users_sorted)):
+                actor_i, sitdown_i, standup_i = users_sorted[i]
+
+                # For each later user, if we have a standup event, require they wait
+                if standup_i:
+                    for j in range(i + 1, len(users_sorted)):
+                        actor_j, sitdown_j, standup_j = users_sorted[j]
+
+                        # Skip if same actor (shouldn't happen, but safety check)
+                        if actor_i == actor_j:
+                            continue
+
+                        # Actor i must StandUp BEFORE actor j can SitDown
+                        self._add_before_relation(standup_i, sitdown_j)
+                        print(f"      {actor_i} StandUp ({standup_i}) BEFORE {actor_j} SitDown ({sitdown_j})")
+
+    def _add_round_ordering(self, round_first_events: Dict[int, Dict[str, str]],
+                            round_last_events: Dict[int, Dict[str, str]]) -> None:
+        """
+        Add BEFORE relations between consecutive rounds (cross-actor only).
+
+        This ensures clean execution order:
+        - All actors complete round N before any actor starts round N+1
+        - Same-actor ordering is already handled via 'next' field
+
+        Args:
+            round_first_events: {round_num: {actor_id: first_event_id}}
+            round_last_events: {round_num: {actor_id: last_event_id}}
+        """
+        rounds = sorted(round_first_events.keys())
+
+        if len(rounds) < 2:
+            return
+
+        total_relations = 0
+
+        for i in range(len(rounds) - 1):
+            current_round = rounds[i]
+            next_round = rounds[i + 1]
+
+            current_last = round_last_events.get(current_round, {})
+            next_first = round_first_events.get(next_round, {})
+
+            round_relations = 0
+
+            # All last events of current round BEFORE all first events of next round
+            for actor_a, last_event in current_last.items():
+                for actor_b, first_event in next_first.items():
+                    if actor_a != actor_b:  # Cross-actor only!
+                        self._add_before_relation(last_event, first_event)
+                        round_relations += 1
+
+            if round_relations > 0:
+                print(f"    [ROUND ORDER] Round {current_round + 1} -> Round {next_round + 1}: {round_relations} relations")
+                total_relations += round_relations
+
+        if total_relations > 0:
+            print(f"    [ROUND ORDER] Total: {total_relations} cross-actor relations")
+
+    def _chain_region_visits(self, region_data: List[Tuple[str, List[str], List[str]]]) -> None:
+        """
+        Create CROSS-ACTOR temporal relations between regions for strict sequential execution.
+
+        Ensures ALL actors in region N complete ALL their actions before ANY actor in region N+1
+        starts ANY action. This is achieved by linking:
+        - All final events in region N BEFORE all first events in region N+1
+
+        Args:
+            region_data: List of (region_name, last_event_ids, first_event_ids) tuples
+        """
+        if len(region_data) < 2:
+            return
+
+        total_relations = 0
+        for i in range(len(region_data) - 1):
+            curr_region_name, curr_last_events, _ = region_data[i]
+            next_region_name, _, next_first_events = region_data[i + 1]
+
+            if not curr_last_events or not next_first_events:
+                continue
+
+            # Create BEFORE relations: ALL last events in current region BEFORE ALL first events in next region
+            # (cross-actor only - same actor already has 'next' chain)
+            count = 0
+            for last_event in curr_last_events:
+                last_actor = last_event.split('_')[0]
+                for first_event in next_first_events:
+                    first_actor = first_event.split('_')[0]
+                    if last_actor != first_actor:  # Cross-actor only!
+                        self._add_before_relation(last_event, first_event)
+                        count += 1
+
+            total_relations += count
+            print(f"    [REGION CHAIN] {count} relations: {curr_region_name} -> {next_region_name}")
+
+        print(f"    [REGION CHAIN] Total: {total_relations} cross-region temporal relations")
 
     def _chain_locations(self, location_order: List[str]) -> None:
         """Add before/after relations to chain locations sequentially"""
@@ -1778,12 +2207,16 @@ class SimpleGESTRandomGenerator:
                     if last_event != first_event:
                         self._add_before_relation(last_event, first_event)
 
-    def generate(self, chains_per_actor: int = 3) -> Dict[str, Any]:
+    def generate(self, chains_per_actor: int = 3,
+                 max_actors_per_region: Optional[int] = None,
+                 max_regions: Optional[int] = None) -> Dict[str, Any]:
         """
         Generate random GEST with X action chains per actor in separate locations.
 
         Args:
             chains_per_actor: Number of action chains to generate per actor
+            max_actors_per_region: Maximum number of actors per region (None = unlimited)
+            max_regions: Maximum number of regions to visit (None = unlimited)
 
         Returns:
             Complete GEST structure
@@ -1792,18 +2225,31 @@ class SimpleGESTRandomGenerator:
         print("Generating Simple Random GEST")
         print("=" * 60)
 
-        generated = self._generate(chains_per_actor)
+        generated = self._generate(chains_per_actor, max_actors_per_region, max_regions)
         while len(self.actors) == 0 and len(self.events) == 0:
             print("No actors or events generated, retrying...")
-            generated = self._generate(chains_per_actor)
+            generated = self._generate(chains_per_actor, max_actors_per_region, max_regions)
 
         return generated
 
-    def _generate(self, chains_per_actor: int) -> Dict[str, Any]:
+    def _generate(self, chains_per_actor: int,
+                  max_actors_per_region: Optional[int] = None,
+                  max_regions: Optional[int] = None) -> Dict[str, Any]:
         """Internal generate method with actor movement between regions"""
         # 1. Select random episode group
         episode_group = self._select_random_episode_group()
         print(f"Final episode group: {episode_group}")
+
+        # 1b. Initialize POI capacity tracker for selected episodes
+        self.poi_capacity_tracker = POICapacityTracker()
+        for ep_name in episode_group:
+            # Find episode data from capabilities
+            for ep_data in self.capabilities.get("episodes", []):
+                if ep_data.get("name") == ep_name:
+                    self.poi_capacity_tracker.init_from_episode(ep_data)
+                    self.current_episode_name = ep_name
+                    break
+        print(f"POI capacity tracker initialized for episodes: {episode_group}")
 
         # 2. Get regions with actions
         regions = self._get_regions_with_actions(episode_group)
@@ -1815,20 +2261,27 @@ class SimpleGESTRandomGenerator:
 
         # 3. Build region sequence (may include revisits)
         region_sequence = self._build_region_sequence(regions)
+
+        # Apply max_regions limit if specified
+        if max_regions is not None and len(region_sequence) > max_regions:
+            region_sequence = region_sequence[:max_regions]
+            print(f"Limited to {max_regions} regions")
+
         print(f"Region sequence: {[r[1] for r in region_sequence]}")
 
         # Track which base regions we've visited (for new actor creation)
         visited_base_regions = set()
 
-        # Track last events of each region visit BEFORE actors move
-        # This is needed for cross-region temporal linking since _chain_locations
-        # can't work correctly with Move events (actor locations change)
-        region_visit_last_events: List[Tuple[str, List[str]]] = []  # [(region_name, [last_event_ids])]
+        # Track first and last events of each region visit for cross-region temporal linking
+        # Format: (region_name, last_event_ids, first_event_ids)
+        region_visit_data: List[Tuple[str, List[str], List[str]]] = []
 
         # 4. Create initial actors in first region (2-4 actors)
         first_region = region_sequence[0]
         first_region_name = first_region[1]
         initial_count = random.randint(2, 4)
+        if max_actors_per_region is not None:
+            initial_count = min(initial_count, max_actors_per_region)
         active_actors = self._create_actors_for_region(first_region_name, initial_count)
         visited_base_regions.add(first_region_name)
 
@@ -1849,40 +2302,97 @@ class SimpleGESTRandomGenerator:
             region_actors = [a for a in active_actors if a.current_location == region_name]
             print(f"  Actors in region: {[a.id for a in region_actors]}")
 
+            # Track first and last events per actor per round (for round-based ordering)
+            # Initialize outside conditional so they're available for region tracking
+            round_first_events: Dict[int, Dict[str, str]] = {}  # {round: {actor_id: first_event_id}}
+            round_last_events: Dict[int, Dict[str, str]] = {}   # {round: {actor_id: last_event_id}}
+
             if not pois:
                 print(f"  WARNING: No POIs found for {region_name}")
             elif region_actors:
-                # Generate chains for all actors in this region
-                for actor in region_actors:
-                    used_pois = set()  # Track POIs used by this actor in this region visit
-                    successful_chains = 0
-                    max_attempts = chains_per_actor * 5  # Allow retries
-                    attempts = 0
 
-                    print(f"  Generating {chains_per_actor} chains for {actor.id}")
+                # Track used POIs per actor (persists across rounds)
+                actor_used_pois: Dict[str, Set[str]] = {actor.id: set() for actor in region_actors}
 
-                    while successful_chains < chains_per_actor and attempts < max_attempts:
-                        attempts += 1
-                        success, poi_desc = self._generate_single_chain(
-                            actor, pois, region_actors, used_pois
-                        )
+                # Generate chains ROUND-BY-ROUND (all actors do round 0, then round 1, etc.)
+                for round_num in range(chains_per_actor):
+                    round_first_events[round_num] = {}
+                    round_last_events[round_num] = {}
 
-                        if success and poi_desc:
-                            used_pois.add(poi_desc)
-                            successful_chains += 1
-                            print(f"    Chain {successful_chains}/{chains_per_actor} completed (attempt {attempts})")
-                        # else: Retry with different POI
+                    for actor in region_actors:
+                        # Track event before chain generation
+                        pre_chain_event = actor.last_event_id
 
-                    if successful_chains < chains_per_actor:
-                        print(f"  WARNING: Only generated {successful_chains}/{chains_per_actor} chains for {actor.id}")
+                        # Try to generate one chain for this actor in this round
+                        success = False
+                        max_attempts = 10
+                        failure_reasons: List[str] = []
 
-            # Record last events of all actors in this region BEFORE any moves
-            # This is needed for cross-region temporal linking
+                        for attempt in range(max_attempts):
+                            result_success, poi_desc, reason = self._generate_single_chain(
+                                actor, pois, region_actors, actor_used_pois[actor.id]
+                            )
+
+                            if result_success and poi_desc:
+                                actor_used_pois[actor.id].add(poi_desc)
+                                success = True
+                                print(f"    {actor.id} round {round_num + 1}/{chains_per_actor} completed (attempt {attempt + 1})")
+                                break
+                            else:
+                                failure_reasons.append(reason)
+
+                        # FALLBACK 1: Try spawnable chain
+                        if not success:
+                            spawnable_type = random.choice(['MobilePhone', 'Cigarette'])
+                            if self._generate_spawnable_chain_fallback(actor, region_name, spawnable_type):
+                                success = True
+                                print(f"    {actor.id} round {round_num + 1}/{chains_per_actor} (spawnable fallback)")
+
+                        # FALLBACK 2: Create Idle chain
+                        if not success:
+                            self._create_idle_chain(actor, region_name)
+                            success = True
+                            print(f"    {actor.id} round {round_num + 1}/{chains_per_actor} (idle fallback)")
+
+                        if failure_reasons:
+                            reason_counts = Counter(failure_reasons)
+                            print(f"      Failure reasons: {dict(reason_counts)}")
+
+                        # Track first/last events for this round
+                        # First event is whatever comes after pre_chain_event
+                        if pre_chain_event and pre_chain_event in self.temporal:
+                            chain_first = self.temporal[pre_chain_event].get("next")
+                            if chain_first:
+                                round_first_events[round_num][actor.id] = chain_first
+                        elif round_num == 0:
+                            # For round 0, first event is from self.first_actions (populated during chain gen)
+                            if actor.id in self.first_actions:
+                                round_first_events[round_num][actor.id] = self.first_actions[actor.id]
+
+                        # Last event is current last_event_id
+                        if actor.last_event_id:
+                            round_last_events[round_num][actor.id] = actor.last_event_id
+                            # Debug output
+                            first_ev = round_first_events.get(round_num, {}).get(actor.id, 'N/A')
+                            print(f"      [DEBUG] {actor.id} round {round_num}: first={first_ev}, last={actor.last_event_id}")
+
+                # Add round-based ordering (cross-actor only)
+                # TEMPORARILY DISABLED for debugging - see if MTA can run without these
+                # self._add_round_ordering(round_first_events, round_last_events)
+
+            # Record first and last events of all actors in this region
+            # First events: round 0 first events (first action each actor does in this region)
+            # Last events: final events before Move or end of region
+            first_events_this_region = []
             last_events_this_region = []
             for actor in region_actors:
+                # Get first event from round 0
+                if round_first_events.get(0, {}).get(actor.id):
+                    first_events_this_region.append(round_first_events[0][actor.id])
+                # Get last event (final event before any Move)
                 if actor.last_event_id:
                     last_events_this_region.append(actor.last_event_id)
-            region_visit_last_events.append((region_name, last_events_this_region))
+            region_visit_data.append((region_name, last_events_this_region, first_events_this_region))
 
             # 6. If not last region, move some actors and maybe create new ones
             if region_idx < len(region_sequence) - 1:
@@ -1894,9 +2404,65 @@ class SimpleGESTRandomGenerator:
                     movers = self._move_actors_between_regions(region_actors, next_region_name)
                     print(f"  Moved {len(movers)} actors to {next_region_name}: {[a.id for a in movers]}")
 
+                    # CRITICAL FIX (Issue 10): Update region_visit_data to use Move events for movers
+                    # The region_visit_data was recorded BEFORE Move events were created,
+                    # so it has pre-Move last events (like StandUp). We need to update it
+                    # to use Move events for movers, so target region actors wait until
+                    # all movers have ARRIVED, not just finished their pre-Move actions.
+                    if movers and region_visit_data:
+                        region_name_recorded, old_last_events, first_events = region_visit_data[-1]
+                        mover_ids = {m.id for m in movers}
+
+                        updated_last_events = []
+                        for actor in region_actors:
+                            if actor.id in mover_ids:
+                                # Mover: use their Move event (now actor.last_event_id)
+                                updated_last_events.append(actor.last_event_id)
+                            else:
+                                # Non-mover: keep their original last event
+                                for ev in old_last_events:
+                                    if ev.startswith(actor.id + '_'):
+                                        updated_last_events.append(ev)
+                                        break
+
+                        region_visit_data[-1] = (region_name_recorded, updated_last_events, first_events)
+                        print(f"    [REGION CHAIN FIX] Updated last events to use Move for movers: {[e for e in updated_last_events if 'Move' in str(self.events.get(e, {}).get('Action', ''))]}")
+
+                        # ADDITIONAL FIX (Issue 11): Non-movers must finish BEFORE movers start Move
+                        # This ensures ALL actors in a region complete their actions before
+                        # ANY actor starts moving to the next region.
+                        # Without this, non-movers can still execute actions while movers are traveling.
+                        non_mover_last_events = []
+                        mover_move_events = []
+
+                        for actor in region_actors:
+                            if actor.id in mover_ids:
+                                # Mover's Move event (currently their last_event_id)
+                                mover_move_events.append(actor.last_event_id)
+                            else:
+                                # Non-mover's last event (from old_last_events)
+                                for ev in old_last_events:
+                                    if ev.startswith(actor.id + '_'):
+                                        non_mover_last_events.append(ev)
+                                        break
+
+                        # Add BEFORE relations: all non-movers' last events BEFORE all movers' Move events
+                        added_count = 0
+                        for non_mover_event in non_mover_last_events:
+                            for move_event in mover_move_events:
+                                self._add_before_relation(non_mover_event, move_event)
+                                added_count += 1
+
+                        if added_count > 0:
+                            print(f"    [ISSUE 11 FIX] Added {added_count} non-mover BEFORE mover relations")
+
                 # Only create new actors if entering a NEW base region (not a revisit)
                 if next_region_name not in visited_base_regions:
                     new_count = random.randint(0, 2)
+                    # Apply max_actors_per_region limit
+                    if max_actors_per_region is not None:
+                        current_region_actors = len([a for a in active_actors if a.current_location == next_region_name])
+                        new_count = min(new_count, max(0, max_actors_per_region - current_region_actors))
                     if new_count > 0:
                         new_actors = self._create_actors_for_region(next_region_name, new_count)
                         for actor in new_actors:
@@ -1906,9 +2472,9 @@ class SimpleGESTRandomGenerator:
                         print(f"  Created {len(new_actors)} new actors in {next_region_name}: {[a.id for a in new_actors]}")
                     visited_base_regions.add(next_region_name)
 
-        # 7. Chain regions temporally using tracked last events
-        # This ensures actors in region N complete before region N+1 starts
-        self._chain_region_visits(region_visit_last_events)
+        # 7. Chain regions temporally for strict sequential execution
+        # This ensures ALL actors in region N complete ALL actions before ANY actor in region N+1 starts
+        self._chain_region_visits(region_visit_data)
 
         # 8. Build and return GEST
         gest = self._build_gest()
@@ -1975,6 +2541,18 @@ def main():
         type=int,
         help="Random seed for reproducibility"
     )
+    parser.add_argument(
+        "--max-actors-per-region",
+        type=int,
+        default=None,
+        help="Maximum number of actors per region (default: unlimited, typically 2-4)"
+    )
+    parser.add_argument(
+        "--max-regions",
+        type=int,
+        default=None,
+        help="Maximum number of regions to visit (default: unlimited, typically 1-4)"
+    )
 
     args = parser.parse_args()
 
@@ -1987,7 +2565,11 @@ def main():
     generator = SimpleGESTRandomGenerator(args.capabilities)
 
     # Generate GEST
-    gest = generator.generate(chains_per_actor=args.chains_per_actor)
+    gest = generator.generate(
+        chains_per_actor=args.chains_per_actor,
+        max_actors_per_region=args.max_actors_per_region,
+        max_regions=args.max_regions
+    )
 
     # Save to file
     output_path = Path(args.output)
