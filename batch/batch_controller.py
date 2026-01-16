@@ -106,7 +106,15 @@ class BatchController:
         )
 
         # Create output directory
-        batch_output_dir.mkdir(parents=True, exist_ok=True)
+        # Handle VMware shared folders which may fail with FileExistsError on Windows
+        try:
+            batch_output_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            # This can happen with VMware shared folders on Windows
+            # Verify the directory actually exists and is accessible
+            if not batch_output_dir.exists():
+                raise
+            logger.debug("batch_output_dir_exists", path=str(batch_output_dir))
 
         # Initialize story statuses
         for i in range(self.batch_config.num_stories):
@@ -130,6 +138,42 @@ class BatchController:
             num_stories=self.batch_config.num_stories,
             output_dir=str(batch_output_dir)
         )
+
+        # Initialize Google Drive uploader (if enabled)
+        gdrive_uploader = None
+        if self.batch_config.upload_to_drive and self.batch_config.drive_folder_id:
+            try:
+                from batch.google_drive_uploader import GoogleDriveUploader
+
+                logger.info("initializing_google_drive_uploader")
+                gdrive_uploader = GoogleDriveUploader(
+                    self.config.google_drive.credentials_path
+                )
+
+                # Create batch folder on Google Drive
+                batch_drive_folder_id = gdrive_uploader.create_folder(
+                    name=batch_id,
+                    parent_folder_id=self.batch_config.drive_folder_id
+                )
+
+                # Store in batch state
+                self.batch_state.drive_folder_id = batch_drive_folder_id
+
+                logger.info(
+                    "batch_folder_created_on_drive",
+                    folder_id=batch_drive_folder_id
+                )
+
+                self._save_state()
+
+            except Exception as e:
+                logger.error(
+                    "gdrive_initialization_failed",
+                    error=str(e),
+                    exc_info=True
+                )
+                # Continue batch even if Drive fails
+                gdrive_uploader = None
 
         # Process each story sequentially
         for i, story_status in enumerate(self.batch_state.stories):
@@ -184,6 +228,43 @@ class BatchController:
                 story_status.completed_at = datetime.now().isoformat()
                 self._save_state()
 
+                # Upload ONLY successful stories to Google Drive
+                if gdrive_uploader and self.batch_state.drive_folder_id and story_status.status == 'success':
+                    try:
+                        logger.info(
+                            "uploading_story_to_drive",
+                            story_id=story_status.story_id
+                        )
+
+                        upload_result = gdrive_uploader.upload_directory(
+                            local_dir=Path(story_status.output_dir),
+                            drive_folder_id=self.batch_state.drive_folder_id
+                        )
+
+                        # Store upload info in story status
+                        story_status.gdrive_folder_id = upload_result.get('folder_id')
+                        story_status.gdrive_link = upload_result.get('link')
+                        story_status.upload_timestamp = datetime.now().isoformat()
+
+                        self._save_state()
+
+                        logger.info(
+                            "story_uploaded_to_drive",
+                            story_id=story_status.story_id,
+                            files=upload_result.get('files_uploaded'),
+                            bytes=upload_result.get('total_bytes'),
+                            link=upload_result.get('link')
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            "story_upload_failed",
+                            story_id=story_status.story_id,
+                            error=str(e),
+                            exc_info=True
+                        )
+                        # Continue batch even if upload fails
+
                 logger.info(
                     "story_processing_completed",
                     story_number=story_status.story_number,
@@ -204,6 +285,13 @@ class BatchController:
                 story_status.completed_at = datetime.now().isoformat()
                 self.batch_state.failure_count += 1
                 self._save_state()
+
+                # Note: Failed stories are NOT uploaded to Google Drive
+                logger.info(
+                    "failed_story_skipped_upload",
+                    story_id=story_status.story_id,
+                    reason="Failed stories are not uploaded"
+                )
 
         # Finalize batch
         self.batch_state.completed_at = datetime.now().isoformat()
@@ -266,7 +354,11 @@ class BatchController:
             True if generation succeeds
         """
         story_dir = Path(story_status.output_dir)
-        story_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            story_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            if not story_dir.exists():
+                raise
 
         # Get capabilities file path from config
         capabilities_path = Path(self.config.paths.simulation_environment_capabilities)
@@ -319,7 +411,11 @@ class BatchController:
             # Create nested directory structure matching LLM format
             # This ensures compatibility with simulation code
             take_dir = story_dir / "detail" / "take1"
-            take_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                take_dir.mkdir(parents=True, exist_ok=True)
+            except FileExistsError:
+                if not take_dir.exists():
+                    raise
 
             # Save to file with LLM-compatible naming
             take_file = take_dir / "detail_gest.json"
@@ -363,7 +459,11 @@ class BatchController:
             True if at least one variation succeeds
         """
         story_dir = Path(story_status.output_dir)
-        story_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            story_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            if not story_dir.exists():
+                raise
 
         # Load capabilities once
         concept_capabilities, full_indexed_capabilities, all_capabilities = _load_capabilities(
@@ -1740,7 +1840,15 @@ class BatchController:
         )
 
         # Create output directory
-        batch_output_dir.mkdir(parents=True, exist_ok=True)
+        # Handle VMware shared folders which may fail with FileExistsError on Windows
+        try:
+            batch_output_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            # This can happen with VMware shared folders on Windows
+            # Verify the directory actually exists and is accessible
+            if not batch_output_dir.exists():
+                raise
+            logger.debug("batch_output_dir_exists", path=str(batch_output_dir))
 
         logger.info(
             "batch_simulating_existing_stories",
@@ -1757,7 +1865,11 @@ class BatchController:
 
             # Create output directory for this story
             story_output_dir = batch_output_dir / f"story_{story_id}"
-            story_output_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                story_output_dir.mkdir(parents=True, exist_ok=True)
+            except FileExistsError:
+                if not story_output_dir.exists():
+                    raise
 
             # Create StoryStatus
             story_status = StoryStatus(
@@ -1806,7 +1918,11 @@ class BatchController:
 
                     # Create take directory in batch output
                     take_dir = story_output_dir / "detail" / f"take{take_idx}"
-                    take_dir.mkdir(parents=True, exist_ok=True)
+                    try:
+                        take_dir.mkdir(parents=True, exist_ok=True)
+                    except FileExistsError:
+                        if not take_dir.exists():
+                            raise
 
                     # Copy GEST to batch output for reference
                     import shutil
@@ -1972,7 +2088,11 @@ class BatchController:
 
             # Save casting outputs
             casting_dir = story_output_dir / "casting"
-            casting_dir.mkdir(exist_ok=True)
+            try:
+                casting_dir.mkdir(exist_ok=True)
+            except FileExistsError:
+                if not casting_dir.exists():
+                    raise
             (casting_dir / "casting_gest.json").write_text(
                 json.dumps(casting_gest.model_dump(), indent=2),
                 encoding='utf-8'
@@ -2146,7 +2266,15 @@ class BatchController:
         )
 
         # Create output directory
-        batch_output_dir.mkdir(parents=True, exist_ok=True)
+        # Handle VMware shared folders which may fail with FileExistsError on Windows
+        try:
+            batch_output_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            # This can happen with VMware shared folders on Windows
+            # Verify the directory actually exists and is accessible
+            if not batch_output_dir.exists():
+                raise
+            logger.debug("batch_output_dir_exists", path=str(batch_output_dir))
 
         # Determine number of workers
         max_workers = self.batch_config.parallel_workers
@@ -2177,7 +2305,11 @@ class BatchController:
             story_number = story_idx + 1
             story_id = Path(text_file_path).stem
             story_output_dir = batch_output_dir / f"story_{story_number:05d}_{story_id}"
-            story_output_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                story_output_dir.mkdir(parents=True, exist_ok=True)
+            except FileExistsError:
+                if not story_output_dir.exists():
+                    raise
 
             story_tasks.append({
                 'story_number': story_number,
@@ -2307,7 +2439,15 @@ class BatchController:
         )
 
         # Create output directory
-        batch_output_dir.mkdir(parents=True, exist_ok=True)
+        # Handle VMware shared folders which may fail with FileExistsError on Windows
+        try:
+            batch_output_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            # This can happen with VMware shared folders on Windows
+            # Verify the directory actually exists and is accessible
+            if not batch_output_dir.exists():
+                raise
+            logger.debug("batch_output_dir_exists", path=str(batch_output_dir))
 
         logger.info(
             "batch_text_files_started",
@@ -2329,7 +2469,11 @@ class BatchController:
 
             # Create output directory for this story
             story_output_dir = batch_output_dir / f"story_{story_number:05d}_{story_id}"
-            story_output_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                story_output_dir.mkdir(parents=True, exist_ok=True)
+            except FileExistsError:
+                if not story_output_dir.exists():
+                    raise
 
             # Create StoryStatus
             story_status = StoryStatus(

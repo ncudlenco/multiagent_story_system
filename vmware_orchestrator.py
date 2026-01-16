@@ -85,7 +85,7 @@ class VMWareOrchestrator:
 
         if not os.path.exists(master_vm_path):
             logger.error("master_vm_not_found", path=master_vm_path)
-            print(f"✗ Master VM not found: {master_vm_path}")
+            print(f"[X] Master VM not found: {master_vm_path}")
             print(f"  Please update vmware_config.yaml with correct path")
             return False
 
@@ -102,13 +102,13 @@ class VMWareOrchestrator:
                 logger.error("snapshot_not_found",
                            snapshot=snapshot_name,
                            vm_path=master_vm_path)
-                print(f"✗ Snapshot '{snapshot_name}' not found in master VM")
+                print(f"[X] Snapshot '{snapshot_name}' not found in master VM")
                 print(f"  Create with: vmrun snapshot \"{master_vm_path}\" {snapshot_name}")
                 return False
 
         except subprocess.CalledProcessError as e:
             logger.error("failed_to_list_snapshots", error=e.stderr)
-            print(f"✗ Failed to check VM snapshots: {e.stderr}")
+            print(f"[X] Failed to check VM snapshots: {e.stderr}")
             return False
 
         logger.info("master_vm_verified",
@@ -137,7 +137,7 @@ class VMWareOrchestrator:
         """Setup Google Drive subfolders for workers"""
         if not GOOGLE_DRIVE_AVAILABLE:
             logger.error("google_drive_not_available")
-            print("✗ Google Drive dependencies not installed")
+            print("[X] Google Drive dependencies not installed")
             print("  Install with: pip install google-auth google-api-python-client google-auth-oauthlib")
             return False
 
@@ -151,10 +151,10 @@ class VMWareOrchestrator:
             print("Authenticating with Google Drive...")
             if not self.gdrive_manager.authenticate():
                 logger.error("gdrive_authentication_failed")
-                print("✗ Google Drive authentication failed")
+                print("[X] Google Drive authentication failed")
                 return False
 
-            print("✓ Google Drive authenticated")
+            print("[OK] Google Drive authenticated")
 
             # Create worker subfolders
             if self.config["google_drive"]["create_worker_subfolders"]:
@@ -168,10 +168,10 @@ class VMWareOrchestrator:
                     logger.error("failed_to_create_all_worker_folders",
                                created=len(self.worker_folder_ids),
                                requested=num_workers)
-                    print(f"✗ Only created {len(self.worker_folder_ids)}/{num_workers} worker folders")
+                    print(f"[X] Only created {len(self.worker_folder_ids)}/{num_workers} worker folders")
                     return False
 
-                print(f"✓ Created {num_workers} worker subfolders in Drive")
+                print(f"[OK] Created {num_workers} worker subfolders in Drive")
 
                 # Get folder links
                 worker_links = self.gdrive_manager.get_worker_folder_links(self.worker_folder_ids)
@@ -187,7 +187,7 @@ class VMWareOrchestrator:
 
         except Exception as e:
             logger.error("gdrive_setup_failed", error=str(e), exc_info=True)
-            print(f"✗ Google Drive setup failed: {e}")
+            print(f"[X] Google Drive setup failed: {e}")
             return False
 
     def clone_worker_vm(self, worker_id: int) -> Optional[str]:
@@ -232,7 +232,7 @@ class VMWareOrchestrator:
                 check=True
             )
 
-            print(" ✓")
+            print(" [OK]")
             logger.info("worker_vm_cloned",
                        worker_id=worker_id,
                        vmx_path=worker_vmx_path)
@@ -240,7 +240,7 @@ class VMWareOrchestrator:
             return worker_vmx_path
 
         except subprocess.CalledProcessError as e:
-            print(" ✗")
+            print(" [X]")
             logger.error("worker_clone_failed",
                         worker_id=worker_id,
                         error=e.stderr,
@@ -298,7 +298,8 @@ class VMWareOrchestrator:
                 config_content = f.read()
 
             # Substitute placeholders
-            shared_folder_path = "\\\\vmware-host\\Shared Folders\\output"
+            # Double escape for YAML: \\\\ in Python -> \\ in YAML string -> \ in parsed value
+            shared_folder_path = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output"
             config_content = config_content.replace("{OUTPUT_SHARED_FOLDER}", shared_folder_path)
             config_content = config_content.replace("{WORKER_ID}", f"worker{worker_id + 1}")
 
@@ -336,7 +337,7 @@ class VMWareOrchestrator:
                 check=True
             )
 
-            print(" ✓")
+            print(" [OK]")
 
             # Wait for VMware Tools to be ready
             print(f"  Waiting for VMware Tools...", end="", flush=True)
@@ -353,7 +354,7 @@ class VMWareOrchestrator:
                     )
 
                     if "running" in result.stdout.lower():
-                        print(" ✓")
+                        print(" [OK]")
                         logger.info("worker_tools_ready", worker_id=worker_id)
                         return True
 
@@ -362,12 +363,12 @@ class VMWareOrchestrator:
 
                 time.sleep(5)
 
-            print(" ✗ (timeout)")
+            print(" [X] (timeout)")
             logger.error("worker_tools_timeout", worker_id=worker_id)
             return False
 
         except subprocess.CalledProcessError as e:
-            print(" ✗")
+            print(" [X]")
             logger.error("worker_start_failed",
                         worker_id=worker_id,
                         error=e.stderr)
@@ -375,15 +376,17 @@ class VMWareOrchestrator:
 
     def copy_config_to_guest(self, worker_id: int, worker_vmx_path: str,
                             config_path: Path) -> bool:
-        """Copy worker config.yaml to guest VM"""
+        """Copy worker config.yaml and run_batch.bat to guest VM"""
         try:
             guest_username = self.config["vmware"]["guest_os"]["username"]
             guest_password = self.config["vmware"]["guest_os"]["password"]
             guest_work_dir = self.config["vmware"]["guest_os"]["work_dir"]
             guest_config_path = f"{guest_work_dir}\\config.yaml"
+            guest_batch_path = f"{guest_work_dir}\\run_batch.bat"
 
             print(f"  Copying config to Worker {worker_id + 1}...", end="", flush=True)
 
+            # Copy config.yaml
             subprocess.run(
                 [self.vmrun_exe, "-T", "ws",
                  "-gu", guest_username, "-gp", guest_password,
@@ -394,14 +397,28 @@ class VMWareOrchestrator:
                 check=True
             )
 
-            print(" ✓")
+            # Copy run_batch.bat
+            batch_file = Path("temp_configs/run_batch.bat")
+            if batch_file.exists():
+                subprocess.run(
+                    [self.vmrun_exe, "-T", "ws",
+                     "-gu", guest_username, "-gp", guest_password,
+                     "copyFileFromHostToGuest", worker_vmx_path,
+                     str(batch_file), guest_batch_path],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+
+            print(" [OK]")
             logger.info("config_copied_to_guest",
                        worker_id=worker_id,
-                       guest_path=guest_config_path)
+                       guest_config_path=guest_config_path,
+                       guest_batch_path=guest_batch_path)
             return True
 
         except subprocess.CalledProcessError as e:
-            print(" ✗")
+            print(" [X]")
             logger.error("config_copy_failed",
                         worker_id=worker_id,
                         error=e.stderr)
@@ -416,16 +433,13 @@ class VMWareOrchestrator:
             guest_work_dir = self.config["vmware"]["guest_os"]["work_dir"]
             python_exe = self.config["vmware"]["guest_os"]["python_exe"]
 
-            # Build batch_generate.py command
-            batch_script = f"{guest_work_dir}\\batch_generate.py"
+            # Build batch_generate.py command using runScriptInGuest
+            # runScriptInGuest is more reliable than runProgramInGuest for batch files on Windows
+            batch_script_path = f"{guest_work_dir}\\run_batch.bat"
             output_folder = "\\\\vmware-host\\Shared Folders\\output"
 
-            cmd_args = [
-                self.vmrun_exe, "-T", "ws",
-                "-gu", guest_username, "-gp", guest_password,
-                "runProgramInGuest", worker_vmx_path,
-                "-noWait",  # Don't block
-                python_exe, batch_script,
+            # Build Python command arguments
+            python_args = [
                 "--story-number", str(stories_per_vm),
                 "--output-folder", output_folder,
                 "--collect-simulation-artifacts"  # Always collect
@@ -433,55 +447,82 @@ class VMWareOrchestrator:
 
             # Add optional batch parameters
             if batch_params.get("num_actors"):
-                cmd_args.extend(["--num-actors", str(batch_params["num_actors"])])
+                python_args.extend(["--num-actors", str(batch_params["num_actors"])])
             if batch_params.get("num_extras"):
-                cmd_args.extend(["--num-extras", str(batch_params["num_extras"])])
+                python_args.extend(["--num-extras", str(batch_params["num_extras"])])
             if batch_params.get("num_actions"):
-                cmd_args.extend(["--num-actions", str(batch_params["num_actions"])])
+                python_args.extend(["--num-actions", str(batch_params["num_actions"])])
             if batch_params.get("scene_number"):
-                cmd_args.extend(["--scene-number", str(batch_params["scene_number"])])
+                python_args.extend(["--scene-number", str(batch_params["scene_number"])])
             if batch_params.get("same_story_generation_variations"):
-                cmd_args.extend(["--same-story-generation-variations",
+                python_args.extend(["--same-story-generation-variations",
                                str(batch_params["same_story_generation_variations"])])
             if batch_params.get("same_story_simulation_variations"):
-                cmd_args.extend(["--same-story-simulation-variations",
+                python_args.extend(["--same-story-simulation-variations",
                                str(batch_params["same_story_simulation_variations"])])
 
             # Simple random generator parameters
             if batch_params.get("generator_type"):
-                cmd_args.extend(["--generator-type", batch_params["generator_type"]])
+                python_args.extend(["--generator-type", batch_params["generator_type"]])
             if batch_params.get("random_chains_per_actor"):
-                cmd_args.extend(["--random-chains-per-actor",
+                python_args.extend(["--random-chains-per-actor",
                                str(batch_params["random_chains_per_actor"])])
             if batch_params.get("random_max_actors_per_region"):
-                cmd_args.extend(["--random-max-actors-per-region",
+                python_args.extend(["--random-max-actors-per-region",
                                str(batch_params["random_max_actors_per_region"])])
             if batch_params.get("random_max_regions"):
-                cmd_args.extend(["--random-max-regions",
+                python_args.extend(["--random-max-regions",
                                str(batch_params["random_max_regions"])])
 
             # Add Google Drive upload (if configured)
             if worker_id in self.worker_folder_ids:
-                cmd_args.extend(["--output-g-drive", self.worker_folder_ids[worker_id]])
+                python_args.extend(["--output-g-drive", self.worker_folder_ids[worker_id]])
 
                 if batch_params.get("keep_local"):
-                    cmd_args.append("--keep-local")
+                    python_args.append("--keep-local")
+
+            # Use runScriptInGuest with cmd.exe /c for reliable batch execution
+            # Empty quotes "" required for script interpreter when using cmd.exe on Windows
+            batch_cmd = f'cmd.exe /c "{batch_script_path} {" ".join(python_args)}"'
+
+            cmd_args = [
+                self.vmrun_exe, "-T", "ws",
+                "-gu", guest_username, "-gp", guest_password,
+                "runScriptInGuest", worker_vmx_path,
+                "",  # Empty script interpreter (required for cmd.exe)
+                batch_cmd
+            ]
 
             print(f"  Launching batch generation on Worker {worker_id + 1}...", end="", flush=True)
 
-            subprocess.run(cmd_args, capture_output=True, text=True, check=True)
+            # Log the command for debugging
+            logger.debug("batch_command", cmd=" ".join(cmd_args))
 
-            print(" ✓")
+            result = subprocess.run(cmd_args, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                print(" [X]")
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                logger.error("batch_start_failed",
+                            worker_id=worker_id,
+                            returncode=result.returncode,
+                            stdout=result.stdout,
+                            stderr=result.stderr)
+                print(f"    Error: {error_msg.strip()}")
+                return False
+
+            print(" [OK]")
             logger.info("batch_started_in_guest",
                        worker_id=worker_id,
                        stories=stories_per_vm)
             return True
 
-        except subprocess.CalledProcessError as e:
-            print(" ✗")
-            logger.error("batch_start_failed",
+        except Exception as e:
+            print(" [X]")
+            logger.error("batch_start_exception",
                         worker_id=worker_id,
-                        error=e.stderr)
+                        error=str(e))
+            print(f"    Exception: {str(e)}")
             return False
 
     def restart_worker(self, monitor: VMMonitor, batch_params: Dict) -> bool:
@@ -496,7 +537,7 @@ class VMWareOrchestrator:
 
         # Calculate backoff
         backoff = monitor.get_restart_backoff()
-        print(f"\n⚠ Worker {worker_id + 1} {monitor.progress.status.value} - "
+        print(f"\n[!] Worker {worker_id + 1} {monitor.progress.status.value} - "
               f"restarting in {backoff}s...")
         time.sleep(backoff)
 
@@ -528,6 +569,7 @@ class VMWareOrchestrator:
                     self.vmrun_exe, "-T", "ws",
                     "-gu", guest_username, "-gp", guest_password,
                     "runProgramInGuest", worker_vmx_path,
+                    "-interactive",  # Required for command execution with auto-login
                     "-noWait",
                     python_exe, batch_script,
                     "--resume-batch", monitor.progress.batch_id,
@@ -546,14 +588,14 @@ class VMWareOrchestrator:
                 monitor.progress.status = WorkerStatus.RUNNING
                 monitor.progress.error_message = None
 
-                print(f"✓ Worker {worker_id + 1} restarted successfully")
+                print(f"[OK] Worker {worker_id + 1} restarted successfully")
                 return True
 
             except subprocess.CalledProcessError as e:
                 logger.error("worker_restart_failed",
                             worker_id=worker_id,
                             error=e.stderr)
-                print(f"✗ Worker {worker_id + 1} restart failed: {e.stderr}")
+                print(f"[X] Worker {worker_id + 1} restart failed: {e.stderr}")
                 return False
 
         return False
@@ -668,7 +710,7 @@ class VMWareOrchestrator:
         with open(merged_dir / "batch_summary.json", 'w') as f:
             json.dump(merged_summary, f, indent=2)
 
-        print(f"✓ Merged {story_counter - 1} stories")
+        print(f"[OK] Merged {story_counter - 1} stories")
         print(f"  Success: {all_success}, Failed: {all_failed}")
 
         logger.info("outputs_merged",
@@ -689,7 +731,7 @@ class VMWareOrchestrator:
             if worker_batch_dir.exists():
                 shutil.rmtree(worker_batch_dir)
                 logger.info("worker_vms_deleted", path=str(worker_batch_dir))
-                print(f"✓ Worker VMs deleted")
+                print(f"[OK] Worker VMs deleted")
 
         if self.config["orchestration"]["cleanup_worker_outputs"]:
             if self.config["orchestration"]["merge_output"]:
@@ -701,7 +743,7 @@ class VMWareOrchestrator:
                         shutil.rmtree(worker_output_dir)
 
                 logger.info("worker_outputs_deleted")
-                print("✓ Worker outputs deleted (merged output preserved)")
+                print("[OK] Worker outputs deleted (merged output preserved)")
 
     def run(self, args):
         """Main orchestration workflow"""
@@ -721,12 +763,12 @@ class VMWareOrchestrator:
         if not self._verify_master_vm():
             return 1
 
-        print("✓ Master VM verified\n")
+        print("[OK] Master VM verified\n")
 
         # Setup batch directory
         print("Setting up batch directory...")
         self.setup_batch_directory(num_workers)
-        print(f"✓ Batch directory: {self.batch_dir}\n")
+        print(f"[OK] Batch directory: {self.batch_dir}\n")
 
         # Setup Google Drive (if specified)
         if args.google_drive_folder:
@@ -743,18 +785,13 @@ class VMWareOrchestrator:
             # Clone VM
             worker_vmx_path = self.clone_worker_vm(worker_id)
             if not worker_vmx_path:
-                print(f"✗ Failed to clone Worker {worker_id + 1}")
-                return 1
-
-            # Setup shared folders
-            if not self.setup_shared_folders(worker_id, worker_vmx_path):
-                print(f"✗ Failed to setup shared folders for Worker {worker_id + 1}")
+                print(f"[X] Failed to clone Worker {worker_id + 1}")
                 return 1
 
             # Generate worker config
             worker_config_path = temp_config_dir / f"worker{worker_id + 1}_config.yaml"
             if not self.generate_worker_config(worker_id, worker_config_path):
-                print(f"✗ Failed to generate config for Worker {worker_id + 1}")
+                print(f"[X] Failed to generate config for Worker {worker_id + 1}")
                 return 1
 
             # Store worker metadata
@@ -765,7 +802,7 @@ class VMWareOrchestrator:
                 "output_dir": self.batch_dir / f"worker{worker_id + 1}"
             })
 
-        print(f"✓ All workers cloned\n")
+        print(f"[OK] All workers cloned\n")
 
         # Start workers and launch batch generation
         print(f"Starting workers and launching batch generation...\n")
@@ -792,20 +829,25 @@ class VMWareOrchestrator:
 
             # Start VM
             if not self.start_worker_vm(worker_id, worker_vmx_path):
-                print(f"✗ Failed to start Worker {worker_id + 1}")
+                print(f"[X] Failed to start Worker {worker_id + 1}")
+                return 1
+
+            # Setup shared folders (must be done after VM is running)
+            if not self.setup_shared_folders(worker_id, worker_vmx_path):
+                print(f"[X] Failed to setup shared folders for Worker {worker_id + 1}")
                 return 1
 
             # Copy config to guest
             if not self.copy_config_to_guest(worker_id, worker_vmx_path, worker_config_path):
-                print(f"✗ Failed to copy config to Worker {worker_id + 1}")
+                print(f"[X] Failed to copy config to Worker {worker_id + 1}")
                 return 1
 
             # Run batch_generate.py
             if not self.run_batch_in_guest(worker_id, worker_vmx_path, stories_per_vm, batch_params):
-                print(f"✗ Failed to start batch on Worker {worker_id + 1}")
+                print(f"[X] Failed to start batch on Worker {worker_id + 1}")
                 return 1
 
-        print(f"\n✓ All workers started\n")
+        print(f"\n[OK] All workers started\n")
 
         # Initialize monitoring
         monitors = []
@@ -835,7 +877,7 @@ class VMWareOrchestrator:
         for worker in self.workers:
             self.stop_worker_vm(worker["worker_id"], worker["vmx_path"])
 
-        print("✓ All workers stopped\n")
+        print("[OK] All workers stopped\n")
 
         # Merge outputs
         merged_dir = self.merge_outputs(num_workers)
@@ -920,7 +962,7 @@ def main():
 
     except Exception as e:
         logger.error("orchestrator_failed", error=str(e), exc_info=True)
-        print(f"\n✗ Orchestrator failed: {e}")
+        print(f"\n[X] Orchestrator failed: {e}")
         return 1
 
 

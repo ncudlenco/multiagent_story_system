@@ -774,41 +774,53 @@ Examples:
         print(f"  [OK] Markdown report: {reports.get('markdown')}")
         print(f"  [OK] JSON summary: {reports.get('json')}")
 
-        # Google Drive upload (if requested)
-        if batch_config.upload_to_drive and batch_config.drive_folder_id:
+        # Google Drive: Upload batch reports (stories already uploaded incrementally)
+        if batch_state.drive_folder_id:
             try:
                 from batch.google_drive_uploader import GoogleDriveUploader
 
                 logger.info(
-                    "uploading_to_google_drive",
-                    folder_id=batch_config.drive_folder_id
+                    "uploading_batch_reports_to_drive",
+                    folder_id=batch_state.drive_folder_id
                 )
-                print(f"\nUploading to Google Drive...")
+                print(f"\nUploading batch reports to Google Drive...")
 
                 uploader = GoogleDriveUploader(
                     config.google_drive.credentials_path
                 )
-                upload_result = uploader.upload_directory(
-                    local_dir=Path(batch_state.batch_output_dir),
-                    drive_folder_id=batch_config.drive_folder_id
+
+                # Upload batch summary files
+                uploader.upload_file(
+                    file_path=Path(batch_state.batch_output_dir) / "batch_summary.json",
+                    parent_folder_id=batch_state.drive_folder_id
+                )
+                uploader.upload_file(
+                    file_path=Path(batch_state.batch_output_dir) / "batch_report.md",
+                    parent_folder_id=batch_state.drive_folder_id
                 )
 
-                print(f"  [OK] Upload complete")
-                print(f"  [OK] Google Drive link: {upload_result.get('link')}")
+                # Get shareable link for batch folder
+                batch_link = uploader.get_shareable_link(batch_state.drive_folder_id)
+                batch_state.drive_folder_link = batch_link
+
+                print(f"  [OK] Batch reports uploaded")
+                print(f"  [OK] Google Drive link: {batch_link}")
 
                 # Delete local copy if requested
                 if not batch_config.keep_local:
                     import shutil
                     shutil.rmtree(batch_state.batch_output_dir)
                     print(f"  [OK] Local copy deleted (--keep-local not specified)")
+                    logger.info("local_batch_deleted", dir=batch_state.batch_output_dir)
 
             except ImportError:
                 logger.error("google_drive_not_available")
                 print(f"\n[ERROR] Google Drive integration not available")
                 print(f"  Install dependencies: pip install google-auth google-api-python-client")
             except Exception as e:
-                logger.error("google_drive_upload_failed", error=str(e))
-                print(f"\n[ERROR] Google Drive upload failed: {e}")
+                logger.error("batch_reports_upload_failed", error=str(e))
+                print(f"\n[ERROR] Batch reports upload failed: {e}")
+                print(f"  Individual story uploads may have succeeded")
 
         # Final summary
         print(f"\n{'='*70}")

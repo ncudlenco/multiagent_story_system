@@ -63,6 +63,8 @@ class BatchConfig:
     # Simple random generator parameters
     random_chains_per_actor: int = 3  # Only used when generator_type="simple_random"
     random_seed: Optional[int] = None  # Optional seed for reproducibility
+    random_max_actors_per_region: Optional[int] = None  # Max actors per region (None = unlimited)
+    random_max_regions: Optional[int] = None  # Max regions to visit (None = unlimited)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -95,6 +97,8 @@ class BatchConfig:
             'generator_type': self.generator_type,
             'random_chains_per_actor': self.random_chains_per_actor,
             'random_seed': self.random_seed,
+            'random_max_actors_per_region': self.random_max_actors_per_region,
+            'random_max_regions': self.random_max_regions,
         }
 
     @classmethod
@@ -177,6 +181,11 @@ class StoryStatus:
     successful_simulations: List[str] = field(default_factory=list)  # ["take1_sim2", "take2_sim1"]
     all_simulation_results: List[SimulationResult] = field(default_factory=list)
 
+    # Google Drive tracking
+    gdrive_folder_id: Optional[str] = None
+    gdrive_link: Optional[str] = None
+    upload_timestamp: Optional[str] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -197,6 +206,9 @@ class StoryStatus:
             'event_count': self.event_count,
             'successful_simulations': self.successful_simulations,
             'all_simulation_results': [r.to_dict() for r in self.all_simulation_results],
+            'gdrive_folder_id': self.gdrive_folder_id,
+            'gdrive_link': self.gdrive_link,
+            'upload_timestamp': self.upload_timestamp,
         }
 
     @classmethod
