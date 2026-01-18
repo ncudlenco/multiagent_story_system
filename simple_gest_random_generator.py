@@ -26,6 +26,16 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+# Episode type classification for equal probability selection
+# Two-stage selection: first pick type (25% each), then pick episode within type
+EPISODE_TYPES = {
+    "classroom": ["classroom1"],
+    "gym": ["gym1_a", "gym2_a", "gym3"],
+    "garden": ["garden"],
+    "house": ["house9", "office", "office2", "common"],
+}
+
+
 class ActorState(Enum):
     """Actor physical state"""
     STANDING = "standing"
@@ -658,22 +668,35 @@ class SimpleGESTRandomGenerator:
 
     def _select_random_episode_group(self) -> List[str]:
         """
-        Select a random group of linked episodes.
+        Select a random group of linked episodes with equal probability across types.
+
+        Uses two-stage selection to avoid bias toward types with more episodes:
+        1. Select episode type with equal probability (classroom, gym, garden, house)
+        2. Select random episode within that type
 
         Returns:
             List of episode names that are linked together
         """
-        # Find episodes with linked episodes
-        candidates = [(name, ep) for name, ep in self.episodes.items() if ep.linked_episodes]
-        # Also include single episodes without links to be included as e.g. scenes
-        candidates += [(name, ep) for name, ep in self.episodes.items() if not ep.linked_episodes]
+        # 1. Find available types (types with at least one episode in self.episodes)
+        available_types = [
+            episode_type for episode_type, episodes in EPISODE_TYPES.items()
+            if any(ep in self.episodes for ep in episodes)
+        ]
 
-        if not candidates:
-            # No linked episodes, return random single episode
+        if not available_types:
+            # Fallback: return random single episode
             return [random.choice(list(self.episodes.keys()))]
 
-        # Select random episode and its linked episodes
-        selected_name, selected_episode = random.choice(candidates)
+        # 2. Select random type (equal probability across types)
+        selected_type = random.choice(available_types)
+        print(f"Selected episode type: {selected_type}")
+
+        # 3. Select random episode within that type
+        type_episodes = [ep for ep in EPISODE_TYPES[selected_type] if ep in self.episodes]
+        selected_name = random.choice(type_episodes)
+
+        # 4. Get linked episodes
+        selected_episode = self.episodes[selected_name]
         group = [selected_name] + selected_episode.linked_episodes
 
         # Filter to only episodes that exist
