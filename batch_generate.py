@@ -774,22 +774,25 @@ Examples:
         print(f"  [OK] Markdown report: {reports.get('markdown')}")
         print(f"  [OK] JSON summary: {reports.get('json')}")
 
-        # Google Drive: Upload batch reports (stories already uploaded incrementally)
+        # Google Drive: Upload final batch reports and get shareable link
+        # Note: Reports are uploaded after each story for real-time progress tracking.
+        # This final upload ensures the absolute latest version is on Google Drive.
+        # Individual story folders were uploaded in background threads during batch execution.
         if batch_state.drive_folder_id:
             try:
                 from batch.google_drive_uploader import GoogleDriveUploader
 
                 logger.info(
-                    "uploading_batch_reports_to_drive",
+                    "uploading_final_batch_reports_to_drive",
                     folder_id=batch_state.drive_folder_id
                 )
-                print(f"\nUploading batch reports to Google Drive...")
+                print(f"\nUploading final batch reports to Google Drive...")
 
                 uploader = GoogleDriveUploader(
                     config.google_drive.credentials_path
                 )
 
-                # Upload batch summary files
+                # Upload final batch summary files (overwrites previous versions)
                 uploader.upload_file(
                     file_path=Path(batch_state.batch_output_dir) / "batch_summary.json",
                     parent_folder_id=batch_state.drive_folder_id
@@ -799,11 +802,11 @@ Examples:
                     parent_folder_id=batch_state.drive_folder_id
                 )
 
-                # Get shareable link for batch folder
+                # Get shareable link for entire batch folder
                 batch_link = uploader.get_shareable_link(batch_state.drive_folder_id)
                 batch_state.drive_folder_link = batch_link
 
-                print(f"  [OK] Batch reports uploaded")
+                print(f"  [OK] Final batch reports uploaded")
                 print(f"  [OK] Google Drive link: {batch_link}")
 
                 # Delete local copy if requested

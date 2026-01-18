@@ -209,6 +209,7 @@ class MTAController:
                 # Keep segmentation and depth disabled
                 config["ARTIFACT_ENABLE_SEGMENTATION"] = False
                 config["ARTIFACT_ENABLE_DEPTH"] = False
+                config["ARTIFACT_ENABLE_SPATIAL_RELATIONS"] = True
             # Disable all DEBUG flags for clean simulation runs
             config["DEBUG"] = False
             config["DEBUG_PROCESSACTIONS"] = False
