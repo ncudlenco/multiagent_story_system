@@ -71,3 +71,31 @@ test_batch/*
 batch_out/
 batch-gcloud-test/
 test_*/
+
+# Batch generation artifacts (match at any hierarchy level)
+**/batch_results_*.json
+**/batch_statistics.json
+**/batch_state.json
+**/batch_summary.json
+**/batch_report.md
+
+# Temporary directories
+tmp/
+temp_configs/
+simple_test/
+
+# Credentials (sensitive - never commit)
+credentials/
+
+# Accidental Windows files
+nul
+
+# Generated story folders at any level
+**/story_*/
+**/generated_graphs/
+
+# Test JSON files in root
+test_*.json
+
+# Claude temporary files
+tmpclaude-*
