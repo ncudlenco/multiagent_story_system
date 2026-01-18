@@ -250,6 +250,8 @@ class BatchState:
     batch_output_dir: str = ""
     drive_folder_id: Optional[str] = None
     drive_folder_link: Optional[str] = None
+    drive_summary_file_id: Optional[str] = None  # batch_summary.json file ID on Google Drive
+    drive_report_file_id: Optional[str] = None  # batch_report.md file ID on Google Drive
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -268,6 +270,8 @@ class BatchState:
             'batch_output_dir': self.batch_output_dir,
             'drive_folder_id': self.drive_folder_id,
             'drive_folder_link': self.drive_folder_link,
+            'drive_summary_file_id': self.drive_summary_file_id,
+            'drive_report_file_id': self.drive_report_file_id,
         }
 
     @classmethod

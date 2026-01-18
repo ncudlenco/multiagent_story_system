@@ -10,10 +10,53 @@ Install with: pip install google-auth google-api-python-client google-auth-oauth
 
 import structlog
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import json
+import time
+from functools import wraps
 
 logger = structlog.get_logger(__name__)
+
+
+def retry_on_network_error(max_retries: int = 3, base_delay: float = 1.0):
+    """
+    Decorator to retry API calls on transient network errors.
+    Uses exponential backoff: delay doubles with each retry.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay between retries (doubles with each attempt)
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except (TimeoutError, ConnectionResetError, OSError) as e:
+                    last_exception = e
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(
+                            "network_error_retrying",
+                            func=func.__name__,
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                            delay=delay,
+                            error=str(e)
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(
+                            "network_error_max_retries",
+                            func=func.__name__,
+                            max_retries=max_retries,
+                            error=str(e)
+                        )
+            raise last_exception
+        return wrapper
+    return decorator
 
 
 class GoogleDriveUploader:
@@ -99,6 +142,7 @@ class GoogleDriveUploader:
 
         return service
 
+    @retry_on_network_error(max_retries=3, base_delay=1.0)
     def create_folder(self, name: str, parent_folder_id: Optional[str] = None) -> str:
         """
         Create a folder in Google Drive.
@@ -144,6 +188,7 @@ class GoogleDriveUploader:
             )
             raise
 
+    @retry_on_network_error(max_retries=3, base_delay=1.0)
     def upload_file(
         self,
         file_path: Path,
@@ -163,6 +208,13 @@ class GoogleDriveUploader:
         """
         from googleapiclient.http import MediaFileUpload
 
+        file_path = Path(file_path)
+
+        # Only use resumable uploads for files larger than 5MB
+        # Small files cause ResumableUploadError with HTTP 200 OK (known bug)
+        file_size = file_path.stat().st_size
+        use_resumable = file_size > 5 * 1024 * 1024  # 5MB threshold
+
         file_metadata = {
             'name': file_path.name,
             'parents': [parent_folder_id]
@@ -171,7 +223,7 @@ class GoogleDriveUploader:
         media = MediaFileUpload(
             str(file_path),
             mimetype=mime_type,
-            resumable=True
+            resumable=use_resumable
         )
 
         try:
@@ -201,27 +253,121 @@ class GoogleDriveUploader:
             )
             raise
 
+    @retry_on_network_error(max_retries=3, base_delay=1.0)
+    def upload_or_update_file(
+        self,
+        file_path: Path,
+        parent_folder_id: str,
+        existing_file_id: Optional[str] = None,
+        mime_type: Optional[str] = None
+    ) -> str:
+        """
+        Upload a new file or update an existing file on Google Drive.
+
+        Args:
+            file_path: Path to file to upload
+            parent_folder_id: Parent folder ID (used for new uploads)
+            existing_file_id: Optional existing file ID (if updating)
+            mime_type: Optional MIME type (auto-detected if None)
+
+        Returns:
+            File ID (existing or newly created)
+        """
+        from googleapiclient.http import MediaFileUpload
+
+        file_path = Path(file_path)
+
+        # Only use resumable uploads for files larger than 5MB
+        # Small files cause ResumableUploadError with HTTP 200 OK (known bug)
+        # Also causes file size mismatch errors when file changes between attempts
+        file_size = file_path.stat().st_size
+        use_resumable = file_size > 5 * 1024 * 1024  # 5MB threshold
+
+        media = MediaFileUpload(
+            str(file_path),
+            mimetype=mime_type,
+            resumable=use_resumable
+        )
+
+        try:
+            if existing_file_id:
+                # Update existing file
+                file = self.service.files().update(
+                    fileId=existing_file_id,
+                    media_body=media,
+                    fields='id'
+                ).execute()
+
+                logger.debug(
+                    "file_updated",
+                    file=file_path.name,
+                    file_id=existing_file_id,
+                    size_bytes=file_path.stat().st_size
+                )
+
+                return existing_file_id
+            else:
+                # Create new file
+                file_metadata = {
+                    'name': file_path.name,
+                    'parents': [parent_folder_id]
+                }
+
+                file = self.service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id'
+                ).execute()
+
+                file_id = file.get('id')
+
+                logger.debug(
+                    "file_uploaded",
+                    file=file_path.name,
+                    file_id=file_id,
+                    size_bytes=file_path.stat().st_size
+                )
+
+                return file_id
+
+        except Exception as e:
+            logger.error(
+                "file_upload_or_update_failed",
+                file=str(file_path),
+                existing_file_id=existing_file_id,
+                error=str(e),
+                exc_info=True
+            )
+            raise
+
     def upload_directory(
         self,
         local_dir: Path,
-        drive_folder_id: str
+        drive_folder_id: str,
+        exclude_folders: Optional[List[Path]] = None
     ) -> Dict[str, Any]:
         """
-        Upload entire directory to Google Drive.
+        Upload entire directory to Google Drive, optionally excluding specific folders.
 
         Args:
             local_dir: Local directory to upload
             drive_folder_id: Target Google Drive folder ID
+            exclude_folders: List of folder paths to exclude from upload
 
         Returns:
             Dictionary with upload results and statistics
         """
         local_dir = Path(local_dir)
+        exclude_folders = exclude_folders or []
+
+        # Convert to set of absolute paths for faster lookups
+        exclude_paths = {Path(f).resolve() for f in exclude_folders}
 
         logger.info(
             "uploading_directory",
             local_dir=str(local_dir),
-            drive_folder_id=drive_folder_id
+            drive_folder_id=drive_folder_id,
+            excluded_count=len(exclude_paths)
         )
 
         # Statistics
@@ -248,6 +394,16 @@ class GoogleDriveUploader:
 
         # Walk directory tree
         for item in sorted(local_dir.rglob('*')):
+            # Skip excluded folders and their contents
+            if item.resolve() in exclude_paths:
+                logger.debug("skipping_excluded_folder", folder=item.name)
+                continue
+
+            # Skip items inside excluded folders
+            if any(item.resolve().is_relative_to(ex) for ex in exclude_paths):
+                logger.debug("skipping_item_in_excluded_folder", item=str(item))
+                continue
+
             try:
                 # Get parent folder ID
                 parent_local = item.parent
@@ -299,6 +455,9 @@ class GoogleDriveUploader:
                 )
                 # Continue with other files
 
+        # Store root folder ID in stats
+        stats['folder_id'] = root_folder_id
+
         # Get shareable link
         try:
             link = self.get_shareable_link(root_folder_id)
@@ -312,11 +471,13 @@ class GoogleDriveUploader:
             files=stats['files_uploaded'],
             folders=stats['folders_created'],
             bytes=stats['total_bytes'],
-            errors=len(stats['errors'])
+            errors=len(stats['errors']),
+            excluded=len(exclude_paths)
         )
 
         return stats
 
+    @retry_on_network_error(max_retries=3, base_delay=1.0)
     def get_shareable_link(self, file_id: str) -> str:
         """
         Get shareable link for a file or folder.

@@ -197,6 +197,7 @@ class BatchController:
                     story_status.status = 'failed'
                     story_status.completed_at = datetime.now().isoformat()
                     self.batch_state.failure_count += 1
+                    self._cleanup_failed_story(story_status)
                     self._save_state()
                     logger.error(
                         "story_generation_failed",
@@ -224,6 +225,7 @@ class BatchController:
                     else:
                         story_status.status = 'failed'
                         self.batch_state.failure_count += 1
+                        self._cleanup_failed_story(story_status)
 
                 story_status.completed_at = datetime.now().isoformat()
                 self._save_state()
@@ -284,6 +286,7 @@ class BatchController:
                 story_status.errors.append(f"Critical error: {str(e)}")
                 story_status.completed_at = datetime.now().isoformat()
                 self.batch_state.failure_count += 1
+                self._cleanup_failed_story(story_status)
                 self._save_state()
 
                 # Note: Failed stories are NOT uploaded to Google Drive
@@ -770,6 +773,229 @@ class BatchController:
 
         return False
 
+    def _filter_error_simulations(self, story_dir: Path) -> Tuple[bool, List[Path]]:
+        """
+        Scan simulation folders for ERROR files and filter them out.
+
+        This method checks all simulation folders for ERROR or MAX_STORY_TIME_EXCEEDED files.
+        Folders with errors are excluded from upload to Google Drive.
+
+        Args:
+            story_dir: Path to story directory
+
+        Returns:
+            Tuple of (has_any_success, folders_to_exclude)
+            - has_any_success: True if at least one simulation succeeded (no ERROR file)
+            - folders_to_exclude: List of Path objects for folders containing ERROR files
+
+        Special case:
+            If only ONE simulation exists (no variations, no retries) and it has an ERROR file,
+            returns (False, [folder]) to indicate the entire story should be marked as failed.
+        """
+        from utils.log_parser import MTALogParser
+
+        log_parser = MTALogParser(self.config.to_dict())
+
+        # Find all simulation folders (simulations/take*_sim*)
+        simulations_dir = story_dir / "simulations"
+        if not simulations_dir.exists():
+            logger.warning(
+                "simulations_dir_not_found",
+                story_dir=str(story_dir),
+                simulations_dir=str(simulations_dir)
+            )
+            return False, []
+
+        folders_to_exclude = []
+        successful_count = 0
+        total_count = 0
+
+        for sim_folder in simulations_dir.glob("take*_sim*"):
+            if not sim_folder.is_dir():
+                continue
+
+            total_count += 1
+
+            # Check for ERROR files
+            has_error, error_msg = log_parser.check_for_error_files(sim_folder)
+
+            if has_error:
+                logger.warning(
+                    "simulation_error_detected_for_upload",
+                    folder=sim_folder.name,
+                    error=error_msg
+                )
+                folders_to_exclude.append(sim_folder)
+            else:
+                successful_count += 1
+
+        # Special case: If only ONE simulation and it failed → return no success
+        if total_count == 1 and successful_count == 0:
+            logger.warning(
+                "single_simulation_failed",
+                story_dir=str(story_dir),
+                total_simulations=total_count
+            )
+            return False, folders_to_exclude
+
+        # Otherwise: return whether we have ANY successes
+        has_any_success = successful_count > 0
+
+        logger.info(
+            "error_simulation_filtering_complete",
+            story_dir=str(story_dir),
+            total=total_count,
+            successful=successful_count,
+            excluded=len(folders_to_exclude),
+            has_any_success=has_any_success
+        )
+
+        return has_any_success, folders_to_exclude
+
+    def _cleanup_failed_story(self, story_status: StoryStatus) -> None:
+        """
+        Delete local folder for failed story to save disk space.
+
+        When a story is marked as 'failed', this method removes its entire output directory
+        from the local filesystem. This helps keep the batch output clean and saves disk space.
+
+        Args:
+            story_status: Story status object with output_dir path
+
+        Note:
+            - Deletion failures are non-critical and only logged as warnings
+            - Method returns silently if output_dir is not set or doesn't exist
+            - Does not raise exceptions to avoid breaking the batch process
+        """
+        import shutil
+
+        if not story_status.output_dir:
+            return
+
+        story_dir = Path(story_status.output_dir)
+
+        if not story_dir.exists():
+            return
+
+        try:
+            shutil.rmtree(story_dir)
+            logger.info(
+                "failed_story_folder_deleted",
+                story_id=story_status.story_id,
+                story_number=story_status.story_number,
+                path=str(story_dir)
+            )
+        except Exception as e:
+            logger.warning(
+                "failed_story_folder_deletion_failed",
+                story_id=story_status.story_id,
+                path=str(story_dir),
+                error=str(e)
+            )
+            # Don't raise - deletion failure is non-critical
+
+    def _upload_story_background(
+        self,
+        story_status: StoryStatus,
+        gdrive_uploader,
+        state_lock: Lock
+    ) -> None:
+        """
+        Upload story in background thread with ERROR file filtering.
+
+        This method:
+        1. Filters out simulation folders with ERROR files
+        2. Uploads the story directory (excluding ERROR folders) to Google Drive
+        3. Updates story status with Google Drive metadata
+        4. Tracks excluded simulations in story errors
+
+        Special handling:
+        - If all simulations failed (has_any_success=False), marks story as 'failed'
+        - If some simulations failed, uploads only successful ones and logs excluded folders
+
+        Args:
+            story_status: Story status tracker
+            gdrive_uploader: GoogleDriveUploader instance
+            state_lock: Lock for thread-safe state updates
+        """
+        try:
+            logger.info(
+                "uploading_story_to_drive_background",
+                story_id=story_status.story_id
+            )
+
+            story_dir = Path(story_status.output_dir)
+
+            # Filter out simulation folders with ERROR files
+            has_any_success, folders_to_exclude = self._filter_error_simulations(story_dir)
+
+            if not has_any_success:
+                logger.warning(
+                    "all_simulations_failed_skipping_upload",
+                    story_id=story_status.story_id,
+                    failed_count=len(folders_to_exclude)
+                )
+                # Thread-safe status update - mark as failed
+                with state_lock:
+                    story_status.status = 'failed'
+                    story_status.errors.append("All simulations failed (ERROR files detected)")
+                    self.batch_state.success_count -= 1  # Decrement success count
+                    self.batch_state.failure_count += 1  # Increment failure count
+                    self._cleanup_failed_story(story_status)
+                    self._save_state()
+                return
+
+            # Log which folders are being excluded
+            if folders_to_exclude:
+                excluded_names = [f.name for f in folders_to_exclude]
+                logger.info(
+                    "excluding_error_folders_from_upload",
+                    story_id=story_status.story_id,
+                    excluded_count=len(folders_to_exclude),
+                    excluded_folders=excluded_names
+                )
+
+            # Upload directory, passing exclusion list to uploader
+            upload_result = gdrive_uploader.upload_directory(
+                local_dir=story_dir,
+                drive_folder_id=self.batch_state.drive_folder_id,
+                exclude_folders=folders_to_exclude  # Pass exclusion list
+            )
+
+            # Thread-safe state update
+            with state_lock:
+                story_status.gdrive_folder_id = upload_result.get('folder_id')
+                story_status.gdrive_link = upload_result.get('link')
+                story_status.upload_timestamp = datetime.now().isoformat()
+
+                # Add excluded simulations to story errors for reporting
+                if folders_to_exclude:
+                    excluded_names = [f.name for f in folders_to_exclude]
+                    for folder_name in excluded_names:
+                        story_status.errors.append(
+                            f"Simulation {folder_name} excluded from upload (ERROR file detected)"
+                        )
+
+                self._save_state()
+
+            logger.info(
+                "story_uploaded_to_drive_background",
+                story_id=story_status.story_id,
+                files=upload_result.get('files_uploaded'),
+                bytes=upload_result.get('total_bytes'),
+                excluded_folders=len(folders_to_exclude),
+                link=upload_result.get('link')
+            )
+
+        except Exception as e:
+            logger.error(
+                "story_upload_background_failed",
+                story_id=story_status.story_id,
+                error=str(e),
+                exc_info=True
+            )
+            # Don't fail the batch - just log the error
+
     def _simulate_story_with_variations(self, story_status: StoryStatus) -> bool:
         """
         Simulate all takes with all requested simulation variations.
@@ -1204,6 +1430,7 @@ class BatchController:
                         story_status.status = 'failed'
                         story_status.completed_at = datetime.now().isoformat()
                         self.batch_state.failure_count += 1
+                        self._cleanup_failed_story(story_status)
                         self._save_state()
                         continue
 
@@ -1216,6 +1443,7 @@ class BatchController:
                 else:
                     story_status.status = 'failed'
                     self.batch_state.failure_count += 1
+                    self._cleanup_failed_story(story_status)
 
                 story_status.completed_at = datetime.now().isoformat()
                 self._save_state()
@@ -1232,6 +1460,7 @@ class BatchController:
                 story_status.errors.append(f"Critical error: {str(e)}")
                 story_status.completed_at = datetime.now().isoformat()
                 self.batch_state.failure_count += 1
+                self._cleanup_failed_story(story_status)
                 self._save_state()
 
         # Finalize
@@ -1964,6 +2193,7 @@ class BatchController:
                 else:
                     story_status.status = 'failed'
                     self.batch_state.failure_count += 1
+                    self._cleanup_failed_story(story_status)
                     print(f"  [FAILED] No successful simulations")
 
                 story_status.completed_at = datetime.now().isoformat()
@@ -1980,6 +2210,7 @@ class BatchController:
                 story_status.errors.append(f"Critical error: {str(e)}")
                 story_status.completed_at = datetime.now().isoformat()
                 self.batch_state.failure_count += 1
+                self._cleanup_failed_story(story_status)
                 self._save_state()
 
         # Finalize batch
@@ -2210,6 +2441,7 @@ class BatchController:
                     else:
                         story_status.status = 'failed'
                         story_status.errors.append("All simulations failed")
+                        self._cleanup_failed_story(story_status)
                         logger.info(
                             "text_file_processing_completed",
                             story_number=story_number,
@@ -2235,6 +2467,7 @@ class BatchController:
             story_status.status = 'failed'
             story_status.errors.append(f"Generation error: {str(e)}")
             story_status.completed_at = datetime.now().isoformat()
+            self._cleanup_failed_story(story_status)
 
             print(f"  [FAILED] {str(e)}")
 
@@ -2663,6 +2896,7 @@ class BatchController:
                             story_status.status = 'failed'
                             self.batch_state.failure_count += 1
                             story_status.errors.append("All simulations failed")
+                            self._cleanup_failed_story(story_status)
                             logger.info(
                                 "text_file_processing_completed",
                                 story_number=story_number,
@@ -2690,6 +2924,7 @@ class BatchController:
                 story_status.errors.append(f"Generation error: {str(e)}")
                 story_status.completed_at = datetime.now().isoformat()
                 self.batch_state.failure_count += 1
+                self._cleanup_failed_story(story_status)
                 self._save_state()
 
                 print(f"  [FAILED] {str(e)}")
