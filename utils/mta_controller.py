@@ -810,7 +810,7 @@ class MTAController:
             last_topmost_time = 0  # Track when we last set topmost
 
             # Max total simulation time (much longer than before since adaptive timeout catches stuck cases)
-            max_simulation_time = self.config['validation'].get('max_simulation_time_seconds', 600)
+            max_simulation_time = self.config['validation'].get('max_simulation_time_seconds', 3600)
 
             logger.info("starting_adaptive_timeout_monitoring_loop",
                        max_simulation_time=max_simulation_time,
@@ -1314,6 +1314,8 @@ class MTAController:
             "EnqueueActionLinear",
             "action finished",
             "EndStory:PausePerformer",
+            "has reached marker",
+            "Move:wait - Timeout is",
         ]
 
         action_detected = False
