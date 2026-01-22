@@ -448,7 +448,7 @@ class TestRetryLogicGuaranteedChains:
     def test_all_actors_have_events(self, full_capabilities):
         """Test that all actors receive at least some action events."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
-        random.seed(600)
+        random.seed(3600)
         gest = generator.generate(chains_per_actor=3)
 
         # Find all actors
