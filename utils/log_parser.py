@@ -521,16 +521,18 @@ class MTALogParser:
 
     def check_for_error_files(
         self,
-        simulation_folder: Path
+        simulation_folder: Path,
+        min_video_size_mb: float = 1.0
     ) -> Tuple[bool, Optional[str]]:
         """
-        Check for ERROR or MAX_STORY_TIME_EXCEEDED files in simulation folder.
+        Check for ERROR, MAX_STORY_TIME_EXCEEDED files, or corrupted video files.
 
-        These files are created by the MTA simulation engine to indicate specific
-        error conditions. Their presence indicates simulation failure.
+        Searches recursively since ERROR files are nested at:
+        {simulation_folder}/{guid}/spectator{N}/ERROR
 
         Args:
-            simulation_folder: Path to simulation folder (e.g., {guid}/spectator1/)
+            simulation_folder: Path to simulation folder (e.g., take1_sim1)
+            min_video_size_mb: Minimum acceptable video size in MB (default 1.0)
 
         Returns:
             Tuple of (has_error, error_message)
@@ -542,30 +544,31 @@ class MTALogParser:
             )
             return False, None
 
-        # Check for ERROR file
-        error_path = simulation_folder / "ERROR"
-        if error_path.exists():
+        # Recursively search for ERROR file
+        for error_path in simulation_folder.rglob("ERROR"):
             try:
                 error_message = error_path.read_text(encoding='utf-8', errors='ignore').strip()
                 if not error_message:
                     error_message = "ERROR file detected (no message)"
+                # Truncate long messages
+                if len(error_message) > 200:
+                    error_message = error_message[:200] + "..."
                 logger.warning(
                     "error_file_detected",
                     path=str(error_path),
-                    message=error_message
+                    message=error_message[:100]  # Truncate for log
                 )
                 return True, f"ERROR: {error_message}"
             except Exception as e:
                 logger.error("error_reading_error_file", error=str(e))
                 return True, "ERROR file detected (could not read message)"
 
-        # Check for MAX_STORY_TIME_EXCEEDED file
-        timeout_path = simulation_folder / "MAX_STORY_TIME_EXCEEDED"
-        if timeout_path.exists():
+        # Recursively search for MAX_STORY_TIME_EXCEEDED file
+        for timeout_path in simulation_folder.rglob("MAX_STORY_TIME_EXCEEDED"):
             try:
                 timeout_message = timeout_path.read_text(encoding='utf-8', errors='ignore').strip()
                 if not timeout_message:
-                    timeout_message = "MAX_STORY_TIME_EXCEEDED"
+                    timeout_message = "Simulation exceeded max time"
                 logger.warning(
                     "timeout_file_detected",
                     path=str(timeout_path),
@@ -574,7 +577,24 @@ class MTALogParser:
                 return True, f"TIMEOUT: {timeout_message}"
             except Exception as e:
                 logger.error("error_reading_timeout_file", error=str(e))
-                return True, "MAX_STORY_TIME_EXCEEDED file detected"
+                return True, "TIMEOUT: MAX_STORY_TIME_EXCEEDED file detected"
+
+        # Check for corrupted (empty/small) video files
+        min_video_bytes = int(min_video_size_mb * 1024 * 1024)
+        for mp4_file in simulation_folder.rglob("raw.mp4"):
+            try:
+                file_size = mp4_file.stat().st_size
+                if file_size < min_video_bytes:
+                    size_mb = file_size / (1024 * 1024)
+                    logger.warning(
+                        "corrupted_video_detected",
+                        path=str(mp4_file),
+                        size_mb=size_mb,
+                        min_size_mb=min_video_size_mb
+                    )
+                    return True, f"VIDEO_CORRUPTED: raw.mp4 is {size_mb:.2f}MB (minimum: {min_video_size_mb}MB)"
+            except Exception as e:
+                logger.error("error_checking_video_size", path=str(mp4_file), error=str(e))
 
         logger.debug(
             "no_error_files_found",
