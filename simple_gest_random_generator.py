@@ -2505,7 +2505,31 @@ class SimpleGESTRandomGenerator:
                                 added_count += 1
 
                         if added_count > 0:
-                            print(f"    [ISSUE 11 FIX] Added {added_count} non-mover BEFORE mover relations")
+                            print(f"    [NON-MOVER] Added {added_count} non-mover BEFORE mover relations")
+
+                        # Cross-mover constraint: ALL movers' pre-Move events must complete
+                        # BEFORE ANY mover's Move event starts
+                        mover_pre_move_events = []
+                        for actor in region_actors:
+                            if actor.id in mover_ids:
+                                # Get pre-Move event from old_last_events
+                                for ev in old_last_events:
+                                    if ev.startswith(actor.id + '_'):
+                                        mover_pre_move_events.append(ev)
+                                        break
+
+                        # Cross-mover constraints: each pre-Move BEFORE each other mover's Move
+                        cross_mover_count = 0
+                        for pre_move_event in mover_pre_move_events:
+                            pre_move_actor = pre_move_event.split('_')[0]
+                            for move_event in mover_move_events:
+                                move_actor = move_event.split('_')[0]
+                                if pre_move_actor != move_actor:  # Cross-actor only
+                                    self._add_before_relation(pre_move_event, move_event)
+                                    cross_mover_count += 1
+
+                        if cross_mover_count > 0:
+                            print(f"    [CROSS-MOVER] Added {cross_mover_count} pre-Move BEFORE Move relations")
 
                 # Only create new actors if entering a NEW base region (not a revisit)
                 if next_region_name not in visited_base_regions:
