@@ -9,6 +9,7 @@ GEST files, narratives, and video files.
 import os
 import shutil
 import json
+import zipfile
 import structlog
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -492,3 +493,68 @@ class ArtifactCollector:
             )
 
         return stats
+
+    def compress_spatial_relations(self, story_dir: Path) -> List[Path]:
+        """
+        Compress spatial_relations files into zip archives in place.
+
+        Creates spatial_relations.zip in each folder containing
+        *_spatial_relations.json files, then deletes the originals.
+
+        Args:
+            story_dir: Path to story output directory
+
+        Returns:
+            List of created zip file paths
+        """
+        from collections import defaultdict
+
+        # Find all spatial_relations files
+        spatial_files = list(story_dir.rglob("*_spatial_relations.json"))
+
+        if not spatial_files:
+            logger.debug("no_spatial_relations_files", story_dir=str(story_dir))
+            return []
+
+        # Group files by their folder
+        files_by_folder: Dict[Path, List[Path]] = defaultdict(list)
+        for file_path in spatial_files:
+            files_by_folder[file_path.parent].append(file_path)
+
+        logger.info(
+            "compressing_spatial_relations",
+            total_files=len(spatial_files),
+            folder_count=len(files_by_folder),
+            story_dir=str(story_dir)
+        )
+
+        zip_paths = []
+        try:
+            for folder, files in files_by_folder.items():
+                zip_path = folder / "spatial_relations.zip"
+
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for file_path in files:
+                        zf.write(file_path, file_path.name)
+
+                # Delete original files
+                for file_path in files:
+                    file_path.unlink()
+
+                zip_paths.append(zip_path)
+
+            logger.info(
+                "spatial_relations_compressed",
+                zip_count=len(zip_paths),
+                original_count=len(spatial_files)
+            )
+
+        except Exception as e:
+            logger.error(
+                "spatial_relations_compression_failed",
+                story_dir=str(story_dir),
+                error=str(e),
+                exc_info=True
+            )
+
+        return zip_paths
