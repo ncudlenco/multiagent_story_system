@@ -70,6 +70,7 @@ validation:
   error_patterns:
     - "[ErrorHandler] ERROR DETECTED!"
     - "We could not find any valid episodes for the file"
+    - "\\[FATAL ERROR\\]"
   success_patterns:
     - "No more graphs to process\\. Shutting down the server\\. story completed successfully"
 
