@@ -2019,13 +2019,23 @@ class SimpleGESTRandomGenerator:
                             temp_actor_state['last_event_id'] = giver_last_event_id
                             temp_actor_state['state'] = ActorState.STANDING
                     else:
-                        # No valid receiver, fallback to normal Give event
-                        event_id = self._create_temp_event(
-                            actor, action_type, entities, region, poi,
-                            prev_event_id, temp_events, temp_temporal, temp_actor_state
-                        )
+                        # No valid receiver - skip Give action entirely
+                        # Don't create a malformed Give event without a receiver
+                        # (Give requires 3 entities: giver, receiver, object + paired INV-Give)
 
-                    # Give is terminal for giver - end chain
+                        # Try to continue with next action (e.g., PutDown)
+                        possible_next = current_action.get("possible_next_actions", [])
+                        if possible_next:
+                            next_type = possible_next[0]  # Usually PutDown
+                            next_action_def = self._find_action_in_poi(next_type, poi)
+                            if next_action_def:
+                                current_action = next_action_def
+                                continue  # Continue with next action instead of Give
+
+                        # No valid continuation - just end the chain without Give
+                        break
+
+                    # Give is terminal for giver - end chain (only reached if Give was created)
                     break
 
             # Create action event in temp buffer
