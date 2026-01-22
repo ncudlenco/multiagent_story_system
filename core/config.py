@@ -63,7 +63,7 @@ class PathsConfig(BaseModel):
 class ValidationConfig(BaseModel):
     """Validation settings"""
     max_attempts: int = Field(default=3, ge=1, description="Maximum validation attempts")
-    simulation_timeout_seconds: int = Field(default=600, ge=60, description="Simulation timeout in seconds")
+    simulation_timeout_seconds: int = Field(default=3600, ge=60, description="Simulation timeout in seconds")
     scene_1_max_retries: int = Field(default=2, ge=1, description="Maximum retries for Scene 1 validation")
     require_video_output: bool = Field(default=False, description="Whether video output is required for success")
     error_patterns: list = Field(default_factory=lambda: ["error", "failed", "exception"], description="Error patterns to search in logs")

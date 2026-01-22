@@ -74,7 +74,7 @@ class VMMonitor:
 
     def __init__(self, worker_id: int, vm_path: str, vmrun_exe: str,
                  shared_folder_path: Path, total_stories: int,
-                 log_silence_threshold: int = 600,
+                 log_silence_threshold: int = 3600,
                  max_restart_attempts: int = 3):
         """
         Initialize VM monitor

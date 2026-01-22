@@ -58,12 +58,12 @@ detail:
 
 validation:
   max_attempts: 3
-  simulation_timeout_seconds: 600
+  simulation_timeout_seconds: 3600
   scene_1_max_retries: 2
   require_video_output: false
   # Adaptive timeout settings (smart timeout that tracks action progress)
   no_action_progress_timeout_seconds: 90  # Timeout if no actions execute for this long (stuck detection)
-  max_simulation_time_seconds: 600  # Absolute max time (safety net, since adaptive handles stuck cases)
+  max_simulation_time_seconds: 3600  # Absolute max time (1 hour - rely on 90s no-progress timeout)
   # Freeze/crash detection settings
   max_server_log_silence_seconds: 60  # Detect freeze after 60s of no server logs
   process_check_interval: 2  # Check process health every 2 seconds
@@ -93,8 +93,8 @@ batch:
   compress_archives: false  # Whether to compress batch outputs to .zip
   max_generation_retries: 3  # Maximum retries for failed generation phases
   max_simulation_retries: 1  # Maximum retries for failed simulations
-  simulation_timeout_first: 300  # Timeout for first simulation attempt (seconds)
-  simulation_timeout_retry: 900  # Timeout for retry attempts (seconds, longer)
+  simulation_timeout_first: 3600  # Timeout for first simulation attempt (1 hour - rely on 90s no-progress timeout)
+  simulation_timeout_retry: 3600  # Timeout for retry attempts (1 hour - rely on 90s no-progress timeout)
   keep_intermediates: true  # Keep intermediate files (scene_detail_agent/, concept_N/)
 
 # Google Drive integration configuration

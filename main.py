@@ -262,7 +262,7 @@ def simulate_story(
         config: System configuration
         story_id: Story identifier (8-char UUID)
         scene_id: Optional scene identifier for scene-specific simulation
-        timeout_seconds: Optional timeout override (default: 600)
+        timeout_seconds: Optional timeout override (default: 3600)
 
     Returns:
         True if simulation successful, False otherwise
@@ -1042,7 +1042,7 @@ Examples:
         '--timeout',
         type=int,
         metavar='SECONDS',
-        help='Simulation timeout in seconds (default: 600)'
+        help='Simulation timeout in seconds (default: 3600)'
     )
 
     parser.add_argument(

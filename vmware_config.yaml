@@ -61,7 +61,7 @@ orchestration:
     display_update_interval_seconds: 5
 
     # Consider worker hung if log file hasn't changed in this many seconds
-    log_silence_threshold_seconds: 600  # 10 minutes
+    log_silence_threshold_seconds: 3600  # 10 minutes
 
     # Maximum number of restart attempts per worker before giving up
     max_restart_attempts: 3
@@ -111,7 +111,7 @@ batch_defaults:
   # Retry parameters
   generation_retries: 3
   simulation_retries: 3
-  simulation_timeout: 600  # seconds
+  simulation_timeout: 3600  # seconds
 
   # Always collect artifacts (videos + logs)
   collect_simulation_artifacts: true
