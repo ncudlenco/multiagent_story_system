@@ -1097,6 +1097,7 @@ class BatchController:
                 story_status.all_simulation_results.append(sim_result)
 
                 # Collect artifacts (regardless of success/failure)
+                collected = {}
                 try:
                     # Calculate GEST basename (without .json extension)
                     gest_basename = f"{story_status.story_id}_t{take_number}_s{sim_number}_full"
@@ -1125,6 +1126,40 @@ class BatchController:
                         sim=sim_number,
                         error=str(e),
                         exc_info=True
+                    )
+
+                # Check for ERROR files in collected artifacts
+                if collected.get('has_error') or collected.get('has_timeout'):
+                    # Override MTA success - ERROR file indicates actual failure
+                    success = False
+                    sim_result.success = False
+
+                    error_files = collected.get('error_files', [])
+                    if collected.get('has_timeout'):
+                        error_msg = "MAX_STORY_TIME_EXCEEDED detected in simulation output"
+                        sim_result.timeout = True
+                    else:
+                        error_msg = "ERROR file detected in simulation output"
+
+                    # Read first ERROR file for details
+                    if error_files and error_files[0].exists():
+                        try:
+                            content = error_files[0].read_text(encoding='utf-8', errors='ignore').strip()
+                            # Get first few lines
+                            first_lines = '\n'.join(content.split('\n')[:5])
+                            if first_lines:
+                                error_msg = f"{error_msg}: {first_lines}"
+                        except Exception:
+                            pass
+
+                    sim_result.error_messages.append(error_msg)
+
+                    logger.warning(
+                        "error_file_detected_overriding_success",
+                        story_id=story_status.story_id,
+                        take=take_number,
+                        sim=sim_number,
+                        error_files=[str(f) for f in error_files]
                     )
 
                 if success:
@@ -1228,6 +1263,8 @@ class BatchController:
         """Classify simulation error for retry decision."""
         if is_timeout:
             return RetryableError.SIMULATION_TIMEOUT
+        elif "error file detected" in error_msg.lower() or "max_story_time_exceeded" in error_msg.lower():
+            return RetryableError.ERROR_FILE_DETECTED
         elif "startup" in error_msg.lower() or "mta" in error_msg.lower():
             return RetryableError.MTA_STARTUP_FAILED
         else:
