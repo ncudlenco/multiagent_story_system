@@ -324,6 +324,13 @@ Examples:
         default=None,
         help='Maximum regions to visit for simple_random generator (default: unlimited)'
     )
+    parser.add_argument(
+        '--episode-type',
+        type=str,
+        choices=['classroom', 'gym', 'garden', 'house'],
+        default=None,
+        help='Episode type to use for simple_random generator (default: random selection)'
+    )
 
     # Variation parameters
     parser.add_argument(
@@ -355,8 +362,8 @@ Examples:
     parser.add_argument(
         '--simulation-timeout',
         type=int,
-        default=600,
-        help='Simulation timeout in seconds (default: 600)'
+        default=3600,
+        help='Simulation timeout in seconds (default: 3600 - relies on 90s no-progress timeout)'
     )
     parser.add_argument(
         '--collect-simulation-artifacts',
@@ -669,7 +676,8 @@ Examples:
                 random_chains_per_actor=args.random_chains_per_actor,
                 random_seed=args.random_seed,
                 random_max_actors_per_region=args.random_max_actors_per_region,
-                random_max_regions=args.random_max_regions
+                random_max_regions=args.random_max_regions,
+                episode_type=args.episode_type
             )
 
             # Handle from-existing-stories mode

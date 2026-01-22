@@ -666,7 +666,7 @@ class SimpleGESTRandomGenerator:
     # ACTOR AND REGION MANAGEMENT
     # ============================================================================
 
-    def _select_random_episode_group(self) -> List[str]:
+    def _select_random_episode_group(self, episode_type: Optional[str] = None) -> List[str]:
         """
         Select a random group of linked episodes with equal probability across types.
 
@@ -674,26 +674,43 @@ class SimpleGESTRandomGenerator:
         1. Select episode type with equal probability (classroom, gym, garden, house)
         2. Select random episode within that type
 
+        Args:
+            episode_type: If specified, only select from this type (classroom, gym, garden, house).
+                          If None, select randomly with equal probability across types.
+
         Returns:
             List of episode names that are linked together
         """
-        # 1. Find available types (types with at least one episode in self.episodes)
-        available_types = [
-            episode_type for episode_type, episodes in EPISODE_TYPES.items()
-            if any(ep in self.episodes for ep in episodes)
-        ]
+        # If episode_type specified, validate and use it
+        if episode_type is not None:
+            if episode_type not in EPISODE_TYPES:
+                raise ValueError(f"Invalid episode_type '{episode_type}'. Must be one of: {list(EPISODE_TYPES.keys())}")
 
-        if not available_types:
-            # Fallback: return random single episode
-            return [random.choice(list(self.episodes.keys()))]
+            type_episodes = [ep for ep in EPISODE_TYPES[episode_type] if ep in self.episodes]
+            if not type_episodes:
+                raise ValueError(f"No episodes of type '{episode_type}' found in capabilities")
 
-        # 2. Select random type (equal probability across types)
-        selected_type = random.choice(available_types)
-        print(f"Selected episode type: {selected_type}")
+            selected_name = random.choice(type_episodes)
+            print(f"Using specified episode type: {episode_type}")
+        else:
+            # Original two-stage random selection
+            # 1. Find available types (types with at least one episode in self.episodes)
+            available_types = [
+                ep_type for ep_type, episodes in EPISODE_TYPES.items()
+                if any(ep in self.episodes for ep in episodes)
+            ]
 
-        # 3. Select random episode within that type
-        type_episodes = [ep for ep in EPISODE_TYPES[selected_type] if ep in self.episodes]
-        selected_name = random.choice(type_episodes)
+            if not available_types:
+                # Fallback: return random single episode
+                return [random.choice(list(self.episodes.keys()))]
+
+            # 2. Select random type (equal probability across types)
+            selected_type = random.choice(available_types)
+            print(f"Selected episode type: {selected_type}")
+
+            # 3. Select random episode within that type
+            type_episodes = [ep for ep in EPISODE_TYPES[selected_type] if ep in self.episodes]
+            selected_name = random.choice(type_episodes)
 
         # 4. Get linked episodes
         selected_episode = self.episodes[selected_name]
@@ -2232,7 +2249,8 @@ class SimpleGESTRandomGenerator:
 
     def generate(self, chains_per_actor: int = 3,
                  max_actors_per_region: Optional[int] = None,
-                 max_regions: Optional[int] = None) -> Dict[str, Any]:
+                 max_regions: Optional[int] = None,
+                 episode_type: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         Generate random GEST with X action chains per actor in separate locations.
 
@@ -2240,27 +2258,32 @@ class SimpleGESTRandomGenerator:
             chains_per_actor: Number of action chains to generate per actor
             max_actors_per_region: Maximum number of actors per region (None = unlimited)
             max_regions: Maximum number of regions to visit (None = unlimited)
+            episode_type: Episode type to use (classroom, gym, garden, house). None = random.
 
         Returns:
-            Complete GEST structure
+            Tuple of (gest_dict, metadata) where metadata contains:
+            - episodes: List[str] - episode names used
+            - num_actors: int - number of actors
+            - num_regions: int - number of unique regions visited
         """
         print("=" * 60)
         print("Generating Simple Random GEST")
         print("=" * 60)
 
-        generated = self._generate(chains_per_actor, max_actors_per_region, max_regions)
+        gest, metadata = self._generate(chains_per_actor, max_actors_per_region, max_regions, episode_type)
         while len(self.actors) == 0 and len(self.events) == 0:
             print("No actors or events generated, retrying...")
-            generated = self._generate(chains_per_actor, max_actors_per_region, max_regions)
+            gest, metadata = self._generate(chains_per_actor, max_actors_per_region, max_regions, episode_type)
 
-        return generated
+        return gest, metadata
 
     def _generate(self, chains_per_actor: int,
                   max_actors_per_region: Optional[int] = None,
-                  max_regions: Optional[int] = None) -> Dict[str, Any]:
+                  max_regions: Optional[int] = None,
+                  episode_type: Optional[str] = None) -> Dict[str, Any]:
         """Internal generate method with actor movement between regions"""
-        # 1. Select random episode group
-        episode_group = self._select_random_episode_group()
+        # 1. Select random episode group (with optional type filter)
+        episode_group = self._select_random_episode_group(episode_type)
         print(f"Final episode group: {episode_group}")
 
         # 1b. Initialize POI capacity tracker for selected episodes
@@ -2280,7 +2303,12 @@ class SimpleGESTRandomGenerator:
 
         if not regions:
             print("No regions with actions found!")
-            return self._build_gest()
+            metadata = {
+                'episodes': episode_group,
+                'num_actors': 0,
+                'num_regions': 0
+            }
+            return self._build_gest(), metadata
 
         # 3. Build region sequence (may include revisits)
         region_sequence = self._build_region_sequence(regions)
@@ -2499,7 +2527,7 @@ class SimpleGESTRandomGenerator:
         # This ensures ALL actors in region N complete ALL actions before ANY actor in region N+1 starts
         self._chain_region_visits(region_visit_data)
 
-        # 8. Build and return GEST
+        # 8. Build and return GEST with metadata
         gest = self._build_gest()
 
         print(f"\nGenerated GEST with:")
@@ -2507,7 +2535,14 @@ class SimpleGESTRandomGenerator:
         print(f"  - {len(self.events)} events")
         print(f"  - {len([r for r in self.temporal if r != 'starting_actions'])} temporal relations")
 
-        return gest
+        # Build metadata for folder naming
+        metadata = {
+            'episodes': episode_group,
+            'num_actors': len(self.actors),
+            'num_regions': len(set(r[1] for r in region_sequence))  # unique base regions
+        }
+
+        return gest, metadata
 
     # ============================================================================
     # GEST BUILDING
@@ -2576,6 +2611,13 @@ def main():
         default=None,
         help="Maximum number of regions to visit (default: unlimited, typically 1-4)"
     )
+    parser.add_argument(
+        "--episode-type",
+        type=str,
+        choices=["classroom", "gym", "garden", "house"],
+        default=None,
+        help="Episode type to use (classroom, gym, garden, house). Default: random selection"
+    )
 
     args = parser.parse_args()
 
@@ -2588,10 +2630,11 @@ def main():
     generator = SimpleGESTRandomGenerator(args.capabilities)
 
     # Generate GEST
-    gest = generator.generate(
+    gest, metadata = generator.generate(
         chains_per_actor=args.chains_per_actor,
         max_actors_per_region=args.max_actors_per_region,
-        max_regions=args.max_regions
+        max_regions=args.max_regions,
+        episode_type=args.episode_type
     )
 
     # Save to file
@@ -2602,6 +2645,7 @@ def main():
         json.dump(gest, f, indent=2)
 
     print(f"\nGEST saved to: {output_path}")
+    print(f"Metadata: episodes={metadata['episodes']}, actors={metadata['num_actors']}, regions={metadata['num_regions']}")
 
 
 if __name__ == "__main__":

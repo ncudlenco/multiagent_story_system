@@ -32,8 +32,8 @@ class BatchConfig:
     retry_phases: List[int] = field(default_factory=lambda: [1, 2, 3])
 
     # Simulation settings
-    simulation_timeout_first: int = 600  # seconds
-    simulation_timeout_retry: int = 900  # seconds (longer for retries)
+    simulation_timeout_first: int = 3600  # seconds (1 hour - rely on 90s no-progress timeout)
+    simulation_timeout_retry: int = 3600  # seconds (1 hour - rely on 90s no-progress timeout)
     collect_simulation_artifacts: bool = False  # Enable artifact collection (videos, logs)
 
     # Output settings
@@ -65,6 +65,7 @@ class BatchConfig:
     random_seed: Optional[int] = None  # Optional seed for reproducibility
     random_max_actors_per_region: Optional[int] = None  # Max actors per region (None = unlimited)
     random_max_regions: Optional[int] = None  # Max regions to visit (None = unlimited)
+    episode_type: Optional[str] = None  # Episode type filter (classroom, gym, garden, house). None = random
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -99,6 +100,7 @@ class BatchConfig:
             'random_seed': self.random_seed,
             'random_max_actors_per_region': self.random_max_actors_per_region,
             'random_max_regions': self.random_max_regions,
+            'episode_type': self.episode_type,
         }
 
     @classmethod
