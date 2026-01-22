@@ -1316,6 +1316,7 @@ class MTAController:
             "EndStory:PausePerformer",
             "has reached marker",
             "Move:wait - Timeout is",
+            "rerunning timer for marker",  # Actor actively moving toward marker
         ]
 
         action_detected = False
