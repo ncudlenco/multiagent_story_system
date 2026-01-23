@@ -62,6 +62,14 @@ class BatchController:
         self.config = config
         self.batch_config = batch_config
 
+        # Validate configuration dependencies
+        if batch_config.generate_description and not batch_config.collect_simulation_artifacts:
+            raise ValueError(
+                f"generate_description='{batch_config.generate_description}' requires "
+                "collect_simulation_artifacts=True.\n"
+                "       Textual description generation needs Timeframe data from artifact collection."
+            )
+
         # Initialize managers
         self.retry_manager = RetryManager(
             max_generation_retries=batch_config.max_generation_retries,
@@ -304,8 +312,10 @@ class BatchController:
                                 excluded_folders=excluded_names
                             )
 
-                        # Compress spatial_relations files before upload
+                        # Compress frame data before upload
                         self.artifact_collector.compress_spatial_relations(story_dir)
+                        self.artifact_collector.compress_rgb_frames(story_dir)
+                        self.artifact_collector.compress_segmentation_frames(story_dir)
 
                         logger.info(
                             "uploading_story_to_drive",
@@ -498,10 +508,10 @@ class BatchController:
             )
 
             # Build meaningful folder name from metadata
-            # Format: category_maxNactors_N_action_chains_storyid
+            # Format: category_maxNactors_maxNregions_Naction_chains_storyid
             category = metadata['category']
             chains = metadata['chains_per_actor']
-            folder_name = f"{category}_max{metadata['num_actors']}actors_{chains}_action_chains_{story_status.story_id}"
+            folder_name = f"{category}_max{metadata['num_actors']}actors_max{metadata['num_regions']}regions_{chains}action_chains_{story_status.story_id}"
 
             # Update story_status with new folder name
             batch_output_dir = Path(self.batch_config.output_base_dir) / self.batch_state.batch_id

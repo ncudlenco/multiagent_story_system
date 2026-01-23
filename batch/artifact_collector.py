@@ -572,3 +572,133 @@ class ArtifactCollector:
             )
 
         return zip_paths
+
+    def compress_rgb_frames(self, story_dir: Path) -> List[Path]:
+        """
+        Compress RGB frame files into zip archives in place.
+
+        Creates rgb_frames.zip in each folder containing
+        *_screenshot.jpg files, then deletes the originals.
+
+        Args:
+            story_dir: Path to story output directory
+
+        Returns:
+            List of created zip file paths
+        """
+        from collections import defaultdict
+
+        # Find all screenshot files
+        screenshot_files = list(story_dir.rglob("*_screenshot.jpg"))
+
+        if not screenshot_files:
+            logger.debug("no_rgb_frame_files", story_dir=str(story_dir))
+            return []
+
+        # Group files by their folder
+        files_by_folder: Dict[Path, List[Path]] = defaultdict(list)
+        for file_path in screenshot_files:
+            files_by_folder[file_path.parent].append(file_path)
+
+        logger.info(
+            "compressing_rgb_frames",
+            total_files=len(screenshot_files),
+            folder_count=len(files_by_folder),
+            story_dir=str(story_dir)
+        )
+
+        zip_paths = []
+        try:
+            for folder, files in files_by_folder.items():
+                zip_path = folder / "rgb_frames.zip"
+
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for file_path in files:
+                        zf.write(file_path, file_path.name)
+
+                # Delete original files
+                for file_path in files:
+                    file_path.unlink()
+
+                zip_paths.append(zip_path)
+
+            logger.info(
+                "rgb_frames_compressed",
+                zip_count=len(zip_paths),
+                original_count=len(screenshot_files)
+            )
+
+        except Exception as e:
+            logger.error(
+                "rgb_frames_compression_failed",
+                story_dir=str(story_dir),
+                error=str(e),
+                exc_info=True
+            )
+
+        return zip_paths
+
+    def compress_segmentation_frames(self, story_dir: Path) -> List[Path]:
+        """
+        Compress segmentation frame files into zip archives in place.
+
+        Creates segmentation_frames.zip in each folder containing
+        *_segmentation.png files, then deletes the originals.
+
+        Args:
+            story_dir: Path to story output directory
+
+        Returns:
+            List of created zip file paths
+        """
+        from collections import defaultdict
+
+        # Find all segmentation files
+        segmentation_files = list(story_dir.rglob("*_segmentation.png"))
+
+        if not segmentation_files:
+            logger.debug("no_segmentation_frame_files", story_dir=str(story_dir))
+            return []
+
+        # Group files by their folder
+        files_by_folder: Dict[Path, List[Path]] = defaultdict(list)
+        for file_path in segmentation_files:
+            files_by_folder[file_path.parent].append(file_path)
+
+        logger.info(
+            "compressing_segmentation_frames",
+            total_files=len(segmentation_files),
+            folder_count=len(files_by_folder),
+            story_dir=str(story_dir)
+        )
+
+        zip_paths = []
+        try:
+            for folder, files in files_by_folder.items():
+                zip_path = folder / "segmentation_frames.zip"
+
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for file_path in files:
+                        zf.write(file_path, file_path.name)
+
+                # Delete original files
+                for file_path in files:
+                    file_path.unlink()
+
+                zip_paths.append(zip_path)
+
+            logger.info(
+                "segmentation_frames_compressed",
+                zip_count=len(zip_paths),
+                original_count=len(segmentation_files)
+            )
+
+        except Exception as e:
+            logger.error(
+                "segmentation_frames_compression_failed",
+                story_dir=str(story_dir),
+                error=str(e),
+                exc_info=True
+            )
+
+        return zip_paths
