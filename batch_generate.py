@@ -45,7 +45,7 @@ def load_existing_stories(folder_path: str) -> List[Dict[str, Any]]:
         for story_dir in sorted(folder.glob("story_*")):
             # Find all takes
             takes = []
-            detail_dir = story_dir / "detail"
+            detail_dir = story_dir / "detailed_graph"
 
             if detail_dir.exists():
                 for take_dir in sorted(detail_dir.glob("take*")):

@@ -449,9 +449,10 @@ class BatchController:
             )
 
             # Build meaningful folder name from metadata
-            # Format: episodes_Nactors_Nregions_storyid
-            episodes_str = "_".join(metadata['episodes'][:2])  # First 2 episodes max
-            folder_name = f"{episodes_str}_{metadata['num_actors']}actors_{metadata['num_regions']}regions_{story_status.story_id}"
+            # Format: category_maxNactors_N_action_chains_storyid
+            category = metadata['category']
+            chains = metadata['chains_per_actor']
+            folder_name = f"{category}_max{metadata['num_actors']}actors_{chains}_action_chains_{story_status.story_id}"
 
             # Update story_status with new folder name
             batch_output_dir = Path(self.batch_config.output_base_dir) / self.batch_state.batch_id
@@ -460,7 +461,7 @@ class BatchController:
 
             # Create nested directory structure matching LLM format
             # This ensures compatibility with simulation code
-            take_dir = story_dir / "detail" / "take1"
+            take_dir = story_dir / "detailed_graph" / "take1"
             try:
                 take_dir.mkdir(parents=True, exist_ok=True)
             except FileExistsError:
@@ -982,7 +983,7 @@ class BatchController:
 
         # Simulate each take
         for take_num in range(1, self.batch_config.same_story_generation_variations + 1):
-            take_dir = story_dir / "detail" / f"take{take_num}"
+            take_dir = story_dir / "detailed_graph" / f"take{take_num}"
             detail_gest_path = take_dir / "detail_gest.json"
 
             if not detail_gest_path.exists():
@@ -2151,7 +2152,7 @@ class BatchController:
                         continue
 
                     # Create take directory in batch output
-                    take_dir = story_output_dir / "detail" / f"take{take_idx}"
+                    take_dir = story_output_dir / "detailed_graph" / f"take{take_idx}"
                     try:
                         take_dir.mkdir(parents=True, exist_ok=True)
                     except FileExistsError:

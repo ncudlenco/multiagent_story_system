@@ -632,6 +632,28 @@ class SimpleGESTRandomGenerator:
                 return action
         return None
 
+    def _get_episode_category(self, episode_group: List[str]) -> str:
+        """
+        Get concatenated category string from episode group.
+
+        Maps each episode to its category using EPISODE_TYPES and returns
+        unique categories joined by underscore.
+
+        Args:
+            episode_group: List of episode names
+
+        Returns:
+            Concatenated category string (e.g., 'garden_house', 'classroom')
+        """
+        categories = []
+        for episode_name in episode_group:
+            for category, episodes in EPISODE_TYPES.items():
+                if episode_name in episodes:
+                    if category not in categories:
+                        categories.append(category)
+                    break
+        return "_".join(categories) if categories else "unknown"
+
     def _has_spawnable_only_actions(self, poi: POIInfo) -> bool:
         """
         Filter out POIs that contain spawnable-only actions.
@@ -2573,7 +2595,9 @@ class SimpleGESTRandomGenerator:
         metadata = {
             'episodes': episode_group,
             'num_actors': len(self.actors),
-            'num_regions': len(set(r[1] for r in region_sequence))  # unique base regions
+            'num_regions': len(set(r[1] for r in region_sequence)),  # unique base regions
+            'category': self._get_episode_category(episode_group),
+            'chains_per_actor': chains_per_actor
         }
 
         return gest, metadata

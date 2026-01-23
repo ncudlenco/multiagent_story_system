@@ -124,13 +124,17 @@ class ArtifactCollector:
         sim_dir = story_dir / "simulations" / f"take{take_number}_sim{sim_number}"
         sim_dir.mkdir(parents=True, exist_ok=True)
 
+        # Create logs subdirectory for MTA logs
+        logs_dir = sim_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
         artifacts = {}
 
         try:
-            # Copy MTA logs
+            # Copy MTA logs to logs/ subfolder
             server_log_path = Path(self.mta_controller.get_server_log_path())
             if server_log_path.exists():
-                dest = sim_dir / "server.log"
+                dest = logs_dir / "server.log"
                 shutil.copy2(server_log_path, dest)
                 artifacts['server_log'] = dest
                 logger.debug(
@@ -143,7 +147,7 @@ class ArtifactCollector:
 
             client_log_path = Path(self.mta_controller.get_client_log_path())
             if client_log_path.exists():
-                dest = sim_dir / "clientscript.log"
+                dest = logs_dir / "clientscript.log"
                 shutil.copy2(client_log_path, dest)
                 artifacts['client_log'] = dest
                 logger.debug(
@@ -169,13 +173,23 @@ class ArtifactCollector:
                     sim=sim_number
                 )
 
-                # Copy recursively everything inside .json_out to the sim_dir
+                # Flatten UUID folder contents to sim_dir root and rename spectator* to camera*
                 for item in json_out_dir.iterdir():
-                    dest_item = sim_dir / item.name
                     if item.is_dir():
-                        shutil.copytree(item, dest_item)
+                        # UUID folder - flatten its contents to sim_dir
+                        for subitem in item.iterdir():
+                            # Rename spectator folders to camera
+                            dest_name = subitem.name
+                            if dest_name.startswith("spectator"):
+                                dest_name = dest_name.replace("spectator", "camera")
+                            dest_item = sim_dir / dest_name
+                            if subitem.is_dir():
+                                shutil.copytree(subitem, dest_item)
+                            else:
+                                shutil.copy2(subitem, dest_item)
                     else:
-                        shutil.copy2(item, dest_item)
+                        # Non-directory file - copy directly to sim_dir
+                        shutil.copy2(item, sim_dir / item.name)
 
                 # Clean up inside json_out, delete the whole folder
                 shutil.rmtree(json_out_dir)

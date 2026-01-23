@@ -1709,10 +1709,10 @@ def run_detail_workflow(
 
     # Add take subdirectory structure for variations
     if take_number > 1:
-        output_dir = base_dir / "detail" / f"take{take_number}"
+        output_dir = base_dir / "detailed_graph" / f"take{take_number}"
     elif output_dir_override:
         # Batch mode always uses detail/take1 structure
-        output_dir = base_dir / "detail" / f"take{take_number}"
+        output_dir = base_dir / "detailed_graph" / f"take{take_number}"
     else:
         # Backward compatibility: take 1 in normal mode goes to root
         output_dir = base_dir
