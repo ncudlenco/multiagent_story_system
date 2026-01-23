@@ -119,6 +119,34 @@ batch_defaults:
   # Narrative seeds (optional)
   seeds: []
 
+# Code Sync Configuration (for --update-master command)
+code_sync:
+  # GitHub repositories to sync
+  repositories:
+    - name: "sv2l"
+      url: "https://github.com/ncudlenco/mta-sim.git"
+      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\sv2l"
+    - name: "multiagent_story_system"
+      url: "https://github.com/ncudlenco/multiagent_story_system.git"
+      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system"
+    - name: "VideoDescriptionGEST"
+      url: "https://github.com/MihaiMasala/VideoDescriptionGEST"
+      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\VideoDescriptionGEST"
+
+  # Files to copy from host to guest after cloning
+  copy_files:
+    - host: ".env"
+      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system\\.env"
+
+  # Directories to copy from host to guest after cloning
+  copy_dirs:
+    - host: "credentials"
+      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system\\credentials"
+
+  # Update snapshot after sync
+  update_snapshot: true
+  snapshot_name: "Ready"
+
 # Logging
 logging:
   # Log level for orchestrator (DEBUG, INFO, WARNING, ERROR)
