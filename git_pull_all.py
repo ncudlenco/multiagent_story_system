@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Git Pull Script for sv2l and multiagent_story_system repositories.
+Git Pull Script for sv2l, multiagent_story_system, and VideoDescriptionGEST repositories.
 
-Pulls the latest changes from both repositories and reports status.
+Pulls the latest changes from all repositories and reports status.
 """
 
 import argparse
@@ -204,7 +204,7 @@ def process_repo(repo_path: Path, repo_name: str, stash: bool = False) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Pull latest changes from sv2l and multiagent_story_system repositories"
+        description="Pull latest changes from sv2l, multiagent_story_system, and VideoDescriptionGEST repositories"
     )
     parser.add_argument(
         "--stash",
@@ -220,6 +220,7 @@ def main():
     repos = {
         "sv2l": script_dir.parent / "sv2l",
         "multiagent_story_system": script_dir,
+        "VideoDescriptionGEST": script_dir.parent / "VideoDescriptionGEST",
     }
 
     print(f"{Colors.BOLD}=== Git Pull All Repositories ==={Colors.RESET}")
