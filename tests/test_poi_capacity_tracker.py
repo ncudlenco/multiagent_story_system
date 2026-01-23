@@ -206,9 +206,13 @@ class TestRegionTransitionOrdering:
             if not source or not target:
                 continue
 
-            # Extract actor IDs (format: "a0_123" -> "a0")
-            source_actor = source.split('_')[0]
-            target_actor = target.split('_')[0]
+            # Extract actor IDs from event's Entities field
+            source_event = gest.get(source, {})
+            target_event = gest.get(target, {})
+            source_entities = source_event.get("Entities", [])
+            target_entities = target_event.get("Entities", [])
+            source_actor = source_entities[0] if source_entities else ""
+            target_actor = target_entities[0] if target_entities else ""
 
             if source_actor == target_actor:
                 same_actor_violations.append({
@@ -542,7 +546,7 @@ class TestSitDownTogetherLinking:
             # Skip Exists events - they are declarations, not actions
             if event.get("Action") == "Exists":
                 continue
-            # Only include events with actor IDs (format: a0_123)
+            # Only include action events (format: a0_1, a0_2, etc.)
             if not event_id.startswith("a") or "_" not in event_id:
                 continue
             all_events.add(event_id)

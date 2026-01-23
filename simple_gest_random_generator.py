@@ -2563,6 +2563,7 @@ class SimpleGESTRandomGenerator:
                         # Cross-mover constraints: each pre-Move BEFORE each other mover's Move
                         cross_mover_count = 0
                         for pre_move_event in mover_pre_move_events:
+                            # Get actor from event ID (format: a0_1 -> a0)
                             pre_move_actor = pre_move_event.split('_')[0]
                             for move_event in mover_move_events:
                                 move_actor = move_event.split('_')[0]

@@ -112,7 +112,7 @@ def count_chains_per_actor(gest_data: Dict[str, Any]) -> Dict[str, int]:
         if action in ("Exists", "Move"):
             continue
 
-        # Extract actor from event_id (e.g., "a0_1" -> "a0")
+        # Extract actor from event ID (format: a0_1 -> a0)
         if "_" in event_id:
             actor_id = event_id.split("_")[0]
             if actor_id.startswith("a"):
