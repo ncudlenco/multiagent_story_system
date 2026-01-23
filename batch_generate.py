@@ -155,6 +155,9 @@ Examples:
   # Generate 5 stories
   python batch_generate.py --output-folder batch_out/ --story-number 5
 
+  # Generate exactly 5 successful stories (keep going until 5 succeed)
+  python batch_generate.py --output-folder batch_out/ --story-number 5 --ensure-target
+
   # With variations (2 takes, 3 sims per take)
   python batch_generate.py --output-folder batch_out/ --story-number 3 \\
     --same-story-generation-variations 2 \\
@@ -286,6 +289,11 @@ Examples:
         '--skip-simulation',
         action='store_true',
         help='Skip MTA simulation phase (generation only, for text file mode)'
+    )
+    parser.add_argument(
+        '--ensure-target',
+        action='store_true',
+        help='Keep generating stories until the target number of successful stories is reached'
     )
     parser.add_argument(
         '--seeds',
@@ -672,6 +680,7 @@ Examples:
                 keep_local=args.keep_local,
                 parallel_workers=args.parallel_workers,
                 skip_simulation=args.skip_simulation,
+                ensure_target=args.ensure_target,
                 generator_type=args.generator_type,
                 random_chains_per_actor=args.random_chains_per_actor,
                 random_seed=args.random_seed,
@@ -761,11 +770,13 @@ Examples:
                 print(f"\n{'='*70}")
                 print(f"BATCH MODE: Generate & Simulate Stories")
                 print(f"{'='*70}")
-                print(f"Stories: {args.story_number}")
+                print(f"Stories: {args.story_number}" + (" (ensure target)" if args.ensure_target else ""))
                 print(f"Actors: {args.num_actors} protagonists + {args.num_extras} extras")
                 print(f"Scenes: {args.scene_number}")
                 print(f"Generation variations: {args.same_story_generation_variations}")
                 print(f"Simulation variations: {args.same_story_simulation_variations}")
+                if args.ensure_target:
+                    print(f"Mode: Keep generating until {args.story_number} successful stories")
                 print(f"Output: {args.output_folder}\n")
 
                 # Create and run batch controller
@@ -838,9 +849,21 @@ Examples:
         print(f"BATCH COMPLETE")
         print(f"{'='*70}")
         print(f"Batch ID: {batch_state.batch_id}")
-        print(f"Success: {batch_state.success_count}/{len(batch_state.stories)} "
-              f"({batch_state.success_count/len(batch_state.stories)*100:.1f}%)")
-        print(f"Failed: {batch_state.failure_count}/{len(batch_state.stories)}")
+
+        # Show summary based on ensure_target mode
+        if batch_state.config.ensure_target:
+            target = batch_state.config.num_stories
+            total_attempts = len(batch_state.stories)
+            print(f"Target: {target} successful stories")
+            print(f"Achieved: {batch_state.success_count}/{target} "
+                  f"({'✓ target reached' if batch_state.success_count >= target else 'target not reached'})")
+            print(f"Failed: {batch_state.failure_count} (extra attempts)")
+            print(f"Total Attempts: {total_attempts}")
+        else:
+            print(f"Success: {batch_state.success_count}/{len(batch_state.stories)} "
+                  f"({batch_state.success_count/len(batch_state.stories)*100:.1f}%)")
+            print(f"Failed: {batch_state.failure_count}/{len(batch_state.stories)}")
+
         print(f"Total Generation Retries: {batch_state.total_generation_retries}")
         print(f"Total Simulation Retries: {batch_state.total_simulation_retries}")
         print(f"\nOutput: {batch_state.batch_output_dir}")

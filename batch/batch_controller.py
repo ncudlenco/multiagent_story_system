@@ -175,9 +175,50 @@ class BatchController:
                 # Continue batch even if Drive fails
                 gdrive_uploader = None
 
-        # Process each story sequentially
-        for i, story_status in enumerate(self.batch_state.stories):
-            self.batch_state.current_story_index = i
+        # Process stories
+        # When ensure_target is True, keep generating until we have enough successes
+        target = self.batch_config.num_stories
+        ensure_target = self.batch_config.ensure_target
+        story_index = 0
+
+        while True:
+            # Check termination conditions
+            if ensure_target:
+                # Stop when we have enough successes
+                if self.batch_state.success_count >= target:
+                    logger.info(
+                        "target_success_count_reached",
+                        target=target,
+                        success_count=self.batch_state.success_count,
+                        total_attempts=len(self.batch_state.stories)
+                    )
+                    break
+            else:
+                # Original behavior: stop after processing all pre-created stories
+                if story_index >= len(self.batch_state.stories):
+                    break
+
+            # Create new StoryStatus if needed (when ensure_target adds extra attempts)
+            if story_index >= len(self.batch_state.stories):
+                story_number = story_index + 1
+                new_story_id = uuid.uuid4().hex[:8]
+                new_story = StoryStatus(
+                    story_id=new_story_id,
+                    story_number=story_number,
+                    status='pending',
+                    output_dir=str(Path(self.batch_state.batch_output_dir) / f"story_{story_number:05d}_{new_story_id}")
+                )
+                self.batch_state.stories.append(new_story)
+                logger.info(
+                    "created_additional_story_for_target",
+                    story_number=story_number,
+                    story_id=new_story_id,
+                    current_successes=self.batch_state.success_count,
+                    target=target
+                )
+
+            story_status = self.batch_state.stories[story_index]
+            self.batch_state.current_story_index = story_index
 
             try:
                 logger.info(
@@ -339,6 +380,9 @@ class BatchController:
                     reason="Failed stories are not uploaded"
                 )
 
+            # Move to next story
+            story_index += 1
+
         # Finalize batch
         self.batch_state.completed_at = datetime.now().isoformat()
         self.batch_state.update_progress()
@@ -355,14 +399,19 @@ class BatchController:
 
         self._save_state()
 
-        logger.info(
-            "batch_completed",
-            batch_id=batch_id,
-            success_count=self.batch_state.success_count,
-            failure_count=self.batch_state.failure_count,
-            total_generation_retries=self.batch_state.total_generation_retries,
-            total_simulation_retries=self.batch_state.total_simulation_retries
-        )
+        # Log completion with ensure_target info if applicable
+        log_kwargs = {
+            "batch_id": batch_id,
+            "success_count": self.batch_state.success_count,
+            "failure_count": self.batch_state.failure_count,
+            "total_generation_retries": self.batch_state.total_generation_retries,
+            "total_simulation_retries": self.batch_state.total_simulation_retries,
+        }
+        if ensure_target:
+            log_kwargs["ensure_target"] = True
+            log_kwargs["target"] = target
+            log_kwargs["total_attempts"] = len(self.batch_state.stories)
+        logger.info("batch_completed", **log_kwargs)
 
         return self.batch_state
 
@@ -1392,16 +1441,60 @@ class BatchController:
         if not self.batch_state:
             raise ValueError("No batch state loaded")
 
+        # Check ensure_target mode
+        target = self.batch_config.num_stories
+        ensure_target = self.batch_config.ensure_target
+
         logger.info(
             "batch_resumed",
             batch_id=self.batch_state.batch_id,
             current_index=self.batch_state.current_story_index,
-            remaining=len(self.batch_state.stories) - self.batch_state.current_story_index
+            remaining=len(self.batch_state.stories) - self.batch_state.current_story_index,
+            ensure_target=ensure_target,
+            current_successes=self.batch_state.success_count,
+            target=target
         )
 
-        # Continue from current index
-        for i in range(self.batch_state.current_story_index, len(self.batch_state.stories)):
-            story_status = self.batch_state.stories[i]
+        # Continue from current index with ensure_target support
+        story_index = self.batch_state.current_story_index
+
+        while True:
+            # Check termination conditions
+            if ensure_target:
+                # Stop when we have enough successes
+                if self.batch_state.success_count >= target:
+                    logger.info(
+                        "target_success_count_reached",
+                        target=target,
+                        success_count=self.batch_state.success_count,
+                        total_attempts=len(self.batch_state.stories)
+                    )
+                    break
+            else:
+                # Original behavior: stop after processing all stories
+                if story_index >= len(self.batch_state.stories):
+                    break
+
+            # Create new StoryStatus if needed (when ensure_target adds extra attempts)
+            if story_index >= len(self.batch_state.stories):
+                story_number = story_index + 1
+                new_story_id = uuid.uuid4().hex[:8]
+                new_story = StoryStatus(
+                    story_id=new_story_id,
+                    story_number=story_number,
+                    status='pending',
+                    output_dir=str(Path(self.batch_state.batch_output_dir) / f"story_{story_number:05d}_{new_story_id}")
+                )
+                self.batch_state.stories.append(new_story)
+                logger.info(
+                    "created_additional_story_for_target",
+                    story_number=story_number,
+                    story_id=new_story_id,
+                    current_successes=self.batch_state.success_count,
+                    target=target
+                )
+
+            story_status = self.batch_state.stories[story_index]
 
             # Skip already completed stories
             if story_status.status in ['success', 'failed']:
@@ -1410,10 +1503,11 @@ class BatchController:
                     story_number=story_status.story_number,
                     status=story_status.status
                 )
+                story_index += 1
                 continue
 
             # Process story (same logic as run_batch)
-            self.batch_state.current_story_index = i
+            self.batch_state.current_story_index = story_index
 
             try:
                 logger.info(
@@ -1469,6 +1563,9 @@ class BatchController:
                 self._cleanup_failed_story(story_status, error_reason=f"Critical exception: {str(e)}")
                 self._save_state()
 
+            # Move to next story
+            story_index += 1
+
         # Finalize
         self.batch_state.completed_at = datetime.now().isoformat()
         self.batch_state.update_progress()
@@ -1485,12 +1582,17 @@ class BatchController:
 
         self._save_state()
 
-        logger.info(
-            "batch_resume_completed",
-            batch_id=self.batch_state.batch_id,
-            success_count=self.batch_state.success_count,
-            failure_count=self.batch_state.failure_count
-        )
+        # Log completion with ensure_target info if applicable
+        log_kwargs = {
+            "batch_id": self.batch_state.batch_id,
+            "success_count": self.batch_state.success_count,
+            "failure_count": self.batch_state.failure_count,
+        }
+        if ensure_target:
+            log_kwargs["ensure_target"] = True
+            log_kwargs["target"] = target
+            log_kwargs["total_attempts"] = len(self.batch_state.stories)
+        logger.info("batch_resume_completed", **log_kwargs)
 
         return self.batch_state
 

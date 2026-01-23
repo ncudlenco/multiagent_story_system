@@ -57,6 +57,9 @@ class BatchConfig:
     parallel_workers: Optional[int] = None  # Number of parallel workers (None = auto-detect CPU count)
     skip_simulation: bool = False  # Skip MTA simulation phase (generation only)
 
+    # Target success mode
+    ensure_target: bool = False  # Keep generating until num_stories successes achieved
+
     # Generator selection
     generator_type: str = "llm"  # "llm" or "simple_random"
 
@@ -95,6 +98,7 @@ class BatchConfig:
             'from_text_files_path': self.from_text_files_path,
             'parallel_workers': self.parallel_workers,
             'skip_simulation': self.skip_simulation,
+            'ensure_target': self.ensure_target,
             'generator_type': self.generator_type,
             'random_chains_per_actor': self.random_chains_per_actor,
             'random_seed': self.random_seed,
