@@ -491,3 +491,23 @@ def export_proto_graph_from_dict(
             exc_info=True
         )
         return False
+
+
+if __name__ == "__main__":
+    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Convert GEST to proto-graph format")
+    parser.add_argument("--gest", required=True, help="Path to detail_gest.json")
+    parser.add_argument("--mapping", required=True, help="Path to event_frame_mapping.json")
+    parser.add_argument("--output", required=True, help="Output path for proto-graph.json")
+
+    args = parser.parse_args()
+
+    success = export_proto_graph(
+        gest_path=Path(args.gest),
+        event_frame_mapping_path=Path(args.mapping),
+        output_path=Path(args.output)
+    )
+
+    sys.exit(0 if success else 1)

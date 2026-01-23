@@ -155,3 +155,23 @@ def generate_textual_description(
             exc_info=True
         )
         return False
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate textual descriptions from proto-graph")
+    parser.add_argument("--proto-graph", required=True, help="Path to proto-graph.json")
+    parser.add_argument("--sim-dir", required=True, help="Path to simulation directory (output location)")
+    parser.add_argument("--mode", choices=["prompt", "full"], default="prompt",
+                        help="prompt=GPT prompt only, full=prompt+GPT description")
+
+    args = parser.parse_args()
+
+    success = generate_textual_description(
+        sim_dir=Path(args.sim_dir),
+        proto_graph_path=Path(args.proto_graph),
+        mode=args.mode
+    )
+
+    sys.exit(0 if success else 1)
