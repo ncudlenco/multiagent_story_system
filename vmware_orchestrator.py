@@ -19,7 +19,7 @@ import shutil
 import json
 import yaml
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 import structlog
 
