@@ -1221,6 +1221,22 @@ class BatchController:
                         attempt=attempt,
                         duration=sim_duration
                     )
+
+                    # Export proto-graph (post-process GEST with frame mapping)
+                    self._export_proto_graph(
+                        story_status=story_status,
+                        take_number=take_number,
+                        sim_number=sim_number
+                    )
+
+                    # Generate textual description if enabled
+                    if self.batch_state.config.generate_description:
+                        self._generate_textual_description(
+                            story_status=story_status,
+                            take_number=take_number,
+                            sim_number=sim_number
+                        )
+
                     return True
 
                 # Simulation failed
@@ -1308,6 +1324,164 @@ class BatchController:
             return RetryableError.LLM_API_ERROR
         else:
             return RetryableError.WARNING_DETECTED
+
+    def _export_proto_graph(
+        self,
+        story_status: StoryStatus,
+        take_number: int,
+        sim_number: int
+    ) -> bool:
+        """
+        Export proto-graph.json after successful simulation.
+
+        Transforms GEST to proto-graph format with:
+        - Object Types: "Chair" → "id:0.0-class:Chair"
+        - Timeframes: Populated from event_frame_mapping.json
+
+        Args:
+            story_status: Story status tracker
+            take_number: Take number
+            sim_number: Simulation number
+
+        Returns:
+            True if export successful
+        """
+        try:
+            from utils.proto_graph_exporter import export_proto_graph
+
+            story_dir = Path(story_status.output_dir)
+            take_dir = story_dir / "detailed_graph" / f"take{take_number}"
+            sim_dir = story_dir / "simulations" / f"take{take_number}_sim{sim_number}"
+
+            # Paths
+            gest_path = take_dir / "detail_gest.json"
+            frame_mapping_path = sim_dir / "event_frame_mapping.json"
+            proto_graph_path = take_dir / "proto-graph.json"
+
+            if not gest_path.exists():
+                logger.warning(
+                    "proto_graph_export_skipped_no_gest",
+                    story_id=story_status.story_id,
+                    take=take_number,
+                    sim=sim_number,
+                    gest_path=str(gest_path)
+                )
+                return False
+
+            success = export_proto_graph(
+                gest_path=gest_path,
+                event_frame_mapping_path=frame_mapping_path,
+                output_path=proto_graph_path
+            )
+
+            if success:
+                logger.info(
+                    "proto_graph_exported",
+                    story_id=story_status.story_id,
+                    take=take_number,
+                    sim=sim_number,
+                    output_path=str(proto_graph_path)
+                )
+            else:
+                logger.warning(
+                    "proto_graph_export_failed",
+                    story_id=story_status.story_id,
+                    take=take_number,
+                    sim=sim_number
+                )
+
+            return success
+
+        except Exception as e:
+            logger.error(
+                "proto_graph_export_exception",
+                story_id=story_status.story_id,
+                take=take_number,
+                sim=sim_number,
+                error=str(e),
+                exc_info=True
+            )
+            return False
+
+    def _generate_textual_description(
+        self,
+        story_status: StoryStatus,
+        take_number: int,
+        sim_number: int
+    ) -> bool:
+        """
+        Generate textual description using VideoDescriptionGEST.
+
+        Creates textual_description/ folder with:
+        - engine_generated.txt (moved from camera1/labels.txt)
+        - prompt.txt (GPT prompt for description)
+        - description.txt (GPT-generated description, only in 'full' mode)
+
+        Args:
+            story_status: Story status tracker
+            take_number: Take number
+            sim_number: Simulation number
+
+        Returns:
+            True if generation successful
+        """
+        try:
+            from utils.textual_description_generator import generate_textual_description
+
+            story_dir = Path(story_status.output_dir)
+            take_dir = story_dir / "detailed_graph" / f"take{take_number}"
+            sim_dir = story_dir / "simulations" / f"take{take_number}_sim{sim_number}"
+
+            proto_graph_path = take_dir / "proto-graph.json"
+
+            if not proto_graph_path.exists():
+                logger.warning(
+                    "textual_description_skipped_no_proto_graph",
+                    story_id=story_status.story_id,
+                    take=take_number,
+                    sim=sim_number,
+                    proto_graph_path=str(proto_graph_path)
+                )
+                return False
+
+            # Get location from episode type config
+            location = self.batch_state.config.episode_type
+
+            success = generate_textual_description(
+                sim_dir=sim_dir,
+                proto_graph_path=proto_graph_path,
+                location=location,
+                mode=self.batch_state.config.generate_description
+            )
+
+            if success:
+                logger.info(
+                    "textual_description_generated",
+                    story_id=story_status.story_id,
+                    take=take_number,
+                    sim=sim_number,
+                    mode=self.batch_state.config.generate_description
+                )
+            else:
+                logger.warning(
+                    "textual_description_generation_failed",
+                    story_id=story_status.story_id,
+                    take=take_number,
+                    sim=sim_number
+                )
+
+            return success
+
+        except Exception as e:
+            logger.error(
+                "textual_description_exception",
+                story_id=story_status.story_id,
+                take=take_number,
+                sim=sim_number,
+                error=str(e),
+                exc_info=True
+            )
+            return False
 
     def _classify_simulation_error(self, error_msg: str, is_timeout: bool) -> RetryableError:
         """Classify simulation error for retry decision."""

@@ -70,6 +70,9 @@ class BatchConfig:
     random_max_regions: Optional[int] = None  # Max regions to visit (None = unlimited)
     episode_type: Optional[str] = None  # Episode type filter (classroom, gym, garden, house). None = random
 
+    # Textual description generation
+    generate_description: Optional[str] = None  # "prompt" or "full" for VideoDescriptionGEST integration
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -105,6 +108,7 @@ class BatchConfig:
             'random_max_actors_per_region': self.random_max_actors_per_region,
             'random_max_regions': self.random_max_regions,
             'episode_type': self.episode_type,
+            'generate_description': self.generate_description,
         }
 
     @classmethod

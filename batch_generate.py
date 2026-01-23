@@ -416,6 +416,14 @@ Examples:
         metavar='TAKE_NUMBER',
         help='Specific take to retry (used with --retry-story, default: all takes)'
     )
+    parser.add_argument(
+        '--generate-description',
+        type=str,
+        choices=['prompt', 'full'],
+        default=None,
+        metavar='MODE',
+        help='Generate textual descriptions: prompt=GPT prompt only, full=prompt+GPT description'
+    )
 
     args = parser.parse_args()
 
@@ -686,7 +694,8 @@ Examples:
                 random_seed=args.random_seed,
                 random_max_actors_per_region=args.random_max_actors_per_region,
                 random_max_regions=args.random_max_regions,
-                episode_type=args.episode_type
+                episode_type=args.episode_type,
+                generate_description=args.generate_description
             )
 
             # Handle from-existing-stories mode
