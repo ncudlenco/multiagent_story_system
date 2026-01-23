@@ -50,6 +50,7 @@ class Actor:
     id: str
     current_location: str
     state: ActorState
+    gender: int = 1  # 1=male, 2=female
     holding_object: Optional[str] = None
     sitting_on: Optional[str] = None  # Chair/object actor is sitting on
     lying_on: Optional[str] = None  # Bed/surface actor is lying on
@@ -498,7 +499,7 @@ class SimpleGESTRandomGenerator:
             "Timeframe": None,
             "Properties": {
                 "Name": f"Actor_{actor.id}",
-                "Gender": random.choice([1, 2])  #  1=male, 2=neutral
+                "Gender": actor.gender  # 1=male, 2=female
             }
         }
 
@@ -799,6 +800,9 @@ class SimpleGESTRandomGenerator:
             # Group POIs by region
             region_pois: Dict[str, List[POIInfo]] = {}
             for poi in episode.pois:
+                # Skip hallway region for classroom1 episode
+                if episode_name == "classroom1" and poi.region == "hallway":
+                    continue
                 # Include POIs with actions OR interactions_only
                 if poi.actions or poi.interactions_only:
                     if poi.region not in region_pois:
@@ -856,7 +860,8 @@ class SimpleGESTRandomGenerator:
                 actor = Actor(
                     id=actor_id,
                     current_location=region_name,
-                    state=ActorState.STANDING
+                    state=ActorState.STANDING,
+                    gender=random.choice([1, 2])  # 1=male, 2=female
                 )
                 actors.append(actor)
                 self.actors[actor_id] = actor
@@ -981,7 +986,8 @@ class SimpleGESTRandomGenerator:
             actor = Actor(
                 id=actor_id,
                 current_location=region_name,
-                state=ActorState.STANDING
+                state=ActorState.STANDING,
+                gender=random.choice([1, 2])  # 1=male, 2=female
             )
             actors.append(actor)
             self.actors[actor_id] = actor
@@ -1902,7 +1908,11 @@ class SimpleGESTRandomGenerator:
             # Also check if current actor has started their chain
             if partners and actor.last_event_id != actor.id:
                 partner = random.choice(partners)
-                interaction_type = random.choice(["Hug", "Kiss", "Talk", "Laugh"])
+                # Hug/Kiss only allowed between opposite genders
+                if actor.gender != partner.gender:
+                    interaction_type = random.choice(["Hug", "Kiss", "Talk", "Laugh"])
+                else:
+                    interaction_type = random.choice(["Talk", "Laugh"])
                 self._create_interaction(actor, partner, interaction_type, region, poi)
                 return True, poi.description, "SUCCESS"
             # If we can't create an interaction (actors not ready), fall through to other POI types
