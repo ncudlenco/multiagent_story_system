@@ -890,6 +890,11 @@ Examples:
             logger.error("batch_fully_failed")
             return 1
 
+    except ValueError as e:
+        logger.error("configuration_error", error=str(e))
+        print(f"\n[ERROR] Configuration error: {e}")
+        return 1
+
     except KeyboardInterrupt:
         logger.info("interrupted_by_user")
         print("\n\n[INTERRUPTED] Batch generation interrupted by user")
