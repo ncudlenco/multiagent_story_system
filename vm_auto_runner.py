@@ -24,6 +24,7 @@ import sys
 import subprocess
 import time
 import logging
+import ctypes
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -34,6 +35,123 @@ try:
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
+
+
+# Display resolution settings
+TARGET_RESOLUTION_WIDTH = 1280
+TARGET_RESOLUTION_HEIGHT = 720
+
+
+def set_display_resolution(width: int, height: int, logger: logging.Logger = None) -> bool:
+    """
+    Set Windows display resolution using the Windows API.
+
+    Args:
+        width: Target width in pixels
+        height: Target height in pixels
+        logger: Optional logger for output
+
+    Returns:
+        True if resolution was changed successfully
+    """
+    try:
+        # Windows API constants
+        DM_PELSWIDTH = 0x80000
+        DM_PELSHEIGHT = 0x100000
+        CDS_UPDATEREGISTRY = 0x01
+        CDS_TEST = 0x02
+        DISP_CHANGE_SUCCESSFUL = 0
+        DISP_CHANGE_RESTART = 1
+
+        # DEVMODE structure for display settings
+        class DEVMODE(ctypes.Structure):
+            _fields_ = [
+                ("dmDeviceName", ctypes.c_wchar * 32),
+                ("dmSpecVersion", ctypes.c_ushort),
+                ("dmDriverVersion", ctypes.c_ushort),
+                ("dmSize", ctypes.c_ushort),
+                ("dmDriverExtra", ctypes.c_ushort),
+                ("dmFields", ctypes.c_ulong),
+                ("dmPositionX", ctypes.c_long),
+                ("dmPositionY", ctypes.c_long),
+                ("dmDisplayOrientation", ctypes.c_ulong),
+                ("dmDisplayFixedOutput", ctypes.c_ulong),
+                ("dmColor", ctypes.c_short),
+                ("dmDuplex", ctypes.c_short),
+                ("dmYResolution", ctypes.c_short),
+                ("dmTTOption", ctypes.c_short),
+                ("dmCollate", ctypes.c_short),
+                ("dmFormName", ctypes.c_wchar * 32),
+                ("dmLogPixels", ctypes.c_ushort),
+                ("dmBitsPerPel", ctypes.c_ulong),
+                ("dmPelsWidth", ctypes.c_ulong),
+                ("dmPelsHeight", ctypes.c_ulong),
+                ("dmDisplayFlags", ctypes.c_ulong),
+                ("dmDisplayFrequency", ctypes.c_ulong),
+                ("dmICMMethod", ctypes.c_ulong),
+                ("dmICMIntent", ctypes.c_ulong),
+                ("dmMediaType", ctypes.c_ulong),
+                ("dmDitherType", ctypes.c_ulong),
+                ("dmReserved1", ctypes.c_ulong),
+                ("dmReserved2", ctypes.c_ulong),
+                ("dmPanningWidth", ctypes.c_ulong),
+                ("dmPanningHeight", ctypes.c_ulong),
+            ]
+
+        # Get current display settings
+        user32 = ctypes.windll.user32
+        devmode = DEVMODE()
+        devmode.dmSize = ctypes.sizeof(DEVMODE)
+
+        if not user32.EnumDisplaySettingsW(None, -1, ctypes.byref(devmode)):  # -1 = current
+            if logger:
+                logger.error("Failed to get current display settings")
+            return False
+
+        current_width = devmode.dmPelsWidth
+        current_height = devmode.dmPelsHeight
+
+        if logger:
+            logger.info(f"Current resolution: {current_width}x{current_height}")
+
+        # Check if already at target resolution
+        if current_width == width and current_height == height:
+            if logger:
+                logger.info(f"Resolution already set to {width}x{height}")
+            return True
+
+        # Set new resolution
+        devmode.dmPelsWidth = width
+        devmode.dmPelsHeight = height
+        devmode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT
+
+        # Test the change first
+        result = user32.ChangeDisplaySettingsW(ctypes.byref(devmode), CDS_TEST)
+        if result != DISP_CHANGE_SUCCESSFUL:
+            if logger:
+                logger.error(f"Resolution {width}x{height} is not supported (test failed)")
+            return False
+
+        # Apply the change
+        result = user32.ChangeDisplaySettingsW(ctypes.byref(devmode), CDS_UPDATEREGISTRY)
+
+        if result == DISP_CHANGE_SUCCESSFUL:
+            if logger:
+                logger.info(f"Resolution changed to {width}x{height}")
+            return True
+        elif result == DISP_CHANGE_RESTART:
+            if logger:
+                logger.warning(f"Resolution change requires restart")
+            return True
+        else:
+            if logger:
+                logger.error(f"Failed to change resolution (error code: {result})")
+            return False
+
+    except Exception as e:
+        if logger:
+            logger.error(f"Failed to set display resolution: {e}")
+        return False
 
 
 # Configuration
@@ -341,6 +459,13 @@ def main() -> int:
         logger.info("=" * 60)
         logger.info("VM Auto Runner - Autonomous Worker Startup")
         logger.info("=" * 60)
+
+        # Set display resolution to 1280x720 for video capture
+        logger.info(f"Setting display resolution to {TARGET_RESOLUTION_WIDTH}x{TARGET_RESOLUTION_HEIGHT}...")
+        if set_display_resolution(TARGET_RESOLUTION_WIDTH, TARGET_RESOLUTION_HEIGHT, logger):
+            logger.info("Display resolution configured successfully")
+        else:
+            logger.warning("Failed to set display resolution, continuing anyway")
 
         # Wait for shared folders
         if not wait_for_shared_folders(logger):

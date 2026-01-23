@@ -781,8 +781,13 @@ class VMWareOrchestrator:
             # Remove existing shared folder config lines
             lines = [l for l in lines if not l.strip().startswith('sharedFolder')]
             lines = [l for l in lines if not l.strip().startswith('isolation.tools.hgfs')]
+            lines = [l for l in lines if not l.strip().startswith('hgfs.')]
+
+            # Remove existing display resolution config lines
+            lines = [l for l in lines if not l.strip().startswith('svga.')]
 
             # Add new shared folder configuration
+            # Note: vmrun enableSharedFolders is called after VM start to enable the feature
             lines.append(f'\n# Shared Folders (configured by vmware_orchestrator.py)\n')
             lines.append(f'sharedFolder.maxNum = "{len(folders)}"\n')
 
@@ -801,6 +806,14 @@ class VMWareOrchestrator:
 
             # Enable HGFS (shared folders driver)
             lines.append('isolation.tools.hgfs.disable = "FALSE"\n')
+            lines.append('hgfs.mapRootShare = "TRUE"\n')
+            lines.append('hgfs.linkRootShare = "TRUE"\n')
+
+            # Set display resolution to 1280x720 (required for video capture)
+            lines.append('\n# Display Resolution (configured by vmware_orchestrator.py)\n')
+            lines.append('svga.autodetect = "FALSE"\n')
+            lines.append('svga.maxWidth = "1280"\n')
+            lines.append('svga.maxHeight = "720"\n')
 
             # Write modified VMX file
             with open(vmx_path, 'w', encoding='utf-8') as f:
@@ -1063,6 +1076,25 @@ class VMWareOrchestrator:
                 print(" [X]")
                 return 1
             print(" [OK]")
+
+            # Enable shared folders on the VM (must be done while VM is off)
+            print(f"  Enabling shared folders...", end="", flush=True)
+            try:
+                subprocess.run(
+                    [self.vmrun_exe, "-T", "ws",
+                     "enableSharedFolders", worker_vmx_path],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                print(" [OK]")
+                logger.info("shared_folders_enabled", worker_id=worker_id)
+            except subprocess.CalledProcessError as e:
+                print(f" [X] ({e.stderr.strip() if e.stderr else 'unknown error'})")
+                logger.error("shared_folders_enable_failed",
+                           worker_id=worker_id,
+                           error=e.stderr)
+                return 1
 
             # Start VM (it will auto-run vm_auto_runner.py on boot)
             if not self.start_worker_vm(worker_id, worker_vmx_path):
@@ -1457,11 +1489,14 @@ class VMWareOrchestrator:
     def update_master_code(self, purge: bool = False, github_token: Optional[str] = None,
                           skip_snapshot: bool = False) -> int:
         """
-        Update code in master VM from GitHub repositories
+        Update code in master VM - copies config files and prints manual git instructions.
+
+        Note: vmrun runScriptInGuest doesn't work reliably due to PATH issues,
+        so git operations must be done manually by the user in the VM.
 
         Args:
-            purge: If True, completely remove directories before cloning
-            github_token: GitHub personal access token for authentication
+            purge: Unused (kept for CLI compatibility)
+            github_token: Unused (kept for CLI compatibility)
             skip_snapshot: If True, don't update the Ready snapshot
 
         Returns:
@@ -1470,7 +1505,6 @@ class VMWareOrchestrator:
         print(f"\n{'='*70}")
         print(f"VMware Master VM Code Sync")
         print(f"{'='*70}")
-        print(f"Purge mode: {purge}")
         print(f"Update snapshot: {not skip_snapshot}")
         print(f"{'='*70}\n")
 
@@ -1480,50 +1514,13 @@ class VMWareOrchestrator:
         copy_files = code_sync_config.get("copy_files", [])
         copy_dirs = code_sync_config.get("copy_dirs", [])
 
-        if not repositories:
-            print("[X] No repositories configured in vmware_config.yaml")
-            return 1
-
         # Start master VM
         if not self._start_master_vm():
             return 1
 
         print()
 
-        # Check git is installed
-        if not self._check_git_installed():
-            self._stop_master_vm()
-            return 1
-
-        print()
-
-        # Process each repository
-        print(f"Syncing {len(repositories)} repositories...")
-        failed_repos = []
-
-        for repo_config in repositories:
-            repo_name = repo_config["name"]
-            repo_url = repo_config["url"]
-            guest_path = repo_config["guest_path"]
-
-            print(f"\n[{repo_name}]")
-
-            # Remove old directory
-            print(f"  Removing old directory...", end="", flush=True)
-            if self._remove_guest_directory(guest_path, purge=purge):
-                print(" [OK]")
-            else:
-                print(" [X]")
-                failed_repos.append(repo_name)
-                continue
-
-            # Clone fresh
-            if not self._clone_repo_in_guest(repo_name, repo_url, guest_path, github_token):
-                failed_repos.append(repo_name)
-
-        print()
-
-        # Copy files
+        # Copy files (this works reliably via vmrun copyFileFromHostToGuest)
         if copy_files:
             print(f"Copying {len(copy_files)} config file(s)...")
             script_dir = Path(__file__).parent
@@ -1541,7 +1538,7 @@ class VMWareOrchestrator:
                 else:
                     print(f"  {file_config['host']}... [SKIP] (not found on host)")
 
-        # Copy directories
+        # Copy directories (this works reliably)
         if copy_dirs:
             print(f"Copying {len(copy_dirs)} config directory(s)...")
             script_dir = Path(__file__).parent
@@ -1559,31 +1556,62 @@ class VMWareOrchestrator:
                 else:
                     print(f"  {dir_config['host']}/... [SKIP] (not found on host)")
 
-        print()
+        # Print manual git instructions
+        print(f"\n{'='*70}")
+        print("MANUAL STEP: Run these commands in the VM")
+        print(f"{'='*70}")
 
-        # Update snapshot
+        # Build clone URLs with token if provided
+        if github_token:
+            sv2l_url = f"https://{github_token}@github.com/ncudlenco/mta-sim.git"
+            mass_url = f"https://{github_token}@github.com/ncudlenco/multiagent_story_system.git"
+            vdg_url = f"https://{github_token}@github.com/MihaiMasala/VideoDescriptionGEST"
+        else:
+            sv2l_url = "https://github.com/ncudlenco/mta-sim.git"
+            mass_url = "https://github.com/ncudlenco/multiagent_story_system.git"
+            vdg_url = "https://github.com/MihaiMasala/VideoDescriptionGEST"
+
+        print(f"""
+Open a terminal in the VM and run:
+
+cd C:\\mta1.6\\server\\mods\\deathmatch\\resources
+
+# IF REPOS ALREADY EXIST (update):
+cd sv2l && git pull && cd ..
+cd multiagent_story_system && git pull && cd ..
+cd VideoDescriptionGEST && git pull && cd ..
+
+# IF REPOS DON'T EXIST (first-time clone):
+git clone {sv2l_url} sv2l
+git clone {mass_url}
+git clone {vdg_url}
+""")
+        print(f"{'='*70}")
+
+        # Wait for user to complete manual steps
+        input("\nPress Enter when you've completed the git commands in the VM...")
+
+        # Shut down VM first (required before snapshot)
+        print("\nShutting down master VM (required before snapshot)...")
+        self._stop_master_vm()
+        print("[OK] Master VM shut down")
+
+        # Update snapshot (must be done after VM shutdown)
         if not skip_snapshot:
             snapshot_name = code_sync_config.get("snapshot_name", "Ready")
             if code_sync_config.get("update_snapshot", True):
+                print(f"\nUpdating '{snapshot_name}' snapshot...")
                 if not self._update_snapshot(snapshot_name):
                     print("  Warning: Snapshot update failed, VM state may not be saved")
-
-        print()
-
-        # Stop master VM
-        self._stop_master_vm()
+                else:
+                    print(f"[OK] Snapshot '{snapshot_name}' updated")
 
         # Summary
         print(f"\n{'='*70}")
-        print(f"Code Sync Summary")
+        print(f"Code Sync Complete")
         print(f"{'='*70}")
-
-        if failed_repos:
-            print(f"[X] {len(failed_repos)} repository(s) failed: {', '.join(failed_repos)}")
-            return 1
-        else:
-            print(f"[OK] All {len(repositories)} repositories synced successfully")
-            return 0
+        print("[OK] Config files copied, manual git steps completed")
+        return 0
 
     def run(self, args):
         """Main orchestration workflow"""
