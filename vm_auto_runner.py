@@ -243,6 +243,14 @@ def build_batch_command(job_config: Dict[str, Any], logger: logging.Logger) -> L
         if job_config.get("keep_local"):
             args.append("--keep-local")
 
+    # Force overwrite (bypass existing output folder check)
+    if job_config.get("force"):
+        args.append("--force")
+
+    # Generate description mode
+    if job_config.get("generate_description"):
+        args.extend(["--generate-description", job_config["generate_description"]])
+
     logger.info(f"Built command: {' '.join(args)}")
     return args
 

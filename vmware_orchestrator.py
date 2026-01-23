@@ -864,7 +864,14 @@ class VMWareOrchestrator:
 
                 # Auto-shutdown when complete
                 "shutdown_on_complete": True,
+
+                # Force overwrite (always true for VM workers to avoid prompts)
+                "force": True,
             }
+
+            # Generate description mode
+            if batch_params.get("generate_description"):
+                job_config["generate_description"] = batch_params["generate_description"]
 
             # Add optional simple random generator params
             if batch_params.get("random_chains_per_actor"):
@@ -1006,6 +1013,8 @@ class VMWareOrchestrator:
             "random_max_actors_per_region": args.random_max_actors_per_region,
             "random_max_regions": args.random_max_regions,
             "ensure_target": getattr(args, 'ensure_target', False),
+            "generate_description": getattr(args, 'generate_description', None),
+            "simulation_retries": getattr(args, 'simulation_retries', None),
         }
 
         # Clone workers and setup job configs
@@ -1811,6 +1820,10 @@ Examples:
     parser.add_argument("--same-story-simulation-variations", type=int, default=None,
                        help="Simulations per detail variation")
 
+    # Retry parameters
+    parser.add_argument("--simulation-retries", type=int, default=None,
+                       help="Number of simulation retries (default: 3)")
+
     # Simple random generator parameters
     parser.add_argument("--generator-type", type=str, choices=['llm', 'simple_random'],
                        default='llm', help="Story generator type (default: llm)")
@@ -1820,6 +1833,10 @@ Examples:
                        help="Max actors per region for simple_random generator")
     parser.add_argument("--random-max-regions", type=int, default=None,
                        help="Max regions to visit for simple_random generator")
+
+    # Description generation
+    parser.add_argument("--generate-description", type=str, choices=['prompt', 'full'],
+                       default=None, help="Generate textual descriptions (prompt=GPT prompt only, full=prompt+GPT description)")
 
     args = parser.parse_args()
 
