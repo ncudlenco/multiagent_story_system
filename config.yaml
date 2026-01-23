@@ -62,7 +62,7 @@ validation:
   scene_1_max_retries: 2
   require_video_output: false
   # Adaptive timeout settings (smart timeout that tracks action progress)
-  no_action_progress_timeout_seconds: 90  # Timeout if no actions execute for this long (stuck detection)
+  no_action_progress_timeout_seconds: 600  # Timeout if no actions execute for this long (stuck detection)
   max_simulation_time_seconds: 3600  # Absolute max time (1 hour - rely on 90s no-progress timeout)
   # Freeze/crash detection settings
   max_server_log_silence_seconds: 60  # Detect freeze after 60s of no server logs
