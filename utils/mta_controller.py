@@ -205,9 +205,9 @@ class MTAController:
             config["ARTIFACT_COLLECTION_ENABLED"] = collect_artifacts
             if collect_artifacts:
                 # Enable image frame saving for artifact collection
-                config["ARTIFACT_NATIVE_SCREENSHOT_SAVE_IMAGES"] = False
+                config["ARTIFACT_NATIVE_SCREENSHOT_SAVE_IMAGES"] = True
                 # Keep segmentation and depth disabled
-                config["ARTIFACT_ENABLE_SEGMENTATION"] = False
+                config["ARTIFACT_ENABLE_SEGMENTATION"] = True
                 config["ARTIFACT_ENABLE_DEPTH"] = False
                 config["ARTIFACT_ENABLE_SPATIAL_RELATIONS"] = True
             # Disable all DEBUG flags for clean simulation runs
@@ -814,7 +814,7 @@ class MTAController:
 
             logger.info("starting_adaptive_timeout_monitoring_loop",
                        max_simulation_time=max_simulation_time,
-                       no_action_timeout=self.config['validation'].get('no_action_progress_timeout_seconds', 90))
+                       no_action_timeout=self.config['validation'].get('no_action_progress_timeout_seconds', 600))
 
             while True:
                 # Periodically re-apply topmost status (every 5 seconds)
@@ -1332,7 +1332,7 @@ class MTAController:
 
         # 5. Check for NO ACTION PROGRESS timeout (adaptive)
         # If no actions executing for too long, the simulation is stuck
-        no_action_timeout = self.config['validation'].get('no_action_progress_timeout_seconds', 90)
+        no_action_timeout = self.config['validation'].get('no_action_progress_timeout_seconds', 600)
         time_since_action = current_time - last_action_time
 
         if time_since_action > no_action_timeout:
