@@ -356,6 +356,26 @@ class VMWareOrchestrator:
                     if "running" in result.stdout.lower():
                         print(" [OK]")
                         logger.info("worker_tools_ready", worker_id=worker_id)
+
+                        # Enable shared folders now that VM is running
+                        print(f"  Enabling shared folders...", end="", flush=True)
+                        try:
+                            subprocess.run(
+                                [self.vmrun_exe, "-T", "ws",
+                                 "enableSharedFolders", worker_vmx_path],
+                                capture_output=True,
+                                text=True,
+                                check=True
+                            )
+                            print(" [OK]")
+                            logger.info("shared_folders_enabled", worker_id=worker_id)
+                        except subprocess.CalledProcessError as e:
+                            print(f" [X] ({e.stderr.strip() if e.stderr else 'unknown error'})")
+                            logger.error("shared_folders_enable_failed",
+                                       worker_id=worker_id,
+                                       error=e.stderr)
+                            return False
+
                         return True
 
                 except subprocess.CalledProcessError:
@@ -1077,26 +1097,8 @@ class VMWareOrchestrator:
                 return 1
             print(" [OK]")
 
-            # Enable shared folders on the VM (must be done while VM is off)
-            print(f"  Enabling shared folders...", end="", flush=True)
-            try:
-                subprocess.run(
-                    [self.vmrun_exe, "-T", "ws",
-                     "enableSharedFolders", worker_vmx_path],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                print(" [OK]")
-                logger.info("shared_folders_enabled", worker_id=worker_id)
-            except subprocess.CalledProcessError as e:
-                print(f" [X] ({e.stderr.strip() if e.stderr else 'unknown error'})")
-                logger.error("shared_folders_enable_failed",
-                           worker_id=worker_id,
-                           error=e.stderr)
-                return 1
-
             # Start VM (it will auto-run vm_auto_runner.py on boot)
+            # Note: enableSharedFolders is called inside start_worker_vm() after VMware Tools is ready
             if not self.start_worker_vm(worker_id, worker_vmx_path):
                 print(f"  [X] Failed to start VM")
                 return 1
