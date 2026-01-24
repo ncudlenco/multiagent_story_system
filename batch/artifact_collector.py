@@ -121,12 +121,44 @@ class ArtifactCollector:
         Returns:
             Dictionary mapping artifact names to their paths
         """
+        # DEBUG: Log entry with all parameters
+        logger.info(
+            "artifact_collection_starting",
+            story_dir=str(story_dir),
+            take=take_number,
+            sim=sim_number,
+            story_id=story_id,
+            gest_basename=gest_basename,
+            simulation_graph_path=str(simulation_graph_path),
+            resource_path=str(self.mta_controller.resource_path)
+        )
+
+        # DEBUG: Compute and log json_out path early
+        json_out_dir = self.mta_controller.resource_path / simulation_graph_path.parent / f"{simulation_graph_path.stem}.json_out"
+        logger.info(
+            "json_out_path_computed",
+            json_out_dir=str(json_out_dir),
+            exists=json_out_dir.exists()
+        )
+
+        # DEBUG: List existing .json_out directories
+        input_graphs_dir = self.mta_controller.resource_path / "input_graphs"
+        if input_graphs_dir.exists():
+            existing_json_outs = list(input_graphs_dir.glob("*.json_out"))
+            logger.info(
+                "existing_json_out_directories",
+                count=len(existing_json_outs),
+                dirs=[str(d.name) for d in existing_json_outs[:5]]
+            )
+
         sim_dir = story_dir / "simulations" / f"take{take_number}_sim{sim_number}"
         sim_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug("sim_dir_created", path=str(sim_dir), exists=sim_dir.exists())
 
         # Create logs subdirectory for MTA logs
         logs_dir = sim_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug("logs_dir_created", path=str(logs_dir), exists=logs_dir.exists())
 
         artifacts = {}
 
@@ -161,9 +193,7 @@ class ArtifactCollector:
             self.clear_mta_logs()
 
             # Collect artifacts from .json_out directory
-            # assemble path to as full resource path / simulation graph path parent / simulation_graph_path.fullfilename
-            json_out_dir = self.mta_controller.resource_path / simulation_graph_path.parent / f"{simulation_graph_path.stem}.json_out"
-
+            # json_out_dir was computed earlier for logging
             if json_out_dir.exists() and json_out_dir.is_dir():
                 logger.info(
                     "collecting_json_out_artifacts",

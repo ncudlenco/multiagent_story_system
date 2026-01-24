@@ -8,10 +8,25 @@ management, and optional Google Drive upload.
 
 import argparse
 import sys
+import logging
 import structlog
 import json
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+
+# Configure structlog for subprocess capture (must be before any logger calls)
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.ConsoleRenderer() if sys.stdout.isatty() else structlog.processors.JSONRenderer()
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    context_class=dict,
+    logger_factory=structlog.PrintLoggerFactory(),
+    cache_logger_on_first_use=True
+)
 
 from core.config import Config
 from batch import BatchController, BatchConfig, BatchReporter
