@@ -47,6 +47,7 @@ class VMWareOrchestrator:
         self.monitor_pool: Optional[VMMonitorPool] = None
         self.gdrive_manager: Optional[GDriveManager] = None
         self.worker_folder_ids: Dict[int, str] = {}
+        self.no_restart = False  # Disable auto-restart with --no-restart flag
 
         logger.info("orchestrator_initialized",
                    config_path=config_path,
@@ -545,6 +546,26 @@ class VMWareOrchestrator:
             print(f"    Exception: {str(e)}")
             return False
 
+    def _extract_worker_error(self, worker_output_dir: Path) -> Optional[str]:
+        """Extract actual error from worker logs in shared folder"""
+        # Look for log files in shared folder
+        log_files = list(worker_output_dir.glob("**/*.log"))
+        if not log_files:
+            return None
+
+        # Read most recent log file
+        log_file = max(log_files, key=lambda p: p.stat().st_mtime)
+        try:
+            content = log_file.read_text(encoding='utf-8', errors='ignore')
+            # Find last ERROR or Exception line
+            lines = content.split('\n')
+            for line in reversed(lines):
+                if 'ERROR' in line or 'Exception' in line or 'Error' in line:
+                    return line.strip()
+        except Exception:
+            pass
+        return None
+
     def restart_worker(self, monitor: VMMonitor, batch_params: Dict) -> bool:
         """Restart crashed/hung worker"""
         worker_id = monitor.worker_id
@@ -637,7 +658,15 @@ class VMWareOrchestrator:
 
             # Handle workers needing restart
             for monitor in self.monitor_pool.get_workers_needing_restart():
-                if monitor.should_restart():
+                if self.no_restart:
+                    # Extract and show actual error instead of restarting
+                    error = self._extract_worker_error(self.workers[monitor.worker_id]["output_dir"])
+                    if error:
+                        print(f"\n[X] Worker {monitor.worker_id + 1} FAILED: {error}")
+                    else:
+                        print(f"\n[X] Worker {monitor.worker_id + 1} FAILED: {monitor.progress.error_message}")
+                    monitor.progress.status = WorkerStatus.FAILED
+                elif monitor.should_restart():
                     self.restart_worker(monitor, batch_params)
 
             # Update display
@@ -1005,6 +1034,7 @@ class VMWareOrchestrator:
         """
         num_workers = args.num_vms
         stories_per_vm = args.stories_per_vm
+        self.no_restart = getattr(args, 'no_restart', False)
 
         print(f"\n{'='*70}")
         print(f"VMware Autonomous Worker Orchestration")
@@ -1619,6 +1649,7 @@ git clone {vdg_url}
         """Main orchestration workflow"""
         num_workers = args.num_vms
         stories_per_vm = args.stories_per_vm
+        self.no_restart = getattr(args, 'no_restart', False)
 
         print(f"\n{'='*70}")
         print(f"VMware Batch Story Generation Orchestrator")
@@ -1867,6 +1898,10 @@ Examples:
     # Description generation
     parser.add_argument("--generate-description", type=str, choices=['prompt', 'full'],
                        default=None, help="Generate textual descriptions (prompt=GPT prompt only, full=prompt+GPT description)")
+
+    # Error handling
+    parser.add_argument("--no-restart", action="store_true",
+                       help="Don't restart crashed/hung workers, show errors and fail fast")
 
     args = parser.parse_args()
 
