@@ -137,6 +137,8 @@ code_sync:
   copy_files:
     - host: ".env"
       guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system\\.env"
+    - host: "temp_configs/master_vm_config.yaml"
+      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system\\config.yaml"
 
   # Directories to copy from host to guest after cloning
   copy_dirs:
