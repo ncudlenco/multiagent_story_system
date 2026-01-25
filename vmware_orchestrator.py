@@ -778,9 +778,32 @@ class VMWareOrchestrator:
             worker_batch_dir = workers_base_dir / f"vm_batch_{self.batch_timestamp}"
 
             if worker_batch_dir.exists():
-                shutil.rmtree(worker_batch_dir)
-                logger.info("worker_vms_deleted", path=str(worker_batch_dir))
-                print(f"[OK] Worker VMs deleted")
+                # Retry cleanup with delay - VMware may still be releasing .vmem files
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        shutil.rmtree(worker_batch_dir)
+                        logger.info("worker_vms_deleted", path=str(worker_batch_dir))
+                        print(f"[OK] Worker VMs deleted")
+                        break
+                    except PermissionError as e:
+                        if attempt < max_retries - 1:
+                            logger.warning(
+                                "cleanup_retry",
+                                attempt=attempt + 1,
+                                path=str(worker_batch_dir),
+                                error=str(e)
+                            )
+                            print(f"[...] Cleanup attempt {attempt + 1} failed (files locked), retrying in 5s...")
+                            time.sleep(5)
+                        else:
+                            logger.warning(
+                                "cleanup_failed_skipping",
+                                path=str(worker_batch_dir),
+                                error=str(e)
+                            )
+                            print(f"[!] Could not delete worker VMs (files locked): {worker_batch_dir}")
+                            print(f"    You may need to delete this folder manually.")
 
         if self.config["orchestration"]["cleanup_worker_outputs"]:
             if self.config["orchestration"]["merge_output"]:
