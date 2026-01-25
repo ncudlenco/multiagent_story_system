@@ -14,9 +14,13 @@ from datetime import datetime
 def _normalize_path(path: Optional[str]) -> Optional[str]:
     """Normalize a path to prevent UNC path double-escaping issues.
 
-    On Windows, UNC paths (\\\\server\\share) can get double-escaped when going
-    through JSON/YAML serialization. This function uses os.path.normpath to
-    ensure paths are always in their canonical form.
+    On Windows, UNC paths can get double-escaped (\\\\\\\\server becomes 4+ backslashes)
+    when going through JSON/YAML serialization cycles. This function:
+    1. Uses os.path.normpath for general normalization
+    2. Fixes UNC prefix if it has more than 2 backslashes
+
+    CRITICAL: os.path.normpath() does NOT collapse multiple leading backslashes!
+    It treats \\\\\\\\vmware-host as a valid UNC path. We must manually fix this.
 
     Args:
         path: Path string to normalize, or None
@@ -26,7 +30,18 @@ def _normalize_path(path: Optional[str]) -> Optional[str]:
     """
     if path is None:
         return None
-    return os.path.normpath(path)
+
+    # First, apply normpath for general normalization (handles ., .., mixed slashes)
+    normalized = os.path.normpath(path)
+
+    # Fix UNC prefix: collapse 3+ leading backslashes to exactly 2
+    # This handles double-escaped UNC paths like \\\\\\\\server -> \\\\server
+    if normalized.startswith('\\\\'):
+        # Remove all leading backslashes, then add exactly 2
+        stripped = normalized.lstrip('\\')
+        normalized = '\\\\' + stripped
+
+    return normalized
 
 
 @dataclass

@@ -27,14 +27,11 @@ class TestUNCPathNormalization:
         normalized = os.path.normpath(unc_path)
         assert normalized == r"\\vmware-host\Shared Folders\output"
 
-    def test_normpath_cannot_fix_already_corrupted_paths(self):
-        """normpath cannot fix already-corrupted paths (demonstrates limitation).
+    def test_normpath_alone_cannot_fix_corrupted_paths(self):
+        """os.path.normpath alone cannot fix already-corrupted paths.
 
-        This test documents that normpath is a PREVENTIVE fix, not a corrective one.
-        Once a path is double-escaped (e.g., \\\\\\\\vmware-host), normpath treats it
-        as a valid UNC path with the extra backslashes as part of the server name.
-
-        Our fix works by normalizing paths BEFORE serialization, preventing corruption.
+        This test documents that normpath treats \\\\\\\\vmware-host as valid.
+        That's why _normalize_path() uses lstrip('\\') + add exactly 2 backslashes.
         """
         # A double-escaped path (4 actual backslashes at start)
         double_escaped = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output"
@@ -42,9 +39,9 @@ class TestUNCPathNormalization:
         # normpath does NOT fix this - it treats it as a valid path
         normalized = os.path.normpath(double_escaped)
 
-        # This is WHY we normalize BEFORE serialization, not after
-        # The path is still "corrupted" from normpath's perspective
-        # but our fix prevents it from ever getting this way
+        # normpath keeps the 4 backslashes at the start (it sees it as valid UNC)
+        # This is why we need the extra lstrip('\\') logic in _normalize_path()
+        assert normalized.startswith("\\\\\\\\") or normalized.startswith("\\\\")  # depends on OS
 
     def test_normpath_handles_forward_slashes(self):
         """normpath should handle mixed slashes."""
@@ -165,24 +162,33 @@ class TestNormalizePathFunction:
         normalized = _normalize_path(unc_path)
         assert normalized == unc_path
 
-    def test_normalize_path_limitation_with_corrupted_unc(self):
-        """_normalize_path cannot fix already-corrupted paths (documents limitation).
+    def test_normalize_path_fixes_corrupted_unc(self):
+        """_normalize_path MUST fix already-corrupted UNC paths.
 
-        This test documents that _normalize_path is a PREVENTIVE measure.
-        It normalizes valid paths to prevent corruption during serialization,
-        but cannot fix paths that are already double-escaped.
-
-        The actual fix works by normalizing paths in to_dict()/from_dict()
-        before JSON serialization can corrupt them.
+        This is the critical test - our fix uses lstrip('\\') to collapse
+        multiple leading backslashes to exactly 2.
         """
         from batch.schemas import _normalize_path
 
-        # A path that's already double-escaped (would not occur with our fix)
+        # A path that's already double-escaped (4 actual backslashes at start)
         corrupted = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output"
         normalized = _normalize_path(corrupted)
 
-        # normpath cannot fix this - it treats the extra backslashes as valid
-        # This is fine because our fix PREVENTS paths from getting this way
+        # The fix MUST collapse 4 backslashes to 2
+        assert normalized.startswith("\\\\vmware-host"), f"Expected \\\\vmware-host, got {repr(normalized)}"
+        assert not normalized.startswith("\\\\\\\\"), f"Path still corrupted: {repr(normalized)}"
+
+    def test_normalize_path_fixes_extreme_corruption(self):
+        """_normalize_path should fix even extremely corrupted paths (8+ backslashes)."""
+        from batch.schemas import _normalize_path
+
+        # Extremely corrupted path (8 actual backslashes at start)
+        extreme = "\\\\\\\\\\\\\\\\vmware-host\\\\Shared Folders\\\\output"
+        normalized = _normalize_path(extreme)
+
+        # Should collapse to exactly 2 backslashes
+        assert normalized.startswith("\\\\vmware-host"), f"Expected \\\\vmware-host, got {repr(normalized)}"
+        assert not normalized.startswith("\\\\\\\\"), f"Path still corrupted: {repr(normalized)}"
 
 
 class TestBatchStateSerialization:
@@ -861,3 +867,162 @@ class TestEdgeCases:
 
         # normpath may change forward slashes to backslashes on Windows
         assert os.path.normpath(restored.output_base_dir) == os.path.normpath(relative_path)
+
+
+class TestCorruptedPathFix:
+    """Test that corrupted UNC paths (4+ backslashes) are fixed by constructors.
+
+    This is the critical fix for the VM orchestration bug. When paths get
+    double-escaped through JSON/YAML serialization, they become
+    \\\\\\\\vmware-host instead of \\\\vmware-host.
+
+    The fix collapses all leading backslashes to exactly 2.
+    """
+
+    def test_batch_config_constructor_fixes_corrupted_path(self):
+        """BatchConfig constructor should fix corrupted UNC paths."""
+        from batch.schemas import BatchConfig
+
+        # Corrupted path (4 actual backslashes at start)
+        corrupted_path = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output"
+        expected_fixed = r"\\vmware-host\Shared Folders\output"
+
+        config = BatchConfig(
+            num_stories=1,
+            max_num_protagonists=2,
+            max_num_extras=1,
+            num_distinct_actions=5,
+            scene_number=4,
+            output_base_dir=corrupted_path
+        )
+
+        # Constructor should have fixed the path
+        assert config.output_base_dir == expected_fixed, \
+            f"Expected {repr(expected_fixed)}, got {repr(config.output_base_dir)}"
+        assert not config.output_base_dir.startswith("\\\\\\\\")
+
+    def test_story_status_constructor_fixes_corrupted_path(self):
+        """StoryStatus constructor should fix corrupted UNC paths."""
+        from batch.schemas import StoryStatus
+
+        corrupted_path = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output\\\\story_123"
+        expected_fixed = r"\\vmware-host\Shared Folders\output\story_123"
+
+        status = StoryStatus(
+            story_id="123",
+            story_number=1,
+            status="pending",
+            output_dir=corrupted_path
+        )
+
+        assert status.output_dir == expected_fixed, \
+            f"Expected {repr(expected_fixed)}, got {repr(status.output_dir)}"
+        assert not status.output_dir.startswith("\\\\\\\\")
+
+    def test_simulation_result_constructor_fixes_corrupted_paths(self):
+        """SimulationResult constructor should fix corrupted UNC paths."""
+        from batch.schemas import SimulationResult
+
+        corrupted_output = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output\\\\take1_sim1"
+        corrupted_video = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output\\\\video.avi"
+
+        result = SimulationResult(
+            take_number=1,
+            sim_number=1,
+            success=True,
+            output_dir=corrupted_output,
+            video_path=corrupted_video
+        )
+
+        assert not result.output_dir.startswith("\\\\\\\\")
+        assert not result.video_path.startswith("\\\\\\\\")
+        assert result.output_dir.startswith("\\\\vmware-host")
+        assert result.video_path.startswith("\\\\vmware-host")
+
+    def test_batch_state_constructor_fixes_corrupted_path(self):
+        """BatchState constructor should fix corrupted UNC paths."""
+        from batch.schemas import BatchState, BatchConfig
+
+        corrupted_path = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output\\\\batch_123"
+
+        config = BatchConfig(
+            num_stories=1,
+            max_num_protagonists=2,
+            max_num_extras=1,
+            num_distinct_actions=5,
+            scene_number=4,
+            output_base_dir="\\\\\\\\vmware-host\\\\Shared Folders\\\\output"
+        )
+
+        state = BatchState(
+            batch_id="batch_123",
+            config=config,
+            batch_output_dir=corrupted_path
+        )
+
+        assert not state.batch_output_dir.startswith("\\\\\\\\")
+        assert not state.config.output_base_dir.startswith("\\\\\\\\")
+
+    def test_from_dict_fixes_corrupted_paths(self):
+        """from_dict methods should fix corrupted paths in loaded data."""
+        from batch.schemas import BatchConfig, StoryStatus
+
+        # Simulate loading corrupted data from JSON
+        corrupted_config_data = {
+            'num_stories': 1,
+            'max_num_protagonists': 2,
+            'max_num_extras': 1,
+            'num_distinct_actions': 5,
+            'scene_number': 4,
+            'narrative_seeds': [],
+            'output_base_dir': "\\\\\\\\vmware-host\\\\Shared Folders\\\\output",
+            'from_existing_stories_path': None,
+            'from_text_files_path': None,
+        }
+
+        config = BatchConfig.from_dict(corrupted_config_data)
+        assert not config.output_base_dir.startswith("\\\\\\\\"), \
+            f"from_dict didn't fix corrupted path: {repr(config.output_base_dir)}"
+
+        corrupted_story_data = {
+            'story_id': 'abc123',
+            'story_number': 1,
+            'status': 'success',
+            'output_dir': "\\\\\\\\vmware-host\\\\Shared Folders\\\\output\\\\story_abc123",
+            'current_take': 1,
+            'current_sim': 1,
+            'current_phase': 3,
+            'generation_attempts': {},
+            'simulation_attempts': 0,
+            'warnings': [],
+            'errors': [],
+            'started_at': None,
+            'completed_at': None,
+            'scene_count': None,
+            'event_count': None,
+            'successful_simulations': [],
+            'all_simulation_results': [],
+            'gdrive_folder_id': None,
+            'gdrive_link': None,
+            'upload_timestamp': None,
+        }
+
+        story = StoryStatus.from_dict(corrupted_story_data)
+        assert not story.output_dir.startswith("\\\\\\\\"), \
+            f"from_dict didn't fix corrupted path: {repr(story.output_dir)}"
+
+    def test_quick_vm_test_command(self):
+        """This test can be run quickly on VM to verify the fix works.
+
+        Run on VM with:
+        python -c "from batch.schemas import _normalize_path; bad='\\\\\\\\\\\\\\\\vmware-host\\\\Shared Folders'; print('FIXED' if _normalize_path(bad).startswith('\\\\\\\\vmware') and not _normalize_path(bad).startswith('\\\\\\\\\\\\\\\\') else 'BROKEN')"
+        """
+        from batch.schemas import _normalize_path
+
+        # This is the actual corrupted path format from the errors
+        corrupted = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output"
+        fixed = _normalize_path(corrupted)
+
+        # Quick assertion that could be run as one-liner on VM
+        assert fixed.startswith("\\\\vmware") and not fixed.startswith("\\\\\\\\\\\\"), \
+            f"FIX BROKEN: {repr(fixed)}"
