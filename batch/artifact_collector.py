@@ -151,7 +151,17 @@ class ArtifactCollector:
                 dirs=[str(d.name) for d in existing_json_outs[:5]]
             )
 
-        sim_dir = story_dir / "simulations" / f"take{take_number}_sim{sim_number}"
+        # Fix: Normalize UNC paths before mkdir operations to prevent double-escaping
+        # on Windows (WinError 123). Python's pathlib can double-escape UNC paths
+        # like \\vmware-host\Shared Folders\ during path operations.
+        story_dir_normalized = Path(os.path.normpath(str(story_dir)))
+        logger.debug(
+            "story_dir_normalized",
+            original=str(story_dir),
+            normalized=str(story_dir_normalized)
+        )
+
+        sim_dir = story_dir_normalized / "simulations" / f"take{take_number}_sim{sim_number}"
         sim_dir.mkdir(parents=True, exist_ok=True)
         logger.debug("sim_dir_created", path=str(sim_dir), exists=sim_dir.exists())
 
