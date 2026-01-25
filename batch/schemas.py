@@ -5,9 +5,28 @@ This module defines the data structures used for tracking batch generation state
 individual story status, and configuration parameters.
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+
+
+def _normalize_path(path: Optional[str]) -> Optional[str]:
+    """Normalize a path to prevent UNC path double-escaping issues.
+
+    On Windows, UNC paths (\\\\server\\share) can get double-escaped when going
+    through JSON/YAML serialization. This function uses os.path.normpath to
+    ensure paths are always in their canonical form.
+
+    Args:
+        path: Path string to normalize, or None
+
+    Returns:
+        Normalized path string, or None if input was None
+    """
+    if path is None:
+        return None
+    return os.path.normpath(path)
 
 
 @dataclass
@@ -90,15 +109,15 @@ class BatchConfig:
             'simulation_timeout_first': self.simulation_timeout_first,
             'simulation_timeout_retry': self.simulation_timeout_retry,
             'collect_simulation_artifacts': self.collect_simulation_artifacts,
-            'output_base_dir': self.output_base_dir,
+            'output_base_dir': _normalize_path(self.output_base_dir),
             'move_to_final_dir': self.move_to_final_dir,
             'compress_archives': self.compress_archives,
             'keep_intermediates': self.keep_intermediates,
             'upload_to_drive': self.upload_to_drive,
             'drive_folder_id': self.drive_folder_id,
             'keep_local': self.keep_local,
-            'from_existing_stories_path': self.from_existing_stories_path,
-            'from_text_files_path': self.from_text_files_path,
+            'from_existing_stories_path': _normalize_path(self.from_existing_stories_path),
+            'from_text_files_path': _normalize_path(self.from_text_files_path),
             'parallel_workers': self.parallel_workers,
             'skip_simulation': self.skip_simulation,
             'ensure_target': self.ensure_target,
@@ -114,7 +133,15 @@ class BatchConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BatchConfig':
         """Create from dictionary for JSON deserialization."""
-        return cls(**data)
+        # Normalize path fields to prevent UNC path double-escaping
+        data_copy = data.copy()
+        if 'output_base_dir' in data_copy:
+            data_copy['output_base_dir'] = _normalize_path(data_copy['output_base_dir'])
+        if 'from_existing_stories_path' in data_copy:
+            data_copy['from_existing_stories_path'] = _normalize_path(data_copy['from_existing_stories_path'])
+        if 'from_text_files_path' in data_copy:
+            data_copy['from_text_files_path'] = _normalize_path(data_copy['from_text_files_path'])
+        return cls(**data_copy)
 
 
 @dataclass
@@ -144,17 +171,23 @@ class SimulationResult:
             'error_messages': self.error_messages,
             'warnings': self.warnings,
             'video_generated': self.video_generated,
-            'video_path': self.video_path,
+            'video_path': _normalize_path(self.video_path),
             'total_actions': self.total_actions,
             'failed_actions': self.failed_actions,
             'simulation_time_seconds': self.simulation_time_seconds,
-            'output_dir': self.output_dir,
+            'output_dir': _normalize_path(self.output_dir) if self.output_dir else "",
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SimulationResult':
         """Create from dictionary for JSON deserialization."""
-        return cls(**data)
+        # Normalize path fields to prevent UNC path double-escaping
+        data_copy = data.copy()
+        if 'video_path' in data_copy:
+            data_copy['video_path'] = _normalize_path(data_copy['video_path'])
+        if 'output_dir' in data_copy and data_copy['output_dir']:
+            data_copy['output_dir'] = _normalize_path(data_copy['output_dir'])
+        return cls(**data_copy)
 
 
 @dataclass
@@ -211,7 +244,7 @@ class StoryStatus:
             'errors': self.errors,
             'started_at': self.started_at,
             'completed_at': self.completed_at,
-            'output_dir': self.output_dir,
+            'output_dir': _normalize_path(self.output_dir) if self.output_dir else "",
             'scene_count': self.scene_count,
             'event_count': self.event_count,
             'successful_simulations': self.successful_simulations,
@@ -231,6 +264,9 @@ class StoryStatus:
         ]
         data_copy = data.copy()
         data_copy['all_simulation_results'] = sim_results
+        # Normalize path fields to prevent UNC path double-escaping
+        if 'output_dir' in data_copy and data_copy['output_dir']:
+            data_copy['output_dir'] = _normalize_path(data_copy['output_dir'])
         return cls(**data_copy)
 
 
@@ -277,7 +313,7 @@ class BatchState:
             'total_generation_retries': self.total_generation_retries,
             'total_simulation_retries': self.total_simulation_retries,
             'phase_retry_counts': self.phase_retry_counts,
-            'batch_output_dir': self.batch_output_dir,
+            'batch_output_dir': _normalize_path(self.batch_output_dir) if self.batch_output_dir else "",
             'drive_folder_id': self.drive_folder_id,
             'drive_folder_link': self.drive_folder_link,
             'drive_summary_file_id': self.drive_summary_file_id,
@@ -294,6 +330,10 @@ class BatchState:
         data_copy = data.copy()
         data_copy['config'] = config
         data_copy['stories'] = stories
+
+        # Normalize path fields to prevent UNC path double-escaping
+        if 'batch_output_dir' in data_copy and data_copy['batch_output_dir']:
+            data_copy['batch_output_dir'] = _normalize_path(data_copy['batch_output_dir'])
 
         return cls(**data_copy)
 
