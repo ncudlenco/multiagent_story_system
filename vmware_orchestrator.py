@@ -1927,6 +1927,10 @@ Examples:
     parser.add_argument("--no-restart", action="store_true",
                        help="Don't restart crashed/hung workers, show errors and fail fast")
 
+    # Debugging
+    parser.add_argument("--keep-vms", action="store_true",
+                       help="Keep worker VMs after completion (for debugging)")
+
     args = parser.parse_args()
 
     # Validate arguments based on mode
@@ -1953,6 +1957,11 @@ Examples:
             )
 
         # Handle batch generation mode
+        # Override cleanup config if --keep-vms is specified
+        if args.keep_vms:
+            orchestrator.config["orchestration"]["cleanup_workers"] = False
+            print("[!] --keep-vms: Worker VMs will NOT be deleted after completion")
+
         if args.autonomous:
             return orchestrator.run_autonomous_workers(args)
         else:
