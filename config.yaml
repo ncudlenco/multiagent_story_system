@@ -66,6 +66,7 @@ validation:
   max_simulation_time_seconds: 3600  # Absolute max time (1 hour - rely on 90s no-progress timeout)
   # Freeze/crash detection settings
   max_server_log_silence_seconds: 60  # Detect freeze after 60s of no server logs
+  client_connect_timeout_seconds: 180  # Max wait for client to connect after server ready (3 min)
   process_check_interval: 2  # Check process health every 2 seconds
   error_patterns:
     - "[ErrorHandler] ERROR DETECTED!"

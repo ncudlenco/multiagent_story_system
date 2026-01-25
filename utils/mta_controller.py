@@ -87,6 +87,10 @@ class MTAController:
         self.client_start_time: Optional[float] = None  # Track client start time for process identification
         self.status = MTAServerStatus.STOPPED
 
+        # Client connection tracking (for detecting frozen MTA on first launch)
+        self._server_ready_time: Optional[float] = None
+        self._client_connected: bool = False
+
         logger.info(
             "mta_controller_initialized",
             server_root=str(self.server_root),
@@ -754,6 +758,10 @@ class MTAController:
         final_success = False
         final_error = None
 
+        # Reset client connection tracking for this simulation
+        self._server_ready_time = None
+        self._client_connected = False
+
         try:
             # 1. Prepare simulation (clear logs, snapshot folders)
             existing_folders = self.prepare_simulation(graph_file)
@@ -1305,6 +1313,34 @@ class MTAController:
         if server_new_lines:
             last_server_activity_time = current_time
             logger.debug("server_log_activity_detected", new_lines=len(server_new_lines))
+
+        # 3.5 CLIENT CONNECTION TIMEOUT: Detect frozen MTA on first launch
+        # If server is ready but client never connects, MTA is likely frozen
+        for line in server_new_lines:
+            if "Server started and is ready to accept connections" in line:
+                if self._server_ready_time is None:
+                    self._server_ready_time = current_time
+                    logger.info("server_ready_detected")
+            if "CONNECT:" in line and "connected" in line:
+                if not self._client_connected:
+                    self._client_connected = True
+                    logger.info("client_connected_detected")
+
+        # Check for client connection timeout
+        if self._server_ready_time and not self._client_connected:
+            time_since_ready = current_time - self._server_ready_time
+            client_timeout = self.config['validation'].get('client_connect_timeout_seconds', 180)
+            if time_since_ready > client_timeout:
+                error_msg = (
+                    f"Client failed to connect within {client_timeout}s of server ready. "
+                    f"MTA is likely frozen (first-launch issue). Retry should succeed."
+                )
+                logger.error(
+                    "client_connect_timeout",
+                    time_since_ready=time_since_ready,
+                    client_timeout=client_timeout
+                )
+                return "ERROR", error_msg, new_server_pos, new_client_pos, last_server_activity_time, last_action_time
 
         # 4. ADAPTIVE TIMEOUT: Check for actual action execution progress
         # These patterns indicate real story progress (not just elapsed time logs)
