@@ -15,6 +15,7 @@ Usage:
     )
 """
 
+import os
 import sys
 import json
 import shutil
@@ -103,7 +104,9 @@ def generate_textual_description(
         describe_graph_for_chatgpt, generate_gpt_description, run_query_withgpt, GPT_MODELS = _import_video_desc_gest()
 
         # Create textual_description folder
-        text_dir = sim_dir / "textual_description"
+        # Normalize UNC paths to prevent double-escaping on Windows
+        sim_dir_normalized = Path(os.path.normpath(str(sim_dir)))
+        text_dir = sim_dir_normalized / "textual_description"
         text_dir.mkdir(parents=True, exist_ok=True)
 
         # Move/rename labels.txt -> engine_generated.txt (from camera1/ folder)

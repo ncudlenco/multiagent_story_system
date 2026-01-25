@@ -778,15 +778,16 @@ class VMWareOrchestrator:
             worker_batch_dir = workers_base_dir / f"vm_batch_{self.batch_timestamp}"
 
             if worker_batch_dir.exists():
-                # Retry cleanup with delay - VMware may still be releasing .vmem files
-                max_retries = 3
+                # Retry cleanup with delay - VMware may still be releasing .vmem/.vmdk files
+                # Use OSError to catch both WinError 5 (Access denied) and WinError 32 (File in use)
+                max_retries = 5
                 for attempt in range(max_retries):
                     try:
                         shutil.rmtree(worker_batch_dir)
                         logger.info("worker_vms_deleted", path=str(worker_batch_dir))
                         print(f"[OK] Worker VMs deleted")
                         break
-                    except PermissionError as e:
+                    except OSError as e:
                         if attempt < max_retries - 1:
                             logger.warning(
                                 "cleanup_retry",
@@ -794,8 +795,8 @@ class VMWareOrchestrator:
                                 path=str(worker_batch_dir),
                                 error=str(e)
                             )
-                            print(f"[...] Cleanup attempt {attempt + 1} failed (files locked), retrying in 5s...")
-                            time.sleep(5)
+                            print(f"[...] Cleanup attempt {attempt + 1} failed (files locked), retrying in 10s...")
+                            time.sleep(10)
                         else:
                             logger.warning(
                                 "cleanup_failed_skipping",
