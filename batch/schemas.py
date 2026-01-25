@@ -41,6 +41,14 @@ class BatchConfig:
     scene_number: int
     narrative_seeds: List[str] = field(default_factory=list)
 
+    def __post_init__(self):
+        """Normalize path fields after construction to prevent UNC path issues."""
+        # Normalize all path fields to prevent double-escaping when paths
+        # go through JSON/YAML serialization cycles
+        self.output_base_dir = _normalize_path(self.output_base_dir) or "batch_output"
+        self.from_existing_stories_path = _normalize_path(self.from_existing_stories_path)
+        self.from_text_files_path = _normalize_path(self.from_text_files_path)
+
     # Variation parameters
     same_story_generation_variations: int = 1  # Number of Phase 3 takes
     same_story_simulation_variations: int = 1  # Simulations per take
@@ -161,6 +169,12 @@ class SimulationResult:
     simulation_time_seconds: Optional[float] = None
     output_dir: str = ""
 
+    def __post_init__(self):
+        """Normalize path fields after construction to prevent UNC path issues."""
+        self.video_path = _normalize_path(self.video_path)
+        if self.output_dir:
+            self.output_dir = _normalize_path(self.output_dir) or ""
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -228,6 +242,11 @@ class StoryStatus:
     gdrive_folder_id: Optional[str] = None
     gdrive_link: Optional[str] = None
     upload_timestamp: Optional[str] = None
+
+    def __post_init__(self):
+        """Normalize path fields after construction to prevent UNC path issues."""
+        if self.output_dir:
+            self.output_dir = _normalize_path(self.output_dir) or ""
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -298,6 +317,11 @@ class BatchState:
     drive_folder_link: Optional[str] = None
     drive_summary_file_id: Optional[str] = None  # batch_summary.json file ID on Google Drive
     drive_report_file_id: Optional[str] = None  # batch_report.md file ID on Google Drive
+
+    def __post_init__(self):
+        """Normalize path fields after construction to prevent UNC path issues."""
+        if self.batch_output_dir:
+            self.batch_output_dir = _normalize_path(self.batch_output_dir) or ""
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""

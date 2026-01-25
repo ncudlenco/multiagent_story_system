@@ -596,6 +596,192 @@ class TestFullVMWorkflow:
         assert len(restored.stories[0].errors) == 2
 
 
+class TestConstructorNormalization:
+    """Test that __post_init__ normalizes paths on direct construction.
+
+    This is critical because batch_generate.py creates BatchConfig directly
+    via constructor (not from_dict), bypassing the from_dict normalization.
+    """
+
+    def test_batch_config_constructor_normalizes_output_base_dir(self):
+        """BatchConfig constructor should normalize output_base_dir."""
+        from batch.schemas import BatchConfig
+
+        unc_path = r"\\vmware-host\Shared Folders\output"
+        config = BatchConfig(
+            num_stories=1,
+            max_num_protagonists=2,
+            max_num_extras=1,
+            num_distinct_actions=5,
+            scene_number=4,
+            output_base_dir=unc_path
+        )
+
+        # Path should be normalized immediately after construction
+        assert config.output_base_dir == os.path.normpath(unc_path)
+        assert "\\\\\\\\" not in config.output_base_dir
+
+    def test_batch_config_constructor_normalizes_optional_paths(self):
+        """BatchConfig constructor should normalize optional path fields."""
+        from batch.schemas import BatchConfig
+
+        existing_path = r"\\vmware-host\Shared Folders\existing"
+        text_path = r"\\vmware-host\Shared Folders\text"
+
+        config = BatchConfig(
+            num_stories=1,
+            max_num_protagonists=2,
+            max_num_extras=1,
+            num_distinct_actions=5,
+            scene_number=4,
+            from_existing_stories_path=existing_path,
+            from_text_files_path=text_path
+        )
+
+        assert config.from_existing_stories_path == os.path.normpath(existing_path)
+        assert config.from_text_files_path == os.path.normpath(text_path)
+
+    def test_story_status_constructor_normalizes_output_dir(self):
+        """StoryStatus constructor should normalize output_dir."""
+        from batch.schemas import StoryStatus
+
+        unc_path = r"\\vmware-host\Shared Folders\output\story_123"
+        status = StoryStatus(
+            story_id="123",
+            story_number=1,
+            status="pending",
+            output_dir=unc_path
+        )
+
+        assert status.output_dir == os.path.normpath(unc_path)
+        assert "\\\\\\\\" not in status.output_dir
+
+    def test_simulation_result_constructor_normalizes_paths(self):
+        """SimulationResult constructor should normalize paths."""
+        from batch.schemas import SimulationResult
+
+        output_path = r"\\vmware-host\Shared Folders\output\story_123\take1_sim1"
+        video_path = r"\\vmware-host\Shared Folders\output\story_123\video.avi"
+
+        result = SimulationResult(
+            take_number=1,
+            sim_number=1,
+            success=True,
+            output_dir=output_path,
+            video_path=video_path
+        )
+
+        assert result.output_dir == os.path.normpath(output_path)
+        assert result.video_path == os.path.normpath(video_path)
+
+    def test_batch_state_constructor_normalizes_batch_output_dir(self):
+        """BatchState constructor should normalize batch_output_dir."""
+        from batch.schemas import BatchState, BatchConfig
+
+        unc_base = r"\\vmware-host\Shared Folders\output"
+        config = BatchConfig(
+            num_stories=1,
+            max_num_protagonists=2,
+            max_num_extras=1,
+            num_distinct_actions=5,
+            scene_number=4,
+            output_base_dir=unc_base
+        )
+
+        state = BatchState(
+            batch_id="batch_123",
+            config=config,
+            batch_output_dir=f"{unc_base}\\batch_123"
+        )
+
+        assert state.batch_output_dir == os.path.normpath(f"{unc_base}\\batch_123")
+        assert "\\\\\\\\" not in state.batch_output_dir
+
+    def test_constructor_normalization_with_path_having_extra_backslashes(self):
+        """Constructor should normalize paths with redundant backslashes."""
+        from batch.schemas import BatchConfig
+
+        # Path with redundant backslashes (still valid, just messy)
+        messy_path = r"\\vmware-host\Shared Folders\\output\\\\batch_123"
+        config = BatchConfig(
+            num_stories=1,
+            max_num_protagonists=2,
+            max_num_extras=1,
+            num_distinct_actions=5,
+            scene_number=4,
+            output_base_dir=messy_path
+        )
+
+        # normpath should clean up the redundant backslashes
+        assert "\\\\\\\\" not in config.output_base_dir
+        assert config.output_base_dir.count("\\\\") <= 1  # Only UNC prefix
+
+    def test_batch_generate_workflow_simulation(self):
+        """Simulate the actual batch_generate.py workflow.
+
+        This tests the exact code path that was causing the bug:
+        batch_generate.py line 699 creates BatchConfig via constructor.
+        """
+        from batch.schemas import BatchConfig, BatchState, StoryStatus
+
+        # This is exactly what batch_generate.py does (line 699)
+        args_output_folder = r"\\vmware-host\Shared Folders\output"
+
+        config = BatchConfig(
+            num_stories=1,
+            max_num_protagonists=2,
+            max_num_extras=1,
+            num_distinct_actions=5,
+            scene_number=4,
+            output_base_dir=args_output_folder,  # From args.output_folder
+            generator_type="simple_random",
+        )
+
+        # Verify constructor normalized the path
+        assert config.output_base_dir == os.path.normpath(args_output_folder)
+        assert "\\\\\\\\" not in config.output_base_dir
+
+        # batch_controller creates batch_output_dir
+        batch_id = "batch_20260125_123456"
+        batch_output_dir = f"{config.output_base_dir}\\{batch_id}"
+
+        state = BatchState(
+            batch_id=batch_id,
+            config=config,
+            batch_output_dir=batch_output_dir
+        )
+
+        # Verify both are normalized
+        assert "\\\\\\\\" not in state.batch_output_dir
+        assert "\\\\\\\\" not in state.config.output_base_dir
+
+        # Create a story directory path (what simple_random_generator does)
+        story_name = "gym_max1actors_max1regions_1action_chains_abc123"
+        story_dir = f"{state.batch_output_dir}\\{story_name}"
+
+        story = StoryStatus(
+            story_id="abc123",
+            story_number=1,
+            status="generating",
+            output_dir=story_dir
+        )
+
+        # Verify story path is normalized
+        assert "\\\\\\\\" not in story.output_dir
+
+        # Now simulate what was failing: using the path for mkdir
+        from pathlib import Path
+
+        story_path = Path(story.output_dir)
+        detailed_graph_dir = story_path / "detailed_graph" / "take1"
+
+        # The path string should NOT have quadruple backslashes
+        assert "\\\\\\\\" not in str(detailed_graph_dir)
+
+        # Should still be a valid UNC path
+        assert str(detailed_graph_dir).startswith(r"\\vmware-host")
+
+
 class TestEdgeCases:
     """Test edge cases for path handling."""
 
