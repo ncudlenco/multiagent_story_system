@@ -142,7 +142,7 @@ code_sync:
     # MTA config files (disable external network connections to prevent freeze)
     - host: "../../mtaserver.conf"
       guest: "C:\\mta1.6\\server\\mods\\deathmatch\\mtaserver.conf"
-    - host: "../../../../MTA/config/coreconfig.xml"
+    - host: "../../../../../MTA/config/coreconfig.xml"
       guest: "C:\\mta1.6\\MTA\\config\\coreconfig.xml"
 
   # Directories to copy from host to guest after cloning
