@@ -374,7 +374,7 @@ def build_batch_command(job_config: Dict[str, Any], logger: logging.Logger) -> L
 
 
 def run_batch_generate(cmd: List[str], logger: logging.Logger) -> int:
-    """Run batch_generate.py and return exit code"""
+    """Run batch_generate.py and return exit code with real-time log streaming"""
     logger.info(f"Starting batch generation...")
     logger.info(f"Working directory: {WORK_DIR}")
     logger.info(f"Command: {' '.join(cmd)}")
@@ -383,8 +383,8 @@ def run_batch_generate(cmd: List[str], logger: logging.Logger) -> int:
         # Change to work directory
         os.chdir(WORK_DIR)
 
-        # Run batch_generate.py
-        result = subprocess.run(
+        # Run batch_generate.py with real-time output streaming
+        process = subprocess.Popen(
             cmd,
             cwd=WORK_DIR,
             stdout=subprocess.PIPE,
@@ -393,14 +393,18 @@ def run_batch_generate(cmd: List[str], logger: logging.Logger) -> int:
             bufsize=1  # Line buffered
         )
 
-        # Log output
-        if result.stdout:
-            for line in result.stdout.split('\n'):
-                if line.strip():
-                    logger.info(f"[batch] {line}")
+        # Stream output line by line in real-time
+        for line in process.stdout:
+            line = line.rstrip()
+            if line:
+                logger.info(f"[batch] {line}")
+                sys.stdout.flush()  # Ensure immediate output
 
-        logger.info(f"Batch generation completed with exit code: {result.returncode}")
-        return result.returncode
+        # Wait for process to complete
+        return_code = process.wait()
+
+        logger.info(f"Batch generation completed with exit code: {return_code}")
+        return return_code
 
     except Exception as e:
         logger.error(f"Batch generation failed with exception: {e}")
