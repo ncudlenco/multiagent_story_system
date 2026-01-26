@@ -91,6 +91,10 @@ class MTAController:
         self._server_ready_time: Optional[float] = None
         self._client_connected: bool = False
 
+        # Simulation timing tracking (for freeze detection timeouts)
+        self._simulation_start_time: Optional[float] = None
+        self._first_action_time: Optional[float] = None
+
         logger.info(
             "mta_controller_initialized",
             server_root=str(self.server_root),
@@ -762,6 +766,10 @@ class MTAController:
         self._server_ready_time = None
         self._client_connected = False
 
+        # Reset simulation timing tracking for freeze detection
+        self._simulation_start_time = None
+        self._first_action_time = None
+
         try:
             # 1. Prepare simulation (clear logs, snapshot folders)
             existing_folders = self.prepare_simulation(graph_file)
@@ -813,6 +821,7 @@ class MTAController:
             server_log_pos = 0
             client_log_pos = 0
             start_time = time.time()
+            self._simulation_start_time = start_time  # Track simulation start for freeze detection timeouts
             last_server_activity_time = start_time  # Track server log activity for freeze detection
             last_action_time = start_time  # Track last ACTION execution (for adaptive timeout)
             last_topmost_time = 0  # Track when we last set topmost
@@ -1326,6 +1335,23 @@ class MTAController:
                     self._client_connected = True
                     logger.info("client_connected_detected")
 
+        # Check for SERVER READY timeout (server should become "ready" quickly)
+        # This catches frozen startup before server outputs "ready to accept connections"
+        if self._simulation_start_time and self._server_ready_time is None:
+            server_ready_timeout = self.config['validation'].get('server_ready_timeout_seconds', 180)
+            time_since_start = current_time - self._simulation_start_time
+            if time_since_start > server_ready_timeout:
+                error_msg = (
+                    f"Server not ready within {server_ready_timeout}s of simulation start. "
+                    f"MTA startup is likely frozen."
+                )
+                logger.error(
+                    "server_ready_timeout",
+                    time_since_start=time_since_start,
+                    server_ready_timeout=server_ready_timeout
+                )
+                return "ERROR", error_msg, new_server_pos, new_client_pos, last_server_activity_time, last_action_time
+
         # Check for client connection timeout
         if self._server_ready_time and not self._client_connected:
             time_since_ready = current_time - self._server_ready_time
@@ -1361,10 +1387,32 @@ class MTAController:
                 if pattern in line:
                     action_detected = True
                     last_action_time = current_time
+                    # Track first action time (only set once)
+                    if self._first_action_time is None:
+                        self._first_action_time = current_time
+                        logger.info("first_action_detected",
+                                   time_since_start=current_time - self._simulation_start_time if self._simulation_start_time else 0)
                     logger.debug("action_progress_detected", pattern=pattern)
                     break
             if action_detected:
                 break
+
+        # 4.5 Check for FIRST ACTION timeout
+        # If no action starts within timeout of simulation start, MTA is likely frozen after connect
+        if self._simulation_start_time and self._first_action_time is None:
+            first_action_timeout = self.config['validation'].get('first_action_timeout_seconds', 600)
+            time_since_start = current_time - self._simulation_start_time
+            if time_since_start > first_action_timeout:
+                error_msg = (
+                    f"No actions started within {first_action_timeout}s of simulation start. "
+                    f"MTA likely frozen after initialization."
+                )
+                logger.error(
+                    "first_action_timeout",
+                    time_since_start=time_since_start,
+                    first_action_timeout=first_action_timeout
+                )
+                return "ERROR", error_msg, new_server_pos, new_client_pos, last_server_activity_time, last_action_time
 
         # 5. Check for NO ACTION PROGRESS timeout (adaptive)
         # If no actions executing for too long, the simulation is stuck
