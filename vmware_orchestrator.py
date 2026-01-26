@@ -8,6 +8,7 @@ Handles VM cloning, monitoring, auto-restart, output merging, and cleanup.
 Usage:
     python vmware_orchestrator.py --num-vms 4 --stories-per-vm 25
     python vmware_orchestrator.py --num-vms 4 --stories-per-vm 25 --google-drive-folder 1ABC...
+    python vmware_orchestrator.py --purge-vms  # Delete ALL previous worker VM batches
 """
 
 import os
@@ -817,6 +818,74 @@ class VMWareOrchestrator:
 
                 logger.info("worker_outputs_deleted")
                 print("[OK] Worker outputs deleted (merged output preserved)")
+
+    def purge_all_worker_vms(self) -> Tuple[int, int]:
+        """Delete ALL previous worker VM directories from disk.
+
+        This removes all vm_batch_* directories from the workers base directory.
+
+        Returns:
+            Tuple of (deleted_count, failed_count)
+        """
+        workers_base_dir = Path(self.config["vmware"]["workers_dir"])
+
+        if not workers_base_dir.exists():
+            logger.info("workers_dir_not_found", path=str(workers_base_dir))
+            print(f"[!] Workers directory does not exist: {workers_base_dir}")
+            return 0, 0
+
+        # Find all vm_batch_* directories
+        batch_dirs = list(workers_base_dir.glob("vm_batch_*"))
+
+        if not batch_dirs:
+            logger.info("no_batch_dirs_found", path=str(workers_base_dir))
+            print(f"[OK] No worker VM batches found in {workers_base_dir}")
+            return 0, 0
+
+        print(f"\n[!] Found {len(batch_dirs)} worker VM batch(es) to delete:")
+        total_size = 0
+        for batch_dir in batch_dirs:
+            # Calculate size
+            try:
+                dir_size = sum(f.stat().st_size for f in batch_dir.rglob("*") if f.is_file())
+                size_gb = dir_size / (1024 ** 3)
+                total_size += dir_size
+                print(f"    - {batch_dir.name} ({size_gb:.2f} GB)")
+            except Exception as e:
+                print(f"    - {batch_dir.name} (size unknown: {e})")
+
+        total_gb = total_size / (1024 ** 3)
+        print(f"\n    Total: {total_gb:.2f} GB")
+
+        deleted = 0
+        failed = 0
+
+        for batch_dir in batch_dirs:
+            print(f"\n[*] Deleting {batch_dir.name}...", end=" ", flush=True)
+
+            # Use retry logic similar to cleanup()
+            max_retries = 5
+            success = False
+
+            for attempt in range(max_retries):
+                try:
+                    shutil.rmtree(batch_dir)
+                    print("OK")
+                    logger.info("batch_dir_deleted", path=str(batch_dir))
+                    deleted += 1
+                    success = True
+                    break
+                except OSError as e:
+                    if attempt < max_retries - 1:
+                        print(f"(retry {attempt + 1})...", end=" ", flush=True)
+                        time.sleep(10)
+                    else:
+                        print(f"FAILED ({e})")
+                        logger.error("batch_dir_delete_failed", path=str(batch_dir), error=str(e))
+                        failed += 1
+
+        print(f"\n[OK] Purge complete: {deleted} deleted, {failed} failed")
+        return deleted, failed
 
     # =========================================================================
     # Autonomous Worker Methods (file-based job configuration)
@@ -1853,6 +1922,9 @@ Examples:
 
   # Autonomous with Google Drive upload
   python vmware_orchestrator.py --num-vms 4 --stories-per-vm 25 --autonomous --google-drive-folder 1ABC...
+
+  # Delete ALL previous worker VM batches from disk
+  python vmware_orchestrator.py --purge-vms
         """
     )
 
@@ -1862,6 +1934,8 @@ Examples:
                            help="Number of worker VMs to spawn (batch generation mode)")
     mode_group.add_argument("--update-master", action="store_true",
                            help="Update master VM code from GitHub repositories")
+    mode_group.add_argument("--purge-vms", action="store_true",
+                           help="Delete ALL previous worker VM batches from disk")
 
     # Batch generation mode arguments
     parser.add_argument("--stories-per-vm", type=int,
@@ -1940,6 +2014,11 @@ Examples:
     # Initialize orchestrator
     try:
         orchestrator = VMWareOrchestrator(config_path=args.config)
+
+        # Handle --purge-vms mode
+        if args.purge_vms:
+            deleted, failed = orchestrator.purge_all_worker_vms()
+            return 0 if failed == 0 else 1
 
         # Handle --update-master mode
         if args.update_master:
