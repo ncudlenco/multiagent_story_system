@@ -17,7 +17,7 @@ from datetime import datetime
 
 from core.config import Config
 from utils.mta_controller import MTAController
-from batch.schemas import StoryStatus
+from batch.schemas import StoryStatus, _normalize_path
 
 logger = structlog.get_logger(__name__)
 
@@ -154,7 +154,7 @@ class ArtifactCollector:
         # Fix: Normalize UNC paths before mkdir operations to prevent double-escaping
         # on Windows (WinError 123). Python's pathlib can double-escape UNC paths
         # like \\vmware-host\Shared Folders\ during path operations.
-        story_dir_normalized = Path(os.path.normpath(str(story_dir)))
+        story_dir_normalized = Path(_normalize_path(str(story_dir)))
         logger.debug(
             "story_dir_normalized",
             original=str(story_dir),

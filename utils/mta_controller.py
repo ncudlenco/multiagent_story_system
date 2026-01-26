@@ -826,8 +826,10 @@ class MTAController:
             last_action_time = start_time  # Track last ACTION execution (for adaptive timeout)
             last_topmost_time = 0  # Track when we last set topmost
 
-            # Max total simulation time (much longer than before since adaptive timeout catches stuck cases)
-            max_simulation_time = self.config['validation'].get('max_simulation_time_seconds', 3600)
+            # Max total simulation time - use timeout_seconds if provided, otherwise fall back to config
+            # The fine-grained timeouts (client_connect, first_action, silence) should fire first
+            max_simulation_time = timeout_seconds if timeout_seconds else \
+                self.config['validation'].get('max_simulation_time_seconds', 3600)
 
             logger.info("starting_adaptive_timeout_monitoring_loop",
                        max_simulation_time=max_simulation_time,
@@ -889,7 +891,7 @@ class MTAController:
                     break
 
                 # Check ABSOLUTE max simulation time (safety net)
-                # This is much longer since adaptive timeout catches stuck cases
+                # This uses timeout_seconds if provided, otherwise falls back to config
                 elapsed = time.time() - start_time
                 if elapsed > max_simulation_time:
                     logger.warning("simulation_max_time_exceeded",
@@ -1317,6 +1319,23 @@ class MTAController:
         )
 
         all_new_lines = server_new_lines + client_new_lines
+
+        # DEBUG: Log timeout state periodically (every ~10 seconds via check_interval of 2s)
+        # This helps diagnose why timeouts might not be firing
+        if self._simulation_start_time:
+            time_since_start = current_time - self._simulation_start_time
+            # Log every 30 seconds (approximately)
+            if int(time_since_start) % 30 == 0 and int(time_since_start) > 0:
+                logger.info(
+                    "timeout_state_debug",
+                    time_since_start=round(time_since_start, 1),
+                    server_ready_time=round(self._server_ready_time - self._simulation_start_time, 1) if self._server_ready_time else None,
+                    client_connected=self._client_connected,
+                    first_action_time=round(self._first_action_time - self._simulation_start_time, 1) if self._first_action_time else None,
+                    server_new_lines=len(server_new_lines),
+                    config_client_timeout=self.config['validation'].get('client_connect_timeout_seconds', 'NOT_SET'),
+                    config_silence_timeout=self.config['validation'].get('max_server_log_silence_seconds', 'NOT_SET'),
+                )
 
         # 3. Track server log activity for basic activity detection
         if server_new_lines:
