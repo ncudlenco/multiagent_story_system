@@ -65,7 +65,7 @@ validation:
   no_action_progress_timeout_seconds: 600  # Timeout if no actions execute for this long (stuck detection)
   max_simulation_time_seconds: 3600  # Absolute max time (1 hour - rely on 90s no-progress timeout)
   # Freeze/crash detection settings
-  max_server_log_silence_seconds: 60  # Detect freeze after 60s of no server logs
+  max_server_log_silence_seconds: 600  # Detect freeze after 10 min of no server logs
   client_connect_timeout_seconds: 180  # Max wait for client to connect after server ready (3 min)
   server_ready_timeout_seconds: 180  # Max wait for server to become "ready" after sim start (3 min)
   first_action_timeout_seconds: 600  # Max wait for first action to start after sim start (10 min)

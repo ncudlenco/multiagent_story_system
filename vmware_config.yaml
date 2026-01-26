@@ -61,7 +61,7 @@ orchestration:
     display_update_interval_seconds: 5
 
     # Consider worker hung if log file hasn't changed in this many seconds
-    log_silence_threshold_seconds: 3600  # 10 minutes
+    log_silence_threshold_seconds: 3600  # 1 hour
 
     # Maximum number of restart attempts per worker before giving up
     max_restart_attempts: 3
