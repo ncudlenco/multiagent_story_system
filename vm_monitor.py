@@ -170,7 +170,26 @@ class VMMonitor:
             return False
 
     def _update_progress_from_state(self):
-        """Update progress by parsing batch_state.json"""
+        """Update progress by parsing batch_state.json or worker_complete.json"""
+        # First check for worker_complete.json (written by VM when batch finishes)
+        # This is the primary completion signal when using local temp folder approach
+        completion_marker = self.shared_folder_path / "worker_complete.json"
+        if completion_marker.exists():
+            try:
+                with open(completion_marker, 'r') as f:
+                    completion_data = json.load(f)
+                self.progress.status = WorkerStatus.COMPLETED
+                logger.info("worker_completed_via_marker",
+                           worker_id=self.worker_id,
+                           exit_code=completion_data.get("exit_code"),
+                           completed_at=completion_data.get("completed_at"))
+                return
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning("failed_to_parse_completion_marker",
+                             worker_id=self.worker_id,
+                             error=str(e))
+
+        # Fall back to batch_state.json (for backwards compatibility)
         # Find batch directory in shared folder
         batch_dirs = list(self.shared_folder_path.glob("batch_*"))
 
