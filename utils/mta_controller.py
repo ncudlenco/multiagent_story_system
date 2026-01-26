@@ -213,7 +213,7 @@ class MTAController:
             config["ARTIFACT_COLLECTION_ENABLED"] = collect_artifacts
             if collect_artifacts:
                 # Enable image frame saving for artifact collection
-                config["ARTIFACT_NATIVE_SCREENSHOT_SAVE_IMAGES"] = True
+                config["ARTIFACT_NATIVE_SCREENSHOT_SAVE_IMAGES"] = False
                 # Keep segmentation and depth disabled
                 config["ARTIFACT_ENABLE_SEGMENTATION"] = True
                 config["ARTIFACT_ENABLE_DEPTH"] = False
