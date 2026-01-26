@@ -354,6 +354,23 @@ class BatchController:
                             link=upload_result.get('link')
                         )
 
+                        # Incremental cleanup: delete local story folder after successful upload
+                        # This saves disk space when running many stories (e.g., 100 stories on VM)
+                        if not self.batch_config.keep_local:
+                            try:
+                                shutil.rmtree(story_dir)
+                                logger.info(
+                                    "story_local_deleted_after_upload",
+                                    story_id=story_status.story_id,
+                                    path=str(story_dir)
+                                )
+                            except Exception as cleanup_err:
+                                logger.warning(
+                                    "story_local_cleanup_failed",
+                                    story_id=story_status.story_id,
+                                    error=str(cleanup_err)
+                                )
+
                     except Exception as e:
                         logger.error(
                             "story_upload_failed",

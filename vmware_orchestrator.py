@@ -991,9 +991,9 @@ class VMWareOrchestrator:
             job_config = {
                 "worker_id": worker_id + 1,
                 "batch_id": f"vm_batch_{self.batch_timestamp}",
-                # Note: This UNC path gets overridden to "O:\" at runtime by
-                # vm_auto_runner.py to avoid WinError 123 with pathlib.mkdir()
-                "output_folder": r"\\vmware-host\Shared Folders\output",
+                # Use local temp folder on VM to avoid UNC path escaping issues
+                # Results are uploaded to Google Drive, completion marker goes to shared folder
+                "output_folder": r"C:\temp\batches",
                 "story_number": stories_per_vm,
 
                 # Actor configuration
@@ -1092,6 +1092,15 @@ class VMWareOrchestrator:
                                worker_id=worker_id,
                                exit_code=exit_code,
                                data=completion_data)
+
+                    # Wait for VMware shared folder buffer to flush before returning
+                    # Network writes to \\vmware-host\Shared Folders\ are buffered
+                    # and may not be fully written when completion marker appears
+                    logger.info("waiting_for_shared_folder_sync",
+                               worker_id=worker_id,
+                               delay_seconds=30)
+                    time.sleep(30)
+
                     return exit_code == 0
 
                 except Exception as e:
@@ -1117,7 +1126,7 @@ class VMWareOrchestrator:
         Workflow:
         1. Create batch directory with worker subdirs and job configs
         2. Clone VMs with shared folders configured in VMX
-        3. Start VMs (they auto-run vm_auto_runner.py on boot)
+        3. Start VMs (they auto-run vm_auto_runner.ps1 on boot via Task Scheduler)
         4. Monitor for completion markers in shared folders
         5. Merge outputs and cleanup
 
@@ -1222,7 +1231,7 @@ class VMWareOrchestrator:
                 return 1
             print(" [OK]")
 
-            # Start VM (it will auto-run vm_auto_runner.py on boot)
+            # Start VM (it will auto-run vm_auto_runner.ps1 on boot via Task Scheduler)
             # Note: enableSharedFolders is called inside start_worker_vm() after VMware Tools is ready
             if not self.start_worker_vm(worker_id, worker_vmx_path):
                 print(f"  [X] Failed to start VM")

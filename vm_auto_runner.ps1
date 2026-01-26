@@ -71,21 +71,6 @@ if (-not (Test-Path $JobConfigPath)) {
 
 Write-Log "Found job config at $JobConfigPath"
 
-# Map network drive O: to avoid UNC path issues
-Write-Log "Mapping O: drive to VMware shared folder..."
-
-# First, disconnect any existing O: mapping
-$deleteResult = net use O: /delete /y 2>&1
-Write-Log "Drive O: disconnect result: $deleteResult"
-
-# Map the shared folder
-$mapResult = net use O: "\\vmware-host\Shared Folders\output" /persistent:no 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Log "ERROR: Failed to map O: drive: $mapResult" "ERROR"
-    exit 1
-}
-Write-Log "Successfully mapped O: drive to \\vmware-host\Shared Folders\output"
-
 # Parse YAML job config
 Write-Log "Parsing job configuration..."
 $jobConfig = Parse-SimpleYaml -Path $JobConfigPath
@@ -95,6 +80,7 @@ Write-Log "Job config loaded:"
 Write-Log "  batch_id: $($jobConfig['batch_id'])"
 Write-Log "  worker_id: $($jobConfig['worker_id'])"
 Write-Log "  story_number: $($jobConfig['story_number'])"
+Write-Log "  output_folder: $($jobConfig['output_folder'])"
 Write-Log "  num_actors: $($jobConfig['num_actors'])"
 Write-Log "  num_extras: $($jobConfig['num_extras'])"
 Write-Log "  generator_type: $($jobConfig['generator_type'])"
@@ -102,10 +88,10 @@ Write-Log "  episode_type: $($jobConfig['episode_type'])"
 Write-Log "  simulation_timeout: $($jobConfig['simulation_timeout'])"
 
 # Build batch_generate.py command arguments
-# IMPORTANT: Use "O:" without trailing backslash to avoid escaping issues
+# output_folder comes from job config (e.g., C:\temp\batches - local path to avoid UNC issues)
 $pythonArgs = @(
     "batch_generate.py"
-    "--output-folder", "O:"
+    "--output-folder", $jobConfig['output_folder']
     "--story-number", $jobConfig['story_number']
 )
 
@@ -251,7 +237,8 @@ $completionData = @{
 }
 
 $completionJson = $completionData | ConvertTo-Json -Compress
-$completionPath = "O:\worker_complete.json"
+# Write completion marker to shared folder using UNC path (small file, works fine with UNC)
+$completionPath = "\\vmware-host\Shared Folders\output\worker_complete.json"
 
 try {
     $completionJson | Out-File -FilePath $completionPath -Encoding UTF8 -Force
