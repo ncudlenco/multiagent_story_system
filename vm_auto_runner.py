@@ -542,17 +542,9 @@ def main() -> int:
             logger.error("Failed to load job config, exiting")
             return 1
 
-        # Map output drive to avoid UNC path issues
-        # UNC paths like \\vmware-host\... cause WinError 123 with Python pathlib
-        try:
-            mapped_drive = map_output_drive("O:", logger)
-            # Override output_folder with the mapped drive
-            original_output = job_config.get("output_folder", "")
-            job_config["output_folder"] = mapped_drive
-            logger.info(f"Overrode output_folder: {original_output} -> {mapped_drive}")
-        except RuntimeError as e:
-            logger.error(f"Failed to map output drive: {e}")
-            logger.warning("Continuing with original UNC path (may fail)")
+        # output_folder comes from job config (e.g., C:\temp\batches)
+        # No drive mapping needed - using local temp folder avoids UNC path issues
+        logger.info(f"Output folder: {job_config.get('output_folder', 'N/A')}")
 
         # Log job details
         logger.info(f"Worker ID: {job_config.get('worker_id', 'N/A')}")
