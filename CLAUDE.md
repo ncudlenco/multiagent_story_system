@@ -516,7 +516,7 @@ paths:
 
 validation:
   max_attempts: 3
-  simulation_timeout_seconds: 3600
+  simulation_timeout_seconds: 600
 
 logging:
   level: "INFO"
@@ -1092,7 +1092,7 @@ def validate(self, level_4_gest):
     mta_controller.start_client()  # Auto-connects
 
     # 4. Monitor for completion (timeout: 10 min)
-    completed = mta_controller.wait_for_completion(timeout=3600)
+    completed = mta_controller.wait_for_completion(timeout=600)
 
     # 5. Parse logs
     log_parser = LogParser(mta_controller.get_log_paths())
@@ -1531,7 +1531,7 @@ Logs: logs/*.log
 ### Important Config Keys (Phase 0)
 
 ```yaml
-openai.model: "gpt-5"
+openai.model: "gpt-4o"
 openai.temperature: 0.7
 openai.max_tokens: 4096
 mta.server_root: "z:\\...\\server"
@@ -1541,7 +1541,7 @@ mta.startup_wait_seconds: 20
 paths.simulation_environment_capabilities: "data/simulation_environment_capabilities.json"  # Where system loads from
 paths.game_capabilities_source: "../sv2l/simulation_environment_capabilities.json"  # Where MTA exports to
 validation.max_attempts: 3
-validation.simulation_timeout_seconds: 3600
+validation.simulation_timeout_seconds: 600
 logging.level: "INFO"
 ```
 
@@ -1584,5 +1584,4 @@ This multiagent story generation system has completed **Phase 0: Migration & Sca
 6. Add comprehensive logging
 7. Document your changes
 
-** Commits **
-Do not mention authors in commits.
+Happy coding! 🎬
