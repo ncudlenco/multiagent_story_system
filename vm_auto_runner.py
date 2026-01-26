@@ -461,6 +461,67 @@ def map_output_drive(drive_letter: str = "O:", logger: logging.Logger = None) ->
     return drive_path
 
 
+def block_mta_external_network(logger: logging.Logger = None) -> bool:
+    """Block MTA processes from external network connections using Windows Firewall.
+
+    MTA can freeze for hours when trying to connect to external servers (master server,
+    version checks, news, crash uploads, Discord RPC, etc.). Config file changes alone
+    don't prevent this because some network calls are hardcoded.
+
+    This function adds outbound firewall rules to block MTA executables from connecting
+    to any IP except localhost and local network. This forces MTA to skip external
+    connections and prevents freezing.
+
+    Args:
+        logger: Optional logger for output
+
+    Returns:
+        True if all rules were added successfully
+    """
+    mta_path = r"C:\mta1.6"
+    programs = [
+        os.path.join(mta_path, "Multi Theft Auto.exe"),
+        os.path.join(mta_path, "MTA", "proxy_sa.exe"),
+        os.path.join(mta_path, "MTA", "gta_sa.exe"),
+        os.path.join(mta_path, "server", "MTA Server.exe"),
+    ]
+
+    all_success = True
+
+    for prog in programs:
+        prog_name = os.path.basename(prog)
+        rule_name = f"MTA Block External - {prog_name}"
+
+        # Delete existing rule (if any) - ignore result since rule may not exist
+        subprocess.run(
+            ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={rule_name}"],
+            capture_output=True,
+            text=True
+        )
+
+        # Add block rule - block outbound connections EXCEPT localhost and local subnets
+        # The "!" prefix means "NOT these addresses" - so we block everything except local
+        add_result = subprocess.run([
+            "netsh", "advfirewall", "firewall", "add", "rule",
+            f"name={rule_name}",
+            "dir=out",
+            "action=block",
+            f"program={prog}",
+            "remoteip=!127.0.0.0/8,!192.168.0.0/16,!10.0.0.0/8,!172.16.0.0/12",
+            "enable=yes"
+        ], capture_output=True, text=True)
+
+        if add_result.returncode == 0:
+            if logger:
+                logger.info(f"Firewall rule added: {rule_name}")
+        else:
+            all_success = False
+            if logger:
+                logger.warning(f"Failed to add firewall rule for {prog_name}: {add_result.stderr.strip()}")
+
+    return all_success
+
+
 def shutdown_system(delay_seconds: int = 60, logger: logging.Logger = None):
     """Shutdown the system after a delay"""
     if logger:
@@ -520,6 +581,13 @@ def main() -> int:
             logger.info("Display resolution configured successfully")
         else:
             logger.warning("Failed to set display resolution, continuing anyway")
+
+        # Block MTA from external network to prevent freezing
+        logger.info("Configuring firewall to block MTA external network access...")
+        if block_mta_external_network(logger):
+            logger.info("MTA external network blocking configured successfully")
+        else:
+            logger.warning("Some firewall rules failed, MTA may still freeze on external connections")
 
         # Wait for shared folders
         if not wait_for_shared_folders(logger):
