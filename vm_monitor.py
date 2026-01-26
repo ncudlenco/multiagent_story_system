@@ -115,7 +115,17 @@ class VMMonitor:
         Returns:
             WorkerStatus: Current worker status
         """
-        # Check if VM process is still running
+        # Check batch state FIRST (before checking if VM is running)
+        # This prevents race condition where VM shuts down after completing
+        # but before we read the completion marker
+        self._update_progress_from_state()
+
+        # Check if batch completed
+        if self.progress.status == WorkerStatus.COMPLETED:
+            return WorkerStatus.COMPLETED
+
+        # NOW check if VM process is still running
+        # If we get here and VM is not running, it's a real crash
         if not self._is_vm_running():
             if self.progress.status not in [WorkerStatus.COMPLETED, WorkerStatus.FAILED]:
                 logger.warning("worker_crashed",
@@ -124,13 +134,6 @@ class VMMonitor:
                 self.progress.status = WorkerStatus.CRASHED
                 self.progress.error_message = "VM process died"
                 return WorkerStatus.CRASHED
-
-        # Check batch state
-        self._update_progress_from_state()
-
-        # Check if batch completed
-        if self.progress.status == WorkerStatus.COMPLETED:
-            return WorkerStatus.COMPLETED
 
         # Check if logs are being updated (detect hangs)
         if self._is_hung():
