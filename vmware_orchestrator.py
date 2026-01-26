@@ -991,6 +991,8 @@ class VMWareOrchestrator:
             job_config = {
                 "worker_id": worker_id + 1,
                 "batch_id": f"vm_batch_{self.batch_timestamp}",
+                # Note: This UNC path gets overridden to "O:\" at runtime by
+                # vm_auto_runner.py to avoid WinError 123 with pathlib.mkdir()
                 "output_folder": r"\\vmware-host\Shared Folders\output",
                 "story_number": stories_per_vm,
 

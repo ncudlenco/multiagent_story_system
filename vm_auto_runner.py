@@ -411,6 +411,56 @@ def run_batch_generate(cmd: List[str], logger: logging.Logger) -> int:
         return 1
 
 
+def map_output_drive(drive_letter: str = "O:", logger: logging.Logger = None) -> str:
+    """Map VMware shared folder to a drive letter to avoid UNC path issues.
+
+    UNC paths like \\\\vmware-host\\Shared Folders\\output cause WinError 123
+    with Python's pathlib. Mapping to a drive letter bypasses this.
+
+    Args:
+        drive_letter: Drive letter to map (default: O:)
+        logger: Optional logger for output
+
+    Returns:
+        The mapped drive path (e.g., "O:\\")
+
+    Raises:
+        RuntimeError: If drive mapping fails
+    """
+    unc_path = r"\\vmware-host\Shared Folders\output"
+
+    if logger:
+        logger.info(f"Mapping {unc_path} to {drive_letter}...")
+
+    # First, disconnect any existing mapping (ignore errors)
+    disconnect_result = subprocess.run(
+        ["net", "use", drive_letter, "/delete", "/y"],
+        capture_output=True,
+        text=True
+    )
+    if logger and disconnect_result.returncode == 0:
+        logger.info(f"Disconnected existing {drive_letter} mapping")
+
+    # Map the shared folder to the drive letter
+    map_result = subprocess.run(
+        ["net", "use", drive_letter, unc_path, "/persistent:no"],
+        capture_output=True,
+        text=True
+    )
+
+    if map_result.returncode != 0:
+        error_msg = f"Failed to map {drive_letter} to {unc_path}: {map_result.stderr.strip()}"
+        if logger:
+            logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    drive_path = drive_letter + "\\"
+    if logger:
+        logger.info(f"Successfully mapped {unc_path} to {drive_path}")
+
+    return drive_path
+
+
 def shutdown_system(delay_seconds: int = 60, logger: logging.Logger = None):
     """Shutdown the system after a delay"""
     if logger:
@@ -491,6 +541,18 @@ def main() -> int:
         if not job_config:
             logger.error("Failed to load job config, exiting")
             return 1
+
+        # Map output drive to avoid UNC path issues
+        # UNC paths like \\vmware-host\... cause WinError 123 with Python pathlib
+        try:
+            mapped_drive = map_output_drive("O:", logger)
+            # Override output_folder with the mapped drive
+            original_output = job_config.get("output_folder", "")
+            job_config["output_folder"] = mapped_drive
+            logger.info(f"Overrode output_folder: {original_output} -> {mapped_drive}")
+        except RuntimeError as e:
+            logger.error(f"Failed to map output drive: {e}")
+            logger.warning("Continuing with original UNC path (may fail)")
 
         # Log job details
         logger.info(f"Worker ID: {job_config.get('worker_id', 'N/A')}")
