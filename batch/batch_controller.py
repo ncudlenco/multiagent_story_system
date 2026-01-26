@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
 from core.config import Config
-from batch.schemas import BatchConfig, StoryStatus, BatchState, SimulationResult
+from batch.schemas import BatchConfig, StoryStatus, BatchState, SimulationResult, _normalize_path
 from batch.retry_manager import RetryManager, RetryableError
 from batch.artifact_collector import ArtifactCollector
 from utils.file_manager import FileManager
@@ -107,7 +107,7 @@ class BatchController:
         # Initialize batch state
         batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         # Normalize UNC paths to prevent double-escaping on Windows
-        batch_output_dir = Path(os.path.normpath(self.batch_config.output_base_dir)) / batch_id
+        batch_output_dir = Path(_normalize_path(self.batch_config.output_base_dir)) / batch_id
 
         self.batch_state = BatchState(
             batch_id=batch_id,
@@ -517,7 +517,7 @@ class BatchController:
 
             # Update story_status with new folder name
             # Normalize UNC paths to prevent double-escaping on Windows
-            batch_output_dir = Path(os.path.normpath(self.batch_config.output_base_dir)) / self.batch_state.batch_id
+            batch_output_dir = Path(_normalize_path(self.batch_config.output_base_dir)) / self.batch_state.batch_id
             story_dir = batch_output_dir / folder_name
             story_status.output_dir = str(story_dir)
 
@@ -2356,7 +2356,7 @@ class BatchController:
         # Initialize batch state
         batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_existing"
         # Normalize UNC paths to prevent double-escaping on Windows
-        batch_output_dir = Path(os.path.normpath(self.batch_config.output_base_dir)) / batch_id
+        batch_output_dir = Path(_normalize_path(self.batch_config.output_base_dir)) / batch_id
 
         self.batch_state = BatchState(
             batch_id=batch_id,
@@ -2785,7 +2785,7 @@ class BatchController:
         # Initialize batch state
         batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_text_parallel"
         # Normalize UNC paths to prevent double-escaping on Windows
-        batch_output_dir = Path(os.path.normpath(self.batch_config.output_base_dir)) / batch_id
+        batch_output_dir = Path(_normalize_path(self.batch_config.output_base_dir)) / batch_id
 
         self.batch_state = BatchState(
             batch_id=batch_id,
@@ -2959,7 +2959,7 @@ class BatchController:
         # Initialize batch state
         batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_text"
         # Normalize UNC paths to prevent double-escaping on Windows
-        batch_output_dir = Path(os.path.normpath(self.batch_config.output_base_dir)) / batch_id
+        batch_output_dir = Path(_normalize_path(self.batch_config.output_base_dir)) / batch_id
 
         self.batch_state = BatchState(
             batch_id=batch_id,
