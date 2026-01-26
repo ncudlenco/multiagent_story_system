@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Optional, Literal
 import structlog
 
+from batch.schemas import _normalize_path
+
 logger = structlog.get_logger(__name__)
 
 # VideoDescriptionGEST path
@@ -105,7 +107,7 @@ def generate_textual_description(
 
         # Create textual_description folder
         # Normalize UNC paths to prevent double-escaping on Windows
-        sim_dir_normalized = Path(os.path.normpath(str(sim_dir)))
+        sim_dir_normalized = Path(_normalize_path(str(sim_dir)))
         text_dir = sim_dir_normalized / "textual_description"
         text_dir.mkdir(parents=True, exist_ok=True)
 
