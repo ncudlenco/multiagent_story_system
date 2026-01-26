@@ -300,9 +300,9 @@ class VMWareOrchestrator:
                 config_content = f.read()
 
             # Substitute placeholders
-            # Double escape for YAML: \\\\ in Python -> \\ in YAML string -> \ in parsed value
-            shared_folder_path = "\\\\\\\\vmware-host\\\\Shared Folders\\\\output"
-            config_content = config_content.replace("{OUTPUT_SHARED_FOLDER}", shared_folder_path)
+            # Use local temp folder on VM to avoid UNC path escaping issues
+            local_output_folder = "C:\\\\temp\\\\batches"
+            config_content = config_content.replace("{OUTPUT_SHARED_FOLDER}", local_output_folder)
             config_content = config_content.replace("{WORKER_ID}", f"worker{worker_id + 1}")
 
             # Write to temp directory
@@ -458,7 +458,8 @@ class VMWareOrchestrator:
             # Build batch_generate.py command using runScriptInGuest
             # runScriptInGuest is more reliable than runProgramInGuest for batch files on Windows
             batch_script_path = f"{guest_work_dir}\\run_batch.bat"
-            output_folder = "\\\\vmware-host\\Shared Folders\\output"
+            # Use local temp folder on VM to avoid UNC path escaping issues
+            output_folder = r"C:\temp\batches"
 
             # Build Python command arguments
             python_args = [
