@@ -820,6 +820,26 @@ class VMWareOrchestrator:
                 logger.info("worker_outputs_deleted")
                 print("[OK] Worker outputs deleted (merged output preserved)")
 
+    def _get_running_vms(self) -> List[str]:
+        """Get list of running VM paths using vmrun list.
+
+        Returns:
+            List of full paths to running .vmx files
+        """
+        try:
+            result = subprocess.run(
+                [self.vmrun_exe, "-T", "ws", "list"],
+                capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                return []
+            # Parse output: first line is count, rest are paths
+            lines = result.stdout.strip().split('\n')
+            return [line.strip() for line in lines[1:] if line.strip()]
+        except Exception as e:
+            logger.warning("failed_to_list_running_vms", error=str(e))
+            return []
+
     def purge_all_worker_vms(self) -> Tuple[int, int]:
         """Delete ALL previous worker VM directories from disk.
 
@@ -857,6 +877,29 @@ class VMWareOrchestrator:
 
         total_gb = total_size / (1024 ** 3)
         print(f"\n    Total: {total_gb:.2f} GB")
+
+        # Stop any running VMs in these batch directories before deletion
+        running_vms = self._get_running_vms()
+        stopped_count = 0
+        for batch_dir in batch_dirs:
+            batch_path_str = str(batch_dir).lower()
+            for vm_path in running_vms:
+                if batch_path_str in vm_path.lower():
+                    print(f"[*] Stopping running VM: {Path(vm_path).name}...", end=" ", flush=True)
+                    result = subprocess.run(
+                        [self.vmrun_exe, "-T", "ws", "stop", vm_path, "hard"],
+                        capture_output=True
+                    )
+                    if result.returncode == 0:
+                        print("OK")
+                        stopped_count += 1
+                    else:
+                        print("FAILED")
+                    time.sleep(5)  # Wait for VM to fully stop
+
+        if stopped_count > 0:
+            print(f"[OK] Stopped {stopped_count} running VM(s)")
+            time.sleep(5)  # Extra wait for files to be released
 
         deleted = 0
         failed = 0
