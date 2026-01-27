@@ -1994,6 +1994,8 @@ Examples:
     # Retry parameters
     parser.add_argument("--simulation-retries", type=int, default=None,
                        help="Number of simulation retries (default: 3)")
+    parser.add_argument("--ensure-target", action="store_true",
+                       help="Keep generating stories until the target number of successful stories is reached")
 
     # Simple random generator parameters
     parser.add_argument("--generator-type", type=str, choices=['llm', 'simple_random'],
