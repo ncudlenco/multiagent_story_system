@@ -22,6 +22,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import structlog
 
 from vm_monitor import VMMonitor, VMMonitorPool, WorkerStatus
@@ -880,26 +881,35 @@ class VMWareOrchestrator:
 
         # Stop any running VMs in these batch directories before deletion
         running_vms = self._get_running_vms()
-        stopped_count = 0
-        for batch_dir in batch_dirs:
-            batch_path_str = str(batch_dir).lower()
-            for vm_path in running_vms:
-                if batch_path_str in vm_path.lower():
-                    print(f"[*] Stopping running VM: {Path(vm_path).name}...", end=" ", flush=True)
-                    result = subprocess.run(
-                        [self.vmrun_exe, "-T", "ws", "stop", vm_path, "hard"],
-                        capture_output=True
-                    )
-                    if result.returncode == 0:
-                        print("OK")
-                        stopped_count += 1
-                    else:
-                        print("FAILED")
-                    time.sleep(5)  # Wait for VM to fully stop
 
-        if stopped_count > 0:
+        # Filter VMs that belong to batch directories we're deleting
+        vms_to_stop = [
+            vm for vm in running_vms
+            if any(str(bd).lower() in vm.lower() for bd in batch_dirs)
+        ]
+
+        if vms_to_stop:
+            print(f"[*] Stopping {len(vms_to_stop)} VM(s) in parallel...")
+
+            def stop_vm(vm_path: str) -> Tuple[str, bool]:
+                """Stop a single VM and return (path, success)."""
+                result = subprocess.run(
+                    [self.vmrun_exe, "-T", "ws", "stop", vm_path, "hard"],
+                    capture_output=True
+                )
+                return vm_path, result.returncode == 0
+
+            stopped_count = 0
+            with ThreadPoolExecutor(max_workers=len(vms_to_stop)) as executor:
+                futures = {executor.submit(stop_vm, vm): vm for vm in vms_to_stop}
+                for future in as_completed(futures):
+                    vm_path, success = future.result()
+                    print(f"    - {Path(vm_path).name}: {'OK' if success else 'FAILED'}")
+                    if success:
+                        stopped_count += 1
+
             print(f"[OK] Stopped {stopped_count} running VM(s)")
-            time.sleep(5)  # Extra wait for files to be released
+            time.sleep(10)  # Wait for files to be released
 
         deleted = 0
         failed = 0
@@ -1228,69 +1238,142 @@ class VMWareOrchestrator:
             "simulation_retries": getattr(args, 'simulation_retries', None),
         }
 
-        # Clone workers and setup job configs
-        print(f"Setting up {num_workers} autonomous workers...\n")
+        # Clone workers and setup job configs using parallel phases
+        print(f"Setting up {num_workers} autonomous workers (parallel)...\n")
 
+        # Phase 1: Prepare directories and job configs (quick, sequential)
+        print("[Phase 1] Preparing directories and job configs...")
+        worker_prep = []  # List of (worker_id, output_dir, job_dir)
         for worker_id in range(num_workers):
-            print(f"[Worker {worker_id + 1}]")
-
-            # Create worker output directory
             worker_output_dir = self.batch_dir / f"worker{worker_id + 1}"
             worker_output_dir.mkdir(parents=True, exist_ok=True)
-
-            # Create job config directory
             job_dir = self.batch_dir / f"worker{worker_id + 1}_job"
             job_dir.mkdir(parents=True, exist_ok=True)
-
-            # Generate job config
-            print(f"  Generating job config...", end="", flush=True)
             if not self._generate_worker_job_yaml(worker_id, job_dir, stories_per_vm, batch_params):
-                print(" [X]")
+                print(f"  [X] Failed to generate job config for worker {worker_id + 1}")
                 return 1
-            print(" [OK]")
+            worker_prep.append((worker_id, worker_output_dir, job_dir))
+            print(f"  Worker {worker_id + 1}: OK")
+        print(f"[OK] Phase 1 complete\n")
 
-            # Clone VM
-            worker_vmx_path = self.clone_worker_vm(worker_id)
-            if not worker_vmx_path:
-                print(f"  [X] Failed to clone VM")
-                return 1
+        # Phase 2: Clone all VMs in parallel
+        print(f"[Phase 2] Cloning {num_workers} VM(s) in parallel...")
 
-            # Configure shared folders in VMX (BEFORE starting VM)
-            print(f"  Configuring shared folders in VMX...", end="", flush=True)
+        def clone_vm_silent(worker_id: int) -> Tuple[int, Optional[str]]:
+            """Clone a VM without print statements."""
+            master_vm_path = self.config["vmware"]["master_vm_path"]
+            snapshot_name = self.config["vmware"]["master_snapshot"]
+            workers_base_dir = self.config["vmware"]["workers_dir"]
+            worker_name = f"worker{worker_id + 1}"
+            worker_batch_dir = Path(workers_base_dir) / f"vm_batch_{self.batch_timestamp}"
+            worker_vm_dir = worker_batch_dir / worker_name
+            worker_vm_dir.mkdir(parents=True, exist_ok=True)
+            worker_vmx_path = str(worker_vm_dir / f"{worker_name}.vmx")
+            clone_name = f"{worker_name}_batch{self.batch_timestamp}"
+            try:
+                subprocess.run(
+                    [self.vmrun_exe, "-T", "ws", "clone", master_vm_path, worker_vmx_path,
+                     "linked", f"-snapshot={snapshot_name}", f"-cloneName={clone_name}"],
+                    capture_output=True, text=True, check=True
+                )
+                return worker_id, worker_vmx_path
+            except subprocess.CalledProcessError:
+                return worker_id, None
+
+        vmx_paths = {}  # worker_id -> vmx_path
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(clone_vm_silent, wid): wid for wid, _, _ in worker_prep}
+            for future in as_completed(futures):
+                worker_id, vmx_path = future.result()
+                status = "OK" if vmx_path else "FAILED"
+                print(f"  Worker {worker_id + 1}: {status}")
+                if vmx_path:
+                    vmx_paths[worker_id] = vmx_path
+                else:
+                    print(f"[X] Clone failed for worker {worker_id + 1}")
+                    return 1
+        print(f"[OK] Phase 2 complete\n")
+
+        # Phase 3: Configure VMX shared folders in parallel
+        print(f"[Phase 3] Configuring shared folders in {num_workers} VMX file(s) in parallel...")
+
+        def configure_vmx_silent(worker_id: int, vmx_path: str, output_dir: Path, job_dir: Path) -> Tuple[int, bool]:
+            """Configure VMX without print statements."""
             shared_folders = [
-                {
-                    "host_path": str(worker_output_dir.resolve()),
-                    "guest_name": "output",
-                    "write": True
-                },
-                {
-                    "host_path": str(job_dir.resolve()),
-                    "guest_name": "job",
-                    "write": False  # Read-only for job config
-                }
+                {"host_path": str(output_dir.resolve()), "guest_name": "output", "write": True},
+                {"host_path": str(job_dir.resolve()), "guest_name": "job", "write": False}
             ]
+            success = self._configure_shared_folders_in_vmx(vmx_path, shared_folders)
+            return worker_id, success
 
-            if not self._configure_shared_folders_in_vmx(worker_vmx_path, shared_folders):
-                print(" [X]")
-                return 1
-            print(" [OK]")
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = {}
+            for worker_id, output_dir, job_dir in worker_prep:
+                vmx_path = vmx_paths[worker_id]
+                futures[executor.submit(configure_vmx_silent, worker_id, vmx_path, output_dir, job_dir)] = worker_id
+            for future in as_completed(futures):
+                worker_id, success = future.result()
+                status = "OK" if success else "FAILED"
+                print(f"  Worker {worker_id + 1}: {status}")
+                if not success:
+                    print(f"[X] VMX config failed for worker {worker_id + 1}")
+                    return 1
+        print(f"[OK] Phase 3 complete\n")
 
-            # Start VM (it will auto-run vm_auto_runner.ps1 on boot via Task Scheduler)
-            # Note: enableSharedFolders is called inside start_worker_vm() after VMware Tools is ready
-            if not self.start_worker_vm(worker_id, worker_vmx_path):
-                print(f"  [X] Failed to start VM")
-                return 1
+        # Phase 4: Start all VMs in parallel
+        print(f"[Phase 4] Starting {num_workers} VM(s) in parallel...")
 
-            # Store worker metadata
+        def start_vm_silent(worker_id: int, vmx_path: str) -> Tuple[int, bool]:
+            """Start VM and wait for tools without print statements."""
+            try:
+                # Start VM
+                subprocess.run(
+                    [self.vmrun_exe, "-T", "ws", "start", vmx_path, "gui"],
+                    capture_output=True, text=True, check=True
+                )
+                # Wait for VMware Tools
+                timeout = self.config["vmware"]["guest_os"]["tools_ready_timeout_seconds"]
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    try:
+                        result = subprocess.run(
+                            [self.vmrun_exe, "-T", "ws", "checkToolsState", vmx_path],
+                            capture_output=True, text=True, check=True
+                        )
+                        if "running" in result.stdout.lower():
+                            # Enable shared folders
+                            subprocess.run(
+                                [self.vmrun_exe, "-T", "ws", "enableSharedFolders", vmx_path],
+                                capture_output=True, text=True, check=True
+                            )
+                            return worker_id, True
+                    except subprocess.CalledProcessError:
+                        pass
+                    time.sleep(5)
+                return worker_id, False  # Timeout
+            except subprocess.CalledProcessError:
+                return worker_id, False
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(start_vm_silent, wid, vmx_paths[wid]): wid for wid in vmx_paths}
+            for future in as_completed(futures):
+                worker_id, success = future.result()
+                status = "OK" if success else "FAILED"
+                print(f"  Worker {worker_id + 1}: {status}")
+                if not success:
+                    print(f"[X] Start failed for worker {worker_id + 1}")
+                    return 1
+
+        # Store worker metadata
+        for worker_id, output_dir, job_dir in worker_prep:
             self.workers.append({
                 "worker_id": worker_id,
-                "vmx_path": worker_vmx_path,
-                "output_dir": worker_output_dir,
+                "vmx_path": vmx_paths[worker_id],
+                "output_dir": output_dir,
                 "job_dir": job_dir
             })
 
-            print()
-
+        print(f"[OK] Phase 4 complete\n")
         print(f"[OK] All {num_workers} workers started autonomously\n")
 
         # Initialize monitoring
@@ -1317,16 +1400,23 @@ class VMWareOrchestrator:
         self.monitor_workers(batch_params)
 
         # Note: Workers auto-shutdown, but we'll try to stop any still running
-        print(f"\nEnsuring all workers are stopped...")
-        for worker in self.workers:
+        print(f"\nEnsuring all workers are stopped (parallel)...")
+
+        def stop_worker(vmx_path: str) -> bool:
+            """Stop a worker VM."""
             try:
                 subprocess.run(
-                    [self.vmrun_exe, "-T", "ws", "stop", worker["vmx_path"], "soft"],
-                    capture_output=True,
-                    timeout=30
+                    [self.vmrun_exe, "-T", "ws", "stop", vmx_path, "soft"],
+                    capture_output=True, timeout=30
                 )
+                return True
             except Exception:
-                pass  # Ignore errors - VM might already be stopped
+                return True  # Ignore errors - VM might already be stopped
+
+        with ThreadPoolExecutor(max_workers=len(self.workers)) as executor:
+            futures = [executor.submit(stop_worker, w["vmx_path"]) for w in self.workers]
+            for future in as_completed(futures):
+                future.result()  # Just wait for completion
 
         print("[OK] Workers stopped\n")
 
