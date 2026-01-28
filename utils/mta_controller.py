@@ -494,8 +494,11 @@ class MTAController:
     def _is_window_hung(self, hwnd: int, timeout_ms: int = 1000) -> bool:
         """
         Check if a window is hung using two methods:
-        1. IsHungAppWindow - Windows internal tracking
-        2. SendMessageTimeout - Active responsiveness test
+        1. IsHungAppWindow (via ctypes) - Windows internal tracking
+        2. SendMessageTimeout (via ctypes) - Active responsiveness test
+
+        Each method has its own try/except so failure in one doesn't
+        prevent the other from running.
 
         Args:
             hwnd: Window handle to check
@@ -504,32 +507,34 @@ class MTAController:
         Returns:
             True if window is hung (not responding)
         """
+        import ctypes
+
+        # Method 1: IsHungAppWindow via ctypes
         try:
-            # Method 1: Check Windows internal hung state
-            if win32gui.IsHungAppWindow(hwnd):
+            if ctypes.windll.user32.IsHungAppWindow(hwnd):
+                logger.debug("window_hung_detected_ishungappwindow", hwnd=hwnd)
                 return True
+        except Exception as e:
+            logger.debug("ishungappwindow_failed", hwnd=hwnd, error=str(e))
 
-            # Method 2: Active test with SendMessageTimeout
-            import ctypes
-
-            SMTO_ABORTIFHUNG = 0x0002
-            WM_NULL = 0x0000
-
+        # Method 2: SendMessageTimeout via ctypes
+        try:
             result = ctypes.c_ulong()
             ret = ctypes.windll.user32.SendMessageTimeoutW(
                 hwnd,
-                WM_NULL,  # No-op message
+                0x0000,  # WM_NULL - No-op message
                 0, 0,
-                SMTO_ABORTIFHUNG,
+                0x0002,  # SMTO_ABORTIFHUNG
                 timeout_ms,
                 ctypes.byref(result)
             )
             if ret == 0:  # Timed out = hung
+                logger.debug("window_hung_detected_sendmessagetimeout", hwnd=hwnd, timeout_ms=timeout_ms)
                 return True
+        except Exception as e:
+            logger.debug("sendmessagetimeout_failed", hwnd=hwnd, error=str(e))
 
-            return False
-        except Exception:
-            return False
+        return False
 
     def _is_mta_window_hung(self) -> bool:
         """
@@ -540,8 +545,11 @@ class MTAController:
         """
         hwnd = self._find_mta_window()
         if not hwnd:
+            logger.debug("mta_window_not_found_for_hung_check")
             return False  # No window = not hung (might not have started yet)
-        return self._is_window_hung(hwnd)
+        is_hung = self._is_window_hung(hwnd)
+        logger.debug("mta_window_hung_check", hwnd=hwnd, is_hung=is_hung)
+        return is_hung
 
     def detect_crash_dialog(self) -> bool:
         """

@@ -14,19 +14,9 @@ import json
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-# Configure structlog for subprocess capture (must be before any logger calls)
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.StackInfoRenderer(),
-        structlog.dev.ConsoleRenderer() if sys.stdout.isatty() else structlog.processors.JSONRenderer()
-    ],
-    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-    context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
-    cache_logger_on_first_use=True
-)
+# Configure structlog with file + console output (must be before any logger calls)
+from utils.logging_setup import setup_logging, set_log_level
+_log_file = setup_logging(log_name="batch_generate")
 
 from core.config import Config
 from batch import BatchController, BatchConfig, BatchReporter
@@ -459,9 +449,7 @@ Examples:
 
     # Adjust log level
     if args.verbose:
-        structlog.configure(
-            wrapper_class=structlog.make_filtering_bound_logger(structlog.DEBUG)
-        )
+        set_log_level(logging.DEBUG)
 
     try:
         # Load configuration
@@ -892,6 +880,7 @@ Examples:
         print(f"Total Simulation Retries: {batch_state.total_simulation_retries}")
         print(f"\nOutput: {batch_state.batch_output_dir}")
         print(f"Report: {batch_state.batch_output_dir}/batch_report.md")
+        print(f"Log: {_log_file}")
         print(f"{'='*70}\n")
 
         # Return exit code based on success/failure

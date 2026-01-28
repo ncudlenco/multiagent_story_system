@@ -13,6 +13,10 @@ import random
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+# Configure structlog with file + console output (must be before any logger calls)
+from utils.logging_setup import setup_logging, set_log_level
+_log_file = setup_logging(log_name="main")
+
 from core.config import Config
 from utils.file_manager import FileManager
 from utils.mta_controller import MTAController
@@ -25,21 +29,6 @@ from agents.casting_agent import CastingAgent
 from agents.episode_placement_agent import EpisodePlacementAgent
 from schemas.gest import GEST
 from schemas.episode_placement import EpisodePlacementOutput
-
-
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.StackInfoRenderer(),
-        structlog.dev.ConsoleRenderer() if sys.stdout.isatty() else structlog.processors.JSONRenderer()
-    ],
-    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-    context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
-    cache_logger_on_first_use=True
-)
 
 logger = structlog.get_logger()
 
@@ -1074,9 +1063,7 @@ Examples:
 
     # Adjust log level if verbose
     if args.verbose:
-        structlog.configure(
-            wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG)
-        )
+        set_log_level(logging.DEBUG)
         logger.info("Verbose logging enabled")
 
     # Validate actor count arguments
@@ -1101,11 +1088,9 @@ Examples:
                 "ERROR": logging.ERROR
             }
             log_level = log_level_map.get(config.logging.level.upper(), logging.INFO)
-            if log_level == logging.DEBUG:
-                structlog.configure(
-                    wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG)
-                )
-                logger.debug("Debug logging enabled from config")
+            if log_level != logging.INFO:
+                set_log_level(log_level)
+                logger.debug("Log level set from config", level=config.logging.level)
 
         if args.export_capabilities:
             # Export game capabilities
