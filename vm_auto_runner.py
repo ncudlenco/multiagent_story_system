@@ -334,6 +334,8 @@ def build_batch_command(job_config: Dict[str, Any], logger: logging.Logger) -> L
                     str(job_config["random_max_actors_per_region"])])
     if job_config.get("random_max_regions"):
         args.extend(["--random-max-regions", str(job_config["random_max_regions"])])
+    if job_config.get("random_seed") is not None:
+        args.extend(["--random-seed", str(job_config["random_seed"])])
 
     # Optional: ensure target mode
     if job_config.get("ensure_target"):

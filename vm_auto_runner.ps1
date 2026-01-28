@@ -187,6 +187,11 @@ if ($jobConfig['random_max_regions']) {
     $pythonArgs += $jobConfig['random_max_regions']
 }
 
+if ($jobConfig['random_seed']) {
+    $pythonArgs += "--random-seed"
+    $pythonArgs += $jobConfig['random_seed']
+}
+
 # Description generation mode
 if ($jobConfig['generate_description']) {
     $pythonArgs += "--generate-description"

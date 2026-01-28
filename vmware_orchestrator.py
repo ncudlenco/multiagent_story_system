@@ -1091,6 +1091,10 @@ class VMWareOrchestrator:
                 job_config["random_max_actors_per_region"] = batch_params["random_max_actors_per_region"]
             if batch_params.get("random_max_regions"):
                 job_config["random_max_regions"] = batch_params["random_max_regions"]
+            if batch_params.get("random_seed") is not None:
+                job_config["random_seed"] = batch_params["random_seed"]
+            if batch_params.get("episode_type"):
+                job_config["episode_type"] = batch_params["episode_type"]
 
             # Add Google Drive config if available
             if worker_id in self.worker_folder_ids:
@@ -1233,6 +1237,8 @@ class VMWareOrchestrator:
             "random_chains_per_actor": args.random_chains_per_actor,
             "random_max_actors_per_region": args.random_max_actors_per_region,
             "random_max_regions": args.random_max_regions,
+            "random_seed": args.random_seed,
+            "episode_type": args.episode_type,
             "ensure_target": getattr(args, 'ensure_target', False),
             "generate_description": getattr(args, 'generate_description', None),
             "simulation_retries": getattr(args, 'simulation_retries', None),
@@ -1959,6 +1965,8 @@ git clone {vdg_url}
             "random_chains_per_actor": args.random_chains_per_actor,
             "random_max_actors_per_region": args.random_max_actors_per_region,
             "random_max_regions": args.random_max_regions,
+            "random_seed": args.random_seed,
+            "episode_type": args.episode_type,
         }
 
         for worker in self.workers:
@@ -2139,6 +2147,10 @@ Examples:
                        help="Max actors per region for simple_random generator")
     parser.add_argument("--random-max-regions", type=int, default=None,
                        help="Max regions to visit for simple_random generator")
+    parser.add_argument("--random-seed", type=int, default=None,
+                       help="Random seed for reproducibility in simple_random generator")
+    parser.add_argument("--episode-type", type=str, choices=['classroom', 'gym', 'garden', 'house'],
+                       default=None, help="Episode type for simple_random generator")
 
     # Description generation
     parser.add_argument("--generate-description", type=str, choices=['prompt', 'full'],
