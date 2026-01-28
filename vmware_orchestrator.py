@@ -292,37 +292,6 @@ class VMWareOrchestrator:
                         error=e.stderr)
             return False
 
-    def generate_worker_config(self, worker_id: int, output_path: Path) -> bool:
-        """Generate worker-specific config.yaml from template"""
-        try:
-            template_path = "vm_worker_config_template.yaml"
-
-            with open(template_path, 'r') as f:
-                config_content = f.read()
-
-            # Substitute placeholders
-            # Use local temp folder on VM to avoid UNC path escaping issues
-            local_output_folder = "C:\\\\temp\\\\batches"
-            config_content = config_content.replace("{OUTPUT_SHARED_FOLDER}", local_output_folder)
-            config_content = config_content.replace("{WORKER_ID}", f"worker{worker_id + 1}")
-
-            # Write to temp directory
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, 'w') as f:
-                f.write(config_content)
-
-            logger.info("worker_config_generated",
-                       worker_id=worker_id,
-                       output_path=str(output_path))
-            return True
-
-        except Exception as e:
-            logger.error("worker_config_generation_failed",
-                        worker_id=worker_id,
-                        error=str(e),
-                        exc_info=True)
-            return False
-
     def start_worker_vm(self, worker_id: int, worker_vmx_path: str) -> bool:
         """Start worker VM in GUI mode"""
         try:
@@ -395,158 +364,6 @@ class VMWareOrchestrator:
             logger.error("worker_start_failed",
                         worker_id=worker_id,
                         error=e.stderr)
-            return False
-
-    def copy_config_to_guest(self, worker_id: int, worker_vmx_path: str,
-                            config_path: Path) -> bool:
-        """Copy worker config.yaml and run_batch.bat to guest VM"""
-        try:
-            guest_username = self.config["vmware"]["guest_os"]["username"]
-            guest_password = self.config["vmware"]["guest_os"]["password"]
-            guest_work_dir = self.config["vmware"]["guest_os"]["work_dir"]
-            guest_config_path = f"{guest_work_dir}\\config.yaml"
-            guest_batch_path = f"{guest_work_dir}\\run_batch.bat"
-
-            print(f"  Copying config to Worker {worker_id + 1}...", end="", flush=True)
-
-            # Copy config.yaml
-            subprocess.run(
-                [self.vmrun_exe, "-T", "ws",
-                 "-gu", guest_username, "-gp", guest_password,
-                 "copyFileFromHostToGuest", worker_vmx_path,
-                 str(config_path), guest_config_path],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-
-            # Copy run_batch.bat
-            batch_file = Path("temp_configs/run_batch.bat")
-            if batch_file.exists():
-                subprocess.run(
-                    [self.vmrun_exe, "-T", "ws",
-                     "-gu", guest_username, "-gp", guest_password,
-                     "copyFileFromHostToGuest", worker_vmx_path,
-                     str(batch_file), guest_batch_path],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-
-            print(" [OK]")
-            logger.info("config_copied_to_guest",
-                       worker_id=worker_id,
-                       guest_config_path=guest_config_path,
-                       guest_batch_path=guest_batch_path)
-            return True
-
-        except subprocess.CalledProcessError as e:
-            print(" [X]")
-            logger.error("config_copy_failed",
-                        worker_id=worker_id,
-                        error=e.stderr)
-            return False
-
-    def run_batch_in_guest(self, worker_id: int, worker_vmx_path: str,
-                          stories_per_vm: int, batch_params: Dict) -> bool:
-        """Run batch_generate.py in guest VM"""
-        try:
-            guest_username = self.config["vmware"]["guest_os"]["username"]
-            guest_password = self.config["vmware"]["guest_os"]["password"]
-            guest_work_dir = self.config["vmware"]["guest_os"]["work_dir"]
-            python_exe = self.config["vmware"]["guest_os"]["python_exe"]
-
-            # Build batch_generate.py command using runScriptInGuest
-            # runScriptInGuest is more reliable than runProgramInGuest for batch files on Windows
-            batch_script_path = f"{guest_work_dir}\\run_batch.bat"
-            # Use local temp folder on VM to avoid UNC path escaping issues
-            output_folder = r"C:\temp\batches"
-
-            # Build Python command arguments
-            python_args = [
-                "--story-number", str(stories_per_vm),
-                "--output-folder", output_folder,
-                "--collect-simulation-artifacts"  # Always collect
-            ]
-
-            # Add optional batch parameters
-            if batch_params.get("num_actors"):
-                python_args.extend(["--num-actors", str(batch_params["num_actors"])])
-            if batch_params.get("num_extras"):
-                python_args.extend(["--num-extras", str(batch_params["num_extras"])])
-            if batch_params.get("num_actions"):
-                python_args.extend(["--num-actions", str(batch_params["num_actions"])])
-            if batch_params.get("scene_number"):
-                python_args.extend(["--scene-number", str(batch_params["scene_number"])])
-            if batch_params.get("same_story_generation_variations"):
-                python_args.extend(["--same-story-generation-variations",
-                               str(batch_params["same_story_generation_variations"])])
-            if batch_params.get("same_story_simulation_variations"):
-                python_args.extend(["--same-story-simulation-variations",
-                               str(batch_params["same_story_simulation_variations"])])
-
-            # Simple random generator parameters
-            if batch_params.get("generator_type"):
-                python_args.extend(["--generator-type", batch_params["generator_type"]])
-            if batch_params.get("random_chains_per_actor"):
-                python_args.extend(["--random-chains-per-actor",
-                               str(batch_params["random_chains_per_actor"])])
-            if batch_params.get("random_max_actors_per_region"):
-                python_args.extend(["--random-max-actors-per-region",
-                               str(batch_params["random_max_actors_per_region"])])
-            if batch_params.get("random_max_regions"):
-                python_args.extend(["--random-max-regions",
-                               str(batch_params["random_max_regions"])])
-
-            # Add Google Drive upload (if configured)
-            if worker_id in self.worker_folder_ids:
-                python_args.extend(["--output-g-drive", self.worker_folder_ids[worker_id]])
-
-                if batch_params.get("keep_local"):
-                    python_args.append("--keep-local")
-
-            # Use runScriptInGuest with cmd.exe /c for reliable batch execution
-            # Empty quotes "" required for script interpreter when using cmd.exe on Windows
-            batch_cmd = f'cmd.exe /c "{batch_script_path} {" ".join(python_args)}"'
-
-            cmd_args = [
-                self.vmrun_exe, "-T", "ws",
-                "-gu", guest_username, "-gp", guest_password,
-                "runScriptInGuest", worker_vmx_path,
-                "",  # Empty script interpreter (required for cmd.exe)
-                batch_cmd
-            ]
-
-            print(f"  Launching batch generation on Worker {worker_id + 1}...", end="", flush=True)
-
-            # Log the command for debugging
-            logger.debug("batch_command", cmd=" ".join(cmd_args))
-
-            result = subprocess.run(cmd_args, capture_output=True, text=True)
-
-            if result.returncode != 0:
-                print(" [X]")
-                error_msg = result.stderr or result.stdout or "Unknown error"
-                logger.error("batch_start_failed",
-                            worker_id=worker_id,
-                            returncode=result.returncode,
-                            stdout=result.stdout,
-                            stderr=result.stderr)
-                print(f"    Error: {error_msg.strip()}")
-                return False
-
-            print(" [OK]")
-            logger.info("batch_started_in_guest",
-                       worker_id=worker_id,
-                       stories=stories_per_vm)
-            return True
-
-        except Exception as e:
-            print(" [X]")
-            logger.error("batch_start_exception",
-                        worker_id=worker_id,
-                        error=str(e))
-            print(f"    Exception: {str(e)}")
             return False
 
     def _extract_worker_error(self, worker_output_dir: Path) -> Optional[str]:
@@ -1889,170 +1706,6 @@ git clone {vdg_url}
         print("[OK] Config files copied, manual git steps completed")
         return 0
 
-    def run(self, args):
-        """Main orchestration workflow"""
-        num_workers = args.num_vms
-        stories_per_vm = args.stories_per_vm
-        self.no_restart = getattr(args, 'no_restart', False)
-
-        print(f"\n{'='*70}")
-        print(f"VMware Batch Story Generation Orchestrator")
-        print(f"{'='*70}")
-        print(f"Workers: {num_workers}")
-        print(f"Stories per worker: {stories_per_vm}")
-        print(f"Total stories: {num_workers * stories_per_vm}")
-        print(f"{'='*70}\n")
-
-        # Verify master VM
-        print("Verifying master VM...")
-        if not self._verify_master_vm():
-            return 1
-
-        print("[OK] Master VM verified\n")
-
-        # Setup batch directory
-        print("Setting up batch directory...")
-        self.setup_batch_directory(num_workers)
-        print(f"[OK] Batch directory: {self.batch_dir}\n")
-
-        # Setup Google Drive (if specified)
-        if args.google_drive_folder:
-            if not self.setup_google_drive(args.google_drive_folder, num_workers):
-                return 1
-            print()
-
-        # Clone and configure workers
-        print(f"Cloning {num_workers} worker VMs...")
-        temp_config_dir = Path("temp_configs")
-        temp_config_dir.mkdir(exist_ok=True)
-
-        for worker_id in range(num_workers):
-            # Clone VM
-            worker_vmx_path = self.clone_worker_vm(worker_id)
-            if not worker_vmx_path:
-                print(f"[X] Failed to clone Worker {worker_id + 1}")
-                return 1
-
-            # Generate worker config
-            worker_config_path = temp_config_dir / f"worker{worker_id + 1}_config.yaml"
-            if not self.generate_worker_config(worker_id, worker_config_path):
-                print(f"[X] Failed to generate config for Worker {worker_id + 1}")
-                return 1
-
-            # Store worker metadata
-            self.workers.append({
-                "worker_id": worker_id,
-                "vmx_path": worker_vmx_path,
-                "config_path": worker_config_path,
-                "output_dir": self.batch_dir / f"worker{worker_id + 1}"
-            })
-
-        print(f"[OK] All workers cloned\n")
-
-        # Start workers and launch batch generation
-        print(f"Starting workers and launching batch generation...\n")
-
-        batch_params = {
-            "num_actors": args.num_actors,
-            "num_extras": args.num_extras,
-            "num_actions": args.num_actions,
-            "scene_number": args.scene_number,
-            "same_story_generation_variations": args.same_story_generation_variations,
-            "same_story_simulation_variations": args.same_story_simulation_variations,
-            "keep_local": args.keep_local,
-            # Simple random generator params
-            "generator_type": args.generator_type,
-            "random_chains_per_actor": args.random_chains_per_actor,
-            "random_max_actors_per_region": args.random_max_actors_per_region,
-            "random_max_regions": args.random_max_regions,
-            "random_seed": args.random_seed,
-            "episode_type": args.episode_type,
-        }
-
-        for worker in self.workers:
-            worker_id = worker["worker_id"]
-            worker_vmx_path = worker["vmx_path"]
-            worker_config_path = worker["config_path"]
-
-            # Start VM
-            if not self.start_worker_vm(worker_id, worker_vmx_path):
-                print(f"[X] Failed to start Worker {worker_id + 1}")
-                return 1
-
-            # Setup shared folders (must be done after VM is running)
-            if not self.setup_shared_folders(worker_id, worker_vmx_path):
-                print(f"[X] Failed to setup shared folders for Worker {worker_id + 1}")
-                return 1
-
-            # Copy config to guest
-            if not self.copy_config_to_guest(worker_id, worker_vmx_path, worker_config_path):
-                print(f"[X] Failed to copy config to Worker {worker_id + 1}")
-                return 1
-
-            # Run batch_generate.py
-            if not self.run_batch_in_guest(worker_id, worker_vmx_path, stories_per_vm, batch_params):
-                print(f"[X] Failed to start batch on Worker {worker_id + 1}")
-                return 1
-
-        print(f"\n[OK] All workers started\n")
-
-        # Initialize monitoring
-        monitors = []
-        log_silence_threshold = self.config["orchestration"]["monitoring"]["log_silence_threshold_seconds"]
-        max_restart_attempts = self.config["orchestration"]["monitoring"]["max_restart_attempts"]
-
-        for worker in self.workers:
-            monitor = VMMonitor(
-                worker_id=worker["worker_id"],
-                vm_path=worker["vmx_path"],
-                vmrun_exe=self.vmrun_exe,
-                shared_folder_path=worker["output_dir"],
-                total_stories=stories_per_vm,
-                log_silence_threshold=log_silence_threshold,
-                max_restart_attempts=max_restart_attempts
-            )
-            monitors.append(monitor)
-
-        poll_interval = self.config["orchestration"]["monitoring"]["poll_interval_seconds"]
-        self.monitor_pool = VMMonitorPool(monitors, poll_interval)
-
-        # Monitor until completion
-        self.monitor_workers(batch_params)
-
-        # Stop workers
-        print(f"\nStopping workers...")
-        for worker in self.workers:
-            self.stop_worker_vm(worker["worker_id"], worker["vmx_path"])
-
-        print("[OK] All workers stopped\n")
-
-        # Merge outputs
-        merged_dir = self.merge_outputs(num_workers)
-
-        # Cleanup
-        self.cleanup(num_workers)
-
-        # Print summary
-        summary = self.monitor_pool.get_summary()
-
-        print(f"\n{'='*70}")
-        print("Batch Generation Complete!")
-        print(f"{'='*70}")
-        print(f"Total Stories: {summary['total_stories']}")
-        print(f"Success: {summary['completed_stories']} | Failed: {summary['failed_stories']}")
-        print(f"Total Time: {str(summary['elapsed_time']).split('.')[0]}")
-        print(f"\nMerged Output: {merged_dir}")
-
-        if self.worker_folder_ids:
-            print(f"\nGoogle Drive Links:")
-            worker_links = self.gdrive_manager.get_worker_folder_links(self.worker_folder_ids)
-            for worker_id, link in worker_links.items():
-                print(f"  Worker {worker_id + 1}: {link}")
-
-        print(f"{'='*70}\n")
-
-        return 0
-
 
 def main():
     """CLI entry point"""
@@ -2067,14 +1720,11 @@ Examples:
   # Update with purge (remove all files) and refresh Google token
   python vmware_orchestrator.py --update-master --purge --github-token ghp_xxxx --refresh-google-token
 
-  # Batch generation across 4 VMs (legacy mode - uses vmrun command execution)
+  # Batch generation across 4 VMs
   python vmware_orchestrator.py --num-vms 4 --stories-per-vm 25
 
-  # Autonomous batch generation (recommended - uses file-based job config)
-  python vmware_orchestrator.py --num-vms 4 --stories-per-vm 25 --autonomous
-
-  # Autonomous with Google Drive upload
-  python vmware_orchestrator.py --num-vms 4 --stories-per-vm 25 --autonomous --google-drive-folder 1ABC...
+  # Batch generation with Google Drive upload
+  python vmware_orchestrator.py --num-vms 4 --stories-per-vm 25 --google-drive-folder 1ABC...
 
   # Delete ALL previous worker VM batches from disk
   python vmware_orchestrator.py --purge-vms
@@ -2107,10 +1757,6 @@ Examples:
                        help="With --update-master: don't update the Ready snapshot after sync")
     parser.add_argument("--refresh-google-token", action="store_true",
                        help="With --update-master: delete cached Google token and re-authenticate")
-
-    # Autonomous worker mode
-    parser.add_argument("--autonomous", action="store_true",
-                       help="Use autonomous workers (file-based job config, no vmrun command execution)")
 
     # Google Drive
     parser.add_argument("--google-drive-folder", type=str, default=None,
@@ -2200,10 +1846,7 @@ Examples:
             orchestrator.config["orchestration"]["cleanup_workers"] = False
             print("[!] --keep-vms: Worker VMs will NOT be deleted after completion")
 
-        if args.autonomous:
-            return orchestrator.run_autonomous_workers(args)
-        else:
-            return orchestrator.run(args)
+        return orchestrator.run_autonomous_workers(args)
 
     except Exception as e:
         logger.error("orchestrator_failed", error=str(e), exc_info=True)
