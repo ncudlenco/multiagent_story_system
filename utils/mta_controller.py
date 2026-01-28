@@ -459,6 +459,90 @@ class MTAController:
             logger.error("set_topmost_error", hwnd=hwnd, error=str(e))
             return False
 
+    def _find_mta_window(self) -> Optional[int]:
+        """
+        Find the MTA window handle.
+
+        Returns:
+            Window handle (hwnd) if found, None otherwise
+        """
+        if not WIN32_AVAILABLE:
+            return None
+
+        window_titles = [
+            "MTA: San Andreas",
+            "Multi Theft Auto",
+            "GTA: San Andreas"
+        ]
+
+        def enum_callback(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                for pattern in window_titles:
+                    if pattern.lower() in title.lower():
+                        results.append(hwnd)
+            return True
+
+        found = []
+        try:
+            win32gui.EnumWindows(enum_callback, found)
+        except Exception:
+            return None
+
+        return found[0] if found else None
+
+    def _is_window_hung(self, hwnd: int, timeout_ms: int = 1000) -> bool:
+        """
+        Check if a window is hung using two methods:
+        1. IsHungAppWindow - Windows internal tracking
+        2. SendMessageTimeout - Active responsiveness test
+
+        Args:
+            hwnd: Window handle to check
+            timeout_ms: Timeout for SendMessageTimeout test
+
+        Returns:
+            True if window is hung (not responding)
+        """
+        try:
+            # Method 1: Check Windows internal hung state
+            if win32gui.IsHungAppWindow(hwnd):
+                return True
+
+            # Method 2: Active test with SendMessageTimeout
+            import ctypes
+
+            SMTO_ABORTIFHUNG = 0x0002
+            WM_NULL = 0x0000
+
+            result = ctypes.c_ulong()
+            ret = ctypes.windll.user32.SendMessageTimeoutW(
+                hwnd,
+                WM_NULL,  # No-op message
+                0, 0,
+                SMTO_ABORTIFHUNG,
+                timeout_ms,
+                ctypes.byref(result)
+            )
+            if ret == 0:  # Timed out = hung
+                return True
+
+            return False
+        except Exception:
+            return False
+
+    def _is_mta_window_hung(self) -> bool:
+        """
+        Find MTA window and check if it's hung (not responding).
+
+        Returns:
+            True if MTA window exists and is hung, False otherwise
+        """
+        hwnd = self._find_mta_window()
+        if not hwnd:
+            return False  # No window = not hung (might not have started yet)
+        return self._is_window_hung(hwnd)
+
     def detect_crash_dialog(self) -> bool:
         """
         Detect if MTA crash dialog is visible.
@@ -701,12 +785,13 @@ class MTAController:
         """
         killed_count = 0
 
-        # Process names to kill (server + common MTA child processes)
+        # Process names to kill (server + client + common MTA child processes)
         mta_process_names = [
             self.server_exe.name.lower(),
             'gta_sa.exe',
             'proxy_sa.exe',
-            'mta_sa.exe'
+            'mta_sa.exe',
+            'multi theft auto.exe',  # Main MTA client - must be killed between runs
         ]
 
         try:
@@ -825,6 +910,10 @@ class MTAController:
             last_server_activity_time = start_time  # Track server log activity for freeze detection
             last_action_time = start_time  # Track last ACTION execution (for adaptive timeout)
             last_topmost_time = 0  # Track when we last set topmost
+            last_healthy_time = start_time  # Track when MTA window was last responsive
+
+            # Hung window timeout from config
+            hung_window_timeout = self.config['validation'].get('hung_window_timeout_seconds', 180)
 
             # Max total simulation time - use timeout_seconds if provided, otherwise fall back to config
             # The fine-grained timeouts (client_connect, first_action, silence) should fire first
@@ -836,12 +925,33 @@ class MTAController:
                        no_action_timeout=self.config['validation'].get('no_action_progress_timeout_seconds', 600))
 
             while True:
-                # Periodically re-apply topmost status (every 5 seconds)
-                # This ensures the window stays on top even if focus is lost
                 current_time = time.time()
+
+                # Check if MTA window is hung before sending more window messages
                 if current_time - last_topmost_time >= 5.0:
-                    self.set_mta_window_topmost(max_wait_seconds=2, retry_interval=0.5)
-                    last_topmost_time = current_time
+                    mta_hung = self._is_mta_window_hung()
+
+                    if not mta_hung:
+                        # Window is responsive - safe to set topmost
+                        self.set_mta_window_topmost(max_wait_seconds=2, retry_interval=0.5)
+                        last_topmost_time = current_time
+                        last_healthy_time = current_time
+                    else:
+                        # Window is hung - check if it's been hung too long
+                        hung_duration = current_time - last_healthy_time
+                        if hung_duration > hung_window_timeout:
+                            logger.error("mta_window_hung_timeout",
+                                        hung_seconds=hung_duration,
+                                        timeout=hung_window_timeout)
+                            self.force_stop_all()
+                            final_success = False
+                            final_error = f"MTA client not responding for {int(hung_duration)} seconds"
+                            break
+                        else:
+                            logger.warning("mta_window_hung_skipping_topmost",
+                                          hung_seconds=int(hung_duration))
+                        last_topmost_time = current_time  # Still update to avoid spamming hung check
+
                 # Check for crash dialog (must be detected early before timeout)
                 if self.detect_crash_dialog():
                     logger.error("mta_crash_dialog_detected",

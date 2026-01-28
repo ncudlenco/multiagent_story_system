@@ -69,6 +69,7 @@ validation:
   client_connect_timeout_seconds: 180  # Max wait for client to connect after server ready (3 min)
   server_ready_timeout_seconds: 180  # Max wait for server to become "ready" after sim start (3 min)
   first_action_timeout_seconds: 600  # Max wait for first action to start after sim start (10 min)
+  hung_window_timeout_seconds: 180  # Kill MTA if window is "Not Responding" for this long (3 min)
   process_check_interval: 2  # Check process health every 2 seconds
   error_patterns:
     - "[ErrorHandler] ERROR DETECTED!"
