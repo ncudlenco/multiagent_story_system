@@ -16,7 +16,7 @@ mta:
   client_executable: "Multi Theft Auto.exe"
   server_log: "mods/deathmatch/logs/server.log"
   client_log: "../MTA/logs/clientscript.log"
-  startup_wait_seconds: 20
+  startup_wait_seconds: 60
   shutdown_wait_seconds: 3
 
 paths:
