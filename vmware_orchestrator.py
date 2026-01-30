@@ -360,7 +360,8 @@ class VMWareOrchestrator:
             return False
 
         except subprocess.CalledProcessError as e:
-            print(" [X]")
+            error_msg = e.stderr.strip() if e.stderr else 'unknown error'
+            print(f" [X] ({error_msg})")
             logger.error("worker_start_failed",
                         worker_id=worker_id,
                         error=e.stderr)
@@ -389,7 +390,19 @@ class VMWareOrchestrator:
         except Exception:
             pass
 
-        # Delete the worker VM directory with retry
+        # Unregister VM from VMware inventory (critical for retry —
+        # without this, re-cloning to the same path hits a stale registry entry)
+        try:
+            subprocess.run(
+                [self.vmrun_exe, "-T", "ws", "deleteVM", worker_vmx_path],
+                capture_output=True,
+                text=True
+            )
+            time.sleep(3)
+        except Exception:
+            pass  # VM may not be registered if clone failed
+
+        # Delete the worker VM directory with retry (fallback if deleteVM didn't remove all files)
         worker_vm_dir = Path(worker_vmx_path).parent
         if not worker_vm_dir.exists():
             return True
@@ -772,7 +785,8 @@ class VMWareOrchestrator:
                 print(" [X]")
                 if attempt < max_vm_retries - 1:
                     print(f"  [!] Config failed, deleting VM and retrying...")
-                    self._delete_worker_vm(new_worker_id, worker_vmx_path)
+                    if not self._delete_worker_vm(new_worker_id, worker_vmx_path):
+                        logger.warning("vm_delete_failed_before_retry", worker_id=new_worker_id)
                     worker_vmx_path = None
                     continue
                 return None
@@ -781,7 +795,8 @@ class VMWareOrchestrator:
             if not self.start_worker_vm(new_worker_id, worker_vmx_path):
                 if attempt < max_vm_retries - 1:
                     print(f"  [!] Start failed, deleting VM and retrying...")
-                    self._delete_worker_vm(new_worker_id, worker_vmx_path)
+                    if not self._delete_worker_vm(new_worker_id, worker_vmx_path):
+                        logger.warning("vm_delete_failed_before_retry", worker_id=new_worker_id)
                     worker_vmx_path = None
                     continue
                 return None
@@ -897,6 +912,24 @@ class VMWareOrchestrator:
             worker_batch_dir = workers_base_dir / f"vm_batch_{self.batch_timestamp}"
 
             if worker_batch_dir.exists():
+                # Unregister all worker VMs from VMware inventory before deleting files
+                for worker in self.workers:
+                    try:
+                        subprocess.run(
+                            [self.vmrun_exe, "-T", "ws", "stop", worker["vmx_path"], "hard"],
+                            capture_output=True, timeout=30
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        subprocess.run(
+                            [self.vmrun_exe, "-T", "ws", "deleteVM", worker["vmx_path"]],
+                            capture_output=True, timeout=30
+                        )
+                    except Exception:
+                        pass
+                time.sleep(5)  # Let VMware release files
+
                 # Retry cleanup with delay - VMware may still be releasing .vmem/.vmdk files
                 # Use OSError to catch both WinError 5 (Access denied) and WinError 32 (File in use)
                 max_retries = 5
@@ -1408,7 +1441,8 @@ class VMWareOrchestrator:
                     print(" [X]")
                     if attempt < max_vm_retries - 1:
                         print(f"  [!] Config failed, deleting VM and retrying...")
-                        self._delete_worker_vm(worker_id, worker_vmx_path)
+                        if not self._delete_worker_vm(worker_id, worker_vmx_path):
+                            logger.warning("vm_delete_failed_before_retry", worker_id=worker_id)
                         worker_vmx_path = None
                         continue
                     print(f"  [X] Config failed after {max_vm_retries} attempts")
@@ -1420,7 +1454,8 @@ class VMWareOrchestrator:
                 if not self.start_worker_vm(worker_id, worker_vmx_path):
                     if attempt < max_vm_retries - 1:
                         print(f"  [!] Start failed, deleting VM and retrying...")
-                        self._delete_worker_vm(worker_id, worker_vmx_path)
+                        if not self._delete_worker_vm(worker_id, worker_vmx_path):
+                            logger.warning("vm_delete_failed_before_retry", worker_id=worker_id)
                         worker_vmx_path = None
                         continue
                     print(f"  [X] Start failed after {max_vm_retries} attempts")
