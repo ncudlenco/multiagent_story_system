@@ -246,6 +246,7 @@ class StoryStatus:
 
     # Output
     output_dir: str = ""
+    episode_type: Optional[str] = None  # Assigned episode type for this story (round-robin or user-specified)
 
     # Results
     scene_count: Optional[int] = None
@@ -279,6 +280,7 @@ class StoryStatus:
             'started_at': self.started_at,
             'completed_at': self.completed_at,
             'output_dir': _normalize_path(self.output_dir) if self.output_dir else "",
+            'episode_type': self.episode_type,
             'scene_count': self.scene_count,
             'event_count': self.event_count,
             'successful_simulations': self.successful_simulations,

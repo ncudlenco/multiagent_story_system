@@ -25,7 +25,7 @@ from batch.retry_manager import RetryManager, RetryableError
 from batch.artifact_collector import ArtifactCollector
 from utils.file_manager import FileManager
 from utils.mta_controller import MTAController
-from simple_gest_random_generator import SimpleGESTRandomGenerator
+from simple_gest_random_generator import SimpleGESTRandomGenerator, EPISODE_TYPES
 
 # Import generation functions from main
 from main import (
@@ -126,16 +126,24 @@ class BatchController:
                 raise
             logger.debug("batch_output_dir_exists", path=str(batch_output_dir))
 
-        # Initialize story statuses
+        # Initialize story statuses with round-robin episode types
+        episode_type_list = list(EPISODE_TYPES.keys())  # ['classroom', 'gym', 'garden', 'house']
         for i in range(self.batch_config.num_stories):
             story_number = i + 1
             story_id = uuid.uuid4().hex[:8]
+
+            # Round-robin when no explicit type; otherwise use batch-wide type
+            if self.batch_config.episode_type is None:
+                assigned_type = episode_type_list[i % len(episode_type_list)]
+            else:
+                assigned_type = self.batch_config.episode_type
 
             story_status = StoryStatus(
                 story_id=story_id,
                 story_number=story_number,
                 status='pending',
-                output_dir=str(batch_output_dir / f"story_{story_number:05d}_{story_id}")
+                output_dir=str(batch_output_dir / f"story_{story_number:05d}_{story_id}"),
+                episode_type=assigned_type,
             )
             self.batch_state.stories.append(story_status)
 
@@ -190,6 +198,7 @@ class BatchController:
         target = self.batch_config.num_stories
         ensure_target = self.batch_config.ensure_target
         story_index = 0
+        pending_episode_types = []  # Episode types from failed stories needing replacement
 
         while True:
             # Check termination conditions
@@ -212,17 +221,28 @@ class BatchController:
             if story_index >= len(self.batch_state.stories):
                 story_number = story_index + 1
                 new_story_id = uuid.uuid4().hex[:8]
+
+                # Inherit episode type from failed story queue, or fall back to round-robin
+                if pending_episode_types:
+                    assigned_type = pending_episode_types.pop(0)
+                elif self.batch_config.episode_type is None:
+                    assigned_type = episode_type_list[story_index % len(episode_type_list)]
+                else:
+                    assigned_type = self.batch_config.episode_type
+
                 new_story = StoryStatus(
                     story_id=new_story_id,
                     story_number=story_number,
                     status='pending',
-                    output_dir=str(Path(self.batch_state.batch_output_dir) / f"story_{story_number:05d}_{new_story_id}")
+                    output_dir=str(Path(self.batch_state.batch_output_dir) / f"story_{story_number:05d}_{new_story_id}"),
+                    episode_type=assigned_type,
                 )
                 self.batch_state.stories.append(new_story)
                 logger.info(
                     "created_additional_story_for_target",
                     story_number=story_number,
                     story_id=new_story_id,
+                    episode_type=assigned_type,
                     current_successes=self.batch_state.success_count,
                     target=target
                 )
@@ -255,6 +275,9 @@ class BatchController:
                         story_number=story_status.story_number,
                         story_id=story_status.story_id
                     )
+                    if story_status.episode_type:
+                        pending_episode_types.append(story_status.episode_type)
+                    story_index += 1
                     continue
 
                 # Simulate all variations (if not skipped)
@@ -277,6 +300,8 @@ class BatchController:
                         story_status.status = 'failed'
                         self.batch_state.failure_count += 1
                         self._cleanup_failed_story(story_status, error_reason=f"Simulation failed: {story_status.errors[-1] if story_status.errors else 'Unknown error'}")
+                        if story_status.episode_type:
+                            pending_episode_types.append(story_status.episode_type)
 
                 story_status.completed_at = datetime.now().isoformat()
                 self._save_state()
@@ -302,6 +327,9 @@ class BatchController:
                             self.batch_state.failure_count += 1
                             self._cleanup_failed_story(story_status, error_reason="All simulations failed (ERROR files detected)")
                             self._save_state()
+                            if story_status.episode_type:
+                                pending_episode_types.append(story_status.episode_type)
+                            story_index += 1
                             continue
 
                         # Log excluded folders
@@ -401,6 +429,8 @@ class BatchController:
                 self.batch_state.failure_count += 1
                 self._cleanup_failed_story(story_status, error_reason=f"Critical exception: {str(e)}")
                 self._save_state()
+                if story_status.episode_type:
+                    pending_episode_types.append(story_status.episode_type)
 
                 # Note: Failed stories are NOT uploaded to Google Drive
                 logger.info(
@@ -523,7 +553,7 @@ class BatchController:
                 chains_per_actor=self.batch_config.random_chains_per_actor,
                 max_actors_per_region=self.batch_config.random_max_actors_per_region,
                 max_regions=self.batch_config.random_max_regions,
-                episode_type=self.batch_config.episode_type
+                episode_type=story_status.episode_type
             )
 
             # Build meaningful folder name from metadata
@@ -1474,8 +1504,8 @@ class BatchController:
                 )
                 return False
 
-            # Get location from episode type config
-            location = self.batch_state.config.episode_type
+            # Get location from per-story episode type (or fall back to batch config)
+            location = story_status.episode_type or self.batch_state.config.episode_type
 
             success = generate_textual_description(
                 sim_dir=sim_dir,
@@ -1661,6 +1691,8 @@ class BatchController:
 
         # Continue from current index with ensure_target support
         story_index = self.batch_state.current_story_index
+        episode_type_list = list(EPISODE_TYPES.keys())
+        pending_episode_types = []  # Episode types from failed stories needing replacement
 
         while True:
             # Check termination conditions
@@ -1683,17 +1715,28 @@ class BatchController:
             if story_index >= len(self.batch_state.stories):
                 story_number = story_index + 1
                 new_story_id = uuid.uuid4().hex[:8]
+
+                # Inherit episode type from failed story queue, or fall back to round-robin
+                if pending_episode_types:
+                    assigned_type = pending_episode_types.pop(0)
+                elif self.batch_config.episode_type is None:
+                    assigned_type = episode_type_list[story_index % len(episode_type_list)]
+                else:
+                    assigned_type = self.batch_config.episode_type
+
                 new_story = StoryStatus(
                     story_id=new_story_id,
                     story_number=story_number,
                     status='pending',
-                    output_dir=str(Path(self.batch_state.batch_output_dir) / f"story_{story_number:05d}_{new_story_id}")
+                    output_dir=str(Path(self.batch_state.batch_output_dir) / f"story_{story_number:05d}_{new_story_id}"),
+                    episode_type=assigned_type,
                 )
                 self.batch_state.stories.append(new_story)
                 logger.info(
                     "created_additional_story_for_target",
                     story_number=story_number,
                     story_id=new_story_id,
+                    episode_type=assigned_type,
                     current_successes=self.batch_state.success_count,
                     target=target
                 )
@@ -1736,6 +1779,9 @@ class BatchController:
                         self.batch_state.failure_count += 1
                         self._cleanup_failed_story(story_status, error_reason="Story generation failed")
                         self._save_state()
+                        if story_status.episode_type:
+                            pending_episode_types.append(story_status.episode_type)
+                        story_index += 1
                         continue
 
                 # Simulate
@@ -1748,6 +1794,8 @@ class BatchController:
                     story_status.status = 'failed'
                     self.batch_state.failure_count += 1
                     self._cleanup_failed_story(story_status, error_reason=f"Simulation failed: {story_status.errors[-1] if story_status.errors else 'Unknown error'}")
+                    if story_status.episode_type:
+                        pending_episode_types.append(story_status.episode_type)
 
                 story_status.completed_at = datetime.now().isoformat()
                 self._save_state()
@@ -1766,6 +1814,8 @@ class BatchController:
                 self.batch_state.failure_count += 1
                 self._cleanup_failed_story(story_status, error_reason=f"Critical exception: {str(e)}")
                 self._save_state()
+                if story_status.episode_type:
+                    pending_episode_types.append(story_status.episode_type)
 
             # Move to next story
             story_index += 1
