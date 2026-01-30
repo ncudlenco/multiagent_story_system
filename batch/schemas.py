@@ -77,6 +77,7 @@ class BatchConfig:
     simulation_timeout_first: int = 3600  # seconds (1 hour - rely on 90s no-progress timeout)
     simulation_timeout_retry: int = 3600  # seconds (1 hour - rely on 90s no-progress timeout)
     collect_simulation_artifacts: bool = False  # Enable artifact collection (videos, logs)
+    capture_segmentations: bool = True  # Capture segmentation masks during artifact collection
 
     # Output settings
     output_base_dir: str = "batch_output"
@@ -132,6 +133,7 @@ class BatchConfig:
             'simulation_timeout_first': self.simulation_timeout_first,
             'simulation_timeout_retry': self.simulation_timeout_retry,
             'collect_simulation_artifacts': self.collect_simulation_artifacts,
+            'capture_segmentations': self.capture_segmentations,
             'output_base_dir': _normalize_path(self.output_base_dir),
             'move_to_final_dir': self.move_to_final_dir,
             'compress_archives': self.compress_archives,

@@ -497,6 +497,10 @@ class VMWareOrchestrator:
                     "--collect-simulation-artifacts"
                 ]
 
+                # Add segmentation capture flag (only pass if disabled, since default is True)
+                if not batch_params.get("capture_segmentations", True):
+                    cmd_args.append("--no-capture-segmentations")
+
                 # Add Google Drive upload (if configured)
                 if worker_id in self.worker_folder_ids:
                     cmd_args.extend(["--output-g-drive", self.worker_folder_ids[worker_id]])
@@ -1207,6 +1211,7 @@ class VMWareOrchestrator:
 
                 # Collection
                 "collect_simulation_artifacts": True,
+                "capture_segmentations": batch_params.get("capture_segmentations", True),
 
                 # Retries
                 "generation_retries": batch_params.get("generation_retries", 3),
@@ -1382,6 +1387,7 @@ class VMWareOrchestrator:
             "ensure_target": getattr(args, 'ensure_target', False),
             "generate_description": getattr(args, 'generate_description', None),
             "simulation_retries": getattr(args, 'simulation_retries', None),
+            "capture_segmentations": getattr(args, 'capture_segmentations', True),
         }
 
         # Clone workers and setup job configs
@@ -2099,6 +2105,10 @@ Examples:
     # Description generation
     parser.add_argument("--generate-description", type=str, choices=['prompt', 'full'],
                        default=None, help="Generate textual descriptions (prompt=GPT prompt only, full=prompt+GPT description)")
+
+    # Segmentation capture
+    parser.add_argument("--capture-segmentations", action=argparse.BooleanOptionalAction,
+                       default=True, help="Capture segmentation masks during artifact collection (default: enabled)")
 
     # Error handling
     parser.add_argument("--no-restart", action="store_true",

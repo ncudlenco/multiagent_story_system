@@ -184,7 +184,7 @@ class MTAController:
         else:
             logger.warning("backup_not_found", path=str(backup_path))
 
-    def set_mode(self, mode: MTAMode, graph_file: Optional[str] = None, collect_artifacts: bool = False) -> None:
+    def set_mode(self, mode: MTAMode, graph_file: Optional[str] = None, collect_artifacts: bool = False, capture_segmentations: bool = True) -> None:
         """
         Set MTA server operation mode by writing config.json.
 
@@ -192,8 +192,9 @@ class MTAController:
             mode: Mode to set (SIMULATION/EXPORT/NORMAL)
             graph_file: Optional graph file path for SIMULATION mode
             collect_artifacts: Whether to enable artifact collection (only for SIMULATION mode)
+            capture_segmentations: Whether to capture segmentation masks during artifact collection
         """
-        logger.info("setting_mta_mode", mode=mode, graph_file=graph_file, collect_artifacts=collect_artifacts)
+        logger.info("setting_mta_mode", mode=mode, graph_file=graph_file, collect_artifacts=collect_artifacts, capture_segmentations=capture_segmentations)
 
         config = {}
 
@@ -214,8 +215,7 @@ class MTAController:
             if collect_artifacts:
                 # Enable image frame saving for artifact collection
                 config["ARTIFACT_NATIVE_SCREENSHOT_SAVE_IMAGES"] = False
-                # Keep segmentation and depth disabled
-                config["ARTIFACT_ENABLE_SEGMENTATION"] = True
+                config["ARTIFACT_ENABLE_SEGMENTATION"] = capture_segmentations
                 config["ARTIFACT_ENABLE_DEPTH"] = False
                 config["ARTIFACT_ENABLE_SPATIAL_RELATIONS"] = True
             # Disable all DEBUG flags for clean simulation runs
@@ -825,7 +825,8 @@ class MTAController:
         self,
         graph_file: str,
         collect_artifacts: bool = False,
-        timeout_seconds: Optional[int] = None
+        timeout_seconds: Optional[int] = None,
+        capture_segmentations: bool = True
     ) -> Tuple[bool, Optional[str]]:
         """
         Run a complete simulation with real-time monitoring.
@@ -834,6 +835,7 @@ class MTAController:
             graph_file: Path to Level 4 GEST JSON file
             collect_artifacts: Whether to enable artifact collection
             timeout_seconds: Simulation timeout (defaults to config value)
+            capture_segmentations: Whether to capture segmentation masks during artifact collection
 
         Returns:
             Tuple of (success, error_message)
@@ -847,7 +849,8 @@ class MTAController:
             "starting_simulation",
             graph_file=graph_file,
             timeout=timeout_seconds,
-            collect_artifacts=collect_artifacts
+            collect_artifacts=collect_artifacts,
+            capture_segmentations=capture_segmentations
         )
 
         backup_path = None
@@ -871,7 +874,7 @@ class MTAController:
             backup_path = self._backup_config()
 
             # 3. Set simulation mode
-            self.set_mode(MTAMode.SIMULATION, graph_file=graph_file, collect_artifacts=collect_artifacts)
+            self.set_mode(MTAMode.SIMULATION, graph_file=graph_file, collect_artifacts=collect_artifacts, capture_segmentations=capture_segmentations)
 
             # 4. Start server
             if not self.start_server(wait=True):

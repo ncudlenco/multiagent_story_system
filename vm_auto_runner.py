@@ -357,6 +357,10 @@ def build_batch_command(job_config: Dict[str, Any], logger: logging.Logger) -> L
     if job_config.get("collect_simulation_artifacts", True):
         args.append("--collect-simulation-artifacts")
 
+    # Segmentation capture (default is True, only pass flag when explicitly disabled)
+    if job_config.get("capture_segmentations", True) is False:
+        args.append("--no-capture-segmentations")
+
     # Google Drive upload
     if job_config.get("google_drive_folder_id"):
         args.extend(["--output-g-drive", job_config["google_drive_folder_id"]])

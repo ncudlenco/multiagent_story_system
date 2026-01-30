@@ -238,7 +238,8 @@ def simulate_story(
     story_id: str,
     scene_id: Optional[str] = None,
     timeout_seconds: Optional[int] = None,
-    collect_artifacts: bool = False
+    collect_artifacts: bool = False,
+    capture_segmentations: bool = True
 ) -> bool:
     """
     Run MTA simulation for a generated story or specific scene.
@@ -324,7 +325,8 @@ def simulate_story(
         success, error = controller.run_simulation(
             graph_file=relative_path,
             timeout_seconds=timeout_seconds,
-            collect_artifacts=collect_artifacts
+            collect_artifacts=collect_artifacts,
+            capture_segmentations=capture_segmentations
         )
 
         # Report results
@@ -1040,6 +1042,12 @@ Examples:
         default=False,
         help='Enable artifact collection during simulation (videos, logs, etc.)'
     )
+    parser.add_argument(
+        '--capture-segmentations',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Capture segmentation masks during artifact collection (default: enabled, use --no-capture-segmentations to disable)'
+    )
 
     parser.add_argument(
         '--save-prompts',
@@ -1109,7 +1117,8 @@ Examples:
                 story_id=args.simulate,
                 scene_id=args.scene,
                 timeout_seconds=args.timeout,
-                collect_artifacts=args.collect_artifacts
+                collect_artifacts=args.collect_artifacts,
+                capture_segmentations=args.capture_segmentations
             )
             sys.exit(0 if success else 1)
 

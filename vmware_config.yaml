@@ -116,6 +116,9 @@ batch_defaults:
   # Always collect artifacts (videos + logs)
   collect_simulation_artifacts: true
 
+  # Capture segmentation masks during artifact collection
+  capture_segmentations: true
+
   # Narrative seeds (optional)
   seeds: []
 

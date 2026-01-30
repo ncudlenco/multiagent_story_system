@@ -384,6 +384,12 @@ Examples:
         default=False,
         help='Enable artifact collection during simulations (videos, logs, etc.)'
     )
+    parser.add_argument(
+        '--capture-segmentations',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Capture segmentation masks during artifact collection (default: enabled, use --no-capture-segmentations to disable)'
+    )
 
     # Output parameters
     parser.add_argument(
@@ -684,6 +690,7 @@ Examples:
                 simulation_timeout_first=args.simulation_timeout,
                 simulation_timeout_retry=args.simulation_timeout + 300,  # +5 min for retries
                 collect_simulation_artifacts=args.collect_simulation_artifacts,
+                capture_segmentations=args.capture_segmentations,
                 output_base_dir=args.output_folder,
                 from_existing_stories_path=args.from_existing_stories,
                 upload_to_drive=bool(args.output_g_drive),

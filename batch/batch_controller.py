@@ -1189,7 +1189,8 @@ class BatchController:
                 success, error = self.mta_controller.run_simulation(
                     graph_file=relative_path,
                     timeout_seconds=timeout,
-                    collect_artifacts=self.batch_config.collect_simulation_artifacts
+                    collect_artifacts=self.batch_config.collect_simulation_artifacts,
+                    capture_segmentations=self.batch_config.capture_segmentations
                 )
                 sim_duration = time.time() - sim_start_time
 
