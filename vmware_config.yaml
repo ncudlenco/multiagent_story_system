@@ -111,7 +111,7 @@ batch_defaults:
   # Retry parameters
   generation_retries: 3
   simulation_retries: 3
-  simulation_timeout: 3600  # seconds
+  simulation_timeout: 14400  # seconds (4 hours)
 
   # Always collect artifacts (videos + logs)
   collect_simulation_artifacts: true
