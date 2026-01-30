@@ -1223,6 +1223,10 @@ class VMWareOrchestrator:
 
                 # Force overwrite (always true for VM workers to avoid prompts)
                 "force": True,
+
+                # Copy batch_state.json to shared folder for host monitoring
+                # Disabled when orchestrator runs in --no-monitor mode
+                "copy_state_to_shared": not batch_params.get("no_monitor", False),
             }
 
             # Generate description mode
@@ -1388,6 +1392,7 @@ class VMWareOrchestrator:
             "generate_description": getattr(args, 'generate_description', None),
             "simulation_retries": getattr(args, 'simulation_retries', None),
             "capture_segmentations": getattr(args, 'capture_segmentations', True),
+            "no_monitor": getattr(args, 'no_monitor', False),
         }
 
         # Clone workers and setup job configs

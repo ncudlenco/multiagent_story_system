@@ -25,6 +25,8 @@ import subprocess
 import time
 import logging
 import ctypes
+import shutil
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -571,6 +573,62 @@ def write_completion_marker(job_config: Dict[str, Any], exit_code: int, logger: 
         logger.error(f"Failed to write completion marker: {e}")
 
 
+def sync_batch_state_to_shared(
+    local_output_folder: str,
+    shared_output_path: str,
+    stop_event: threading.Event,
+    interval: int = 30,
+    logger: logging.Logger = None
+):
+    """Background thread: periodically copy batch_state.json to shared folder.
+
+    The batch controller writes batch_state.json to a local temp folder
+    (e.g. C:\\temp\\batches\\batch_XXXXXXXX\\batch_state.json). The host
+    monitor expects it in the shared folder. This thread bridges the gap
+    by copying the file every *interval* seconds.
+
+    Args:
+        local_output_folder: Local batch output root (e.g. C:\\temp\\batches)
+        shared_output_path: Shared folder path (e.g. \\\\vmware-host\\Shared Folders\\output)
+        stop_event: Threading event to signal shutdown
+        interval: Copy interval in seconds
+        logger: Optional logger
+    """
+    shared_path = Path(shared_output_path)
+
+    if logger:
+        logger.info(f"Batch state sync started: {local_output_folder} -> {shared_output_path}")
+
+    while not stop_event.is_set():
+        try:
+            local_path = Path(local_output_folder)
+            # Find the most recent batch_* directory
+            batch_dirs = sorted(local_path.glob("batch_*"), key=lambda p: p.name)
+            if batch_dirs:
+                batch_dir = batch_dirs[-1]
+                state_file = batch_dir / "batch_state.json"
+                if state_file.exists():
+                    # Mirror the batch directory structure in the shared folder
+                    shared_batch_dir = shared_path / batch_dir.name
+                    shared_batch_dir.mkdir(parents=True, exist_ok=True)
+                    dest = shared_batch_dir / "batch_state.json"
+                    shutil.copy2(str(state_file), str(dest))
+                    if logger:
+                        logger.debug(f"Synced batch_state.json to {dest}")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Batch state sync error: {e}")
+
+        # Sleep in small increments so we can respond to stop_event quickly
+        for _ in range(interval):
+            if stop_event.is_set():
+                break
+            time.sleep(1)
+
+    if logger:
+        logger.info("Batch state sync stopped")
+
+
 def main() -> int:
     """Main entry point"""
     # Setup logging
@@ -628,8 +686,30 @@ def main() -> int:
         # Build command
         cmd = build_batch_command(job_config, logger)
 
+        # Start batch state sync thread if monitoring is expected
+        sync_stop_event = None
+        sync_thread = None
+        if job_config.get("copy_state_to_shared", False):
+            shared_output = r"\\vmware-host\Shared Folders\output"
+            local_output = job_config.get("output_folder", r"C:\temp\batches")
+            sync_stop_event = threading.Event()
+            sync_thread = threading.Thread(
+                target=sync_batch_state_to_shared,
+                args=(local_output, shared_output, sync_stop_event, 30, logger),
+                daemon=True,
+                name="batch_state_sync"
+            )
+            sync_thread.start()
+            logger.info("Batch state sync thread started for host monitoring")
+
         # Run batch generation
         exit_code = run_batch_generate(cmd, logger)
+
+        # Stop sync thread
+        if sync_stop_event is not None:
+            sync_stop_event.set()
+            sync_thread.join(timeout=10)
+            logger.info("Batch state sync thread stopped")
 
         # Write completion marker
         write_completion_marker(job_config, exit_code, logger)
