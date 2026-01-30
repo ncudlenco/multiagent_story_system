@@ -613,6 +613,81 @@ class VMWareOrchestrator:
                     completed=count)
         return count
 
+    def _build_merged_gdrive_folder_name(self, batch_params: Dict,
+                                          num_workers: int,
+                                          stories_per_vm: int) -> str:
+        """Build a descriptive folder name from batch parameters.
+
+        Args:
+            batch_params: Batch generation parameters
+            num_workers: Number of worker VMs
+            stories_per_vm: Stories per worker VM
+
+        Returns:
+            Descriptive folder name string
+        """
+        parts = ["batch"]
+
+        gen_type = batch_params.get("generator_type", "llm")
+        if gen_type != "llm":
+            parts.append(gen_type)
+
+        if batch_params.get("num_actors") is not None:
+            parts.append(f"{batch_params['num_actors']}actors")
+        if batch_params.get("num_extras") is not None:
+            parts.append(f"{batch_params['num_extras']}extras")
+        if batch_params.get("random_max_regions") is not None:
+            parts.append(f"{batch_params['random_max_regions']}regions")
+        if batch_params.get("random_chains_per_actor") is not None:
+            parts.append(f"{batch_params['random_chains_per_actor']}chains")
+        if batch_params.get("scene_number") is not None:
+            parts.append(f"{batch_params['scene_number']}scenes")
+
+        parts.append(f"{num_workers * stories_per_vm}stories")
+        parts.append(self.batch_timestamp)
+
+        return "_".join(parts)
+
+    def _build_merged_gdrive_summary(self, batch_params: Dict,
+                                      num_workers: int,
+                                      stories_per_vm: int) -> dict:
+        """Build aggregated summary for the merged Google Drive folder.
+
+        Args:
+            batch_params: Batch generation parameters
+            num_workers: Original number of worker VMs
+            stories_per_vm: Stories per worker VM
+
+        Returns:
+            Summary dict for JSON serialization
+        """
+        summary = self.monitor_pool.get_summary()
+        return {
+            "batch_id": f"vm_batch_{self.batch_timestamp}",
+            "num_workers": len(self.workers),
+            "original_workers": num_workers,
+            "stories_per_vm": stories_per_vm,
+            "total_stories_target": num_workers * stories_per_vm,
+            "completed_stories": summary["completed_stories"],
+            "failed_stories": summary["failed_stories"],
+            "completed_workers": summary["completed_workers"],
+            "failed_workers": summary["failed_workers"],
+            "elapsed_time": str(summary["elapsed_time"]).split(".")[0],
+            "merged_at": datetime.now().isoformat(),
+            "parameters": {
+                k: v for k, v in {
+                    "generator_type": batch_params.get("generator_type", "llm"),
+                    "num_actors": batch_params.get("num_actors"),
+                    "num_extras": batch_params.get("num_extras"),
+                    "num_actions": batch_params.get("num_actions"),
+                    "scene_number": batch_params.get("scene_number"),
+                    "random_max_regions": batch_params.get("random_max_regions"),
+                    "random_chains_per_actor": batch_params.get("random_chains_per_actor"),
+                    "episode_type": batch_params.get("episode_type"),
+                }.items() if v is not None
+            }
+        }
+
     def _provision_replacement_worker(
         self, failed_worker_id: int, remaining_stories: int,
         batch_params: Dict, stories_per_vm: int
@@ -1406,6 +1481,27 @@ class VMWareOrchestrator:
 
         print("[OK] Workers stopped\n")
 
+        # Merge Google Drive folders (if requested)
+        merged_gdrive_link = None
+        if getattr(args, 'merge_gdrive', False) and self.gdrive_manager and self.worker_folder_ids:
+            folder_name = self._build_merged_gdrive_folder_name(
+                batch_params, num_workers, stories_per_vm)
+            merged_summary = self._build_merged_gdrive_summary(
+                batch_params, num_workers, stories_per_vm)
+            print(f"Merging Google Drive worker folders into: {folder_name}")
+            merged_folder_id = self.gdrive_manager.merge_worker_folders(
+                self.google_drive_parent_folder_id,
+                self.worker_folder_ids,
+                folder_name,
+                merged_summary=merged_summary
+            )
+            if merged_folder_id:
+                merged_gdrive_link = self.gdrive_manager.get_folder_link(merged_folder_id)
+                print(f"[OK] Merged Drive folder: {merged_gdrive_link}")
+            else:
+                print("[!] Google Drive merge failed")
+            print()
+
         # Merge outputs
         merged_dir = self.merge_outputs()
 
@@ -1423,7 +1519,9 @@ class VMWareOrchestrator:
         print(f"Total Time: {str(summary['elapsed_time']).split('.')[0]}")
         print(f"\nMerged Output: {merged_dir}")
 
-        if self.worker_folder_ids:
+        if merged_gdrive_link:
+            print(f"\nGoogle Drive: {merged_gdrive_link}")
+        elif self.worker_folder_ids:
             print(f"\nGoogle Drive Links:")
             worker_links = self.gdrive_manager.get_worker_folder_links(self.worker_folder_ids)
             for worker_id, link in worker_links.items():
@@ -1926,6 +2024,8 @@ Examples:
                        help="Google Drive parent folder ID for uploads")
     parser.add_argument("--keep-local", action="store_true",
                        help="Keep local copies after Google Drive upload")
+    parser.add_argument("--merge-gdrive", action="store_true",
+                       help="Merge all worker Google Drive folders into a single batch folder after completion")
 
     # Batch generation parameters (override defaults in config)
     parser.add_argument("--num-actors", type=int, default=None,

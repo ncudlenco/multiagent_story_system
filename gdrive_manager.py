@@ -21,6 +21,7 @@ try:
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
+    from googleapiclient.http import MediaInMemoryUpload
     GOOGLE_DRIVE_AVAILABLE = True
 except ImportError:
     GOOGLE_DRIVE_AVAILABLE = False
@@ -295,6 +296,162 @@ class GDriveManager:
                         folder_id=folder_id,
                         error=str(e))
             return 0
+
+    def upload_json_file(self, name: str, data: dict,
+                         parent_folder_id: str) -> Optional[str]:
+        """Upload JSON data as a file to Google Drive.
+
+        Args:
+            name: File name (e.g. "batch_summary.json")
+            data: Dict to serialize as JSON
+            parent_folder_id: Parent folder ID
+
+        Returns:
+            File ID, or None on failure
+        """
+        if not self.service:
+            logger.error("gdrive_not_authenticated")
+            return None
+
+        try:
+            content = json.dumps(data, indent=2).encode('utf-8')
+            media = MediaInMemoryUpload(content, mimetype='application/json')
+
+            file_metadata = {
+                'name': name,
+                'parents': [parent_folder_id],
+                'mimeType': 'application/json'
+            }
+
+            uploaded = self.service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
+
+            file_id = uploaded.get('id')
+            logger.info("gdrive_json_file_uploaded",
+                       name=name,
+                       file_id=file_id,
+                       parent_id=parent_folder_id)
+            return file_id
+
+        except Exception as e:
+            logger.error("gdrive_json_upload_failed",
+                        name=name,
+                        error=str(e),
+                        exc_info=True)
+            return None
+
+    def merge_worker_folders(self, parent_folder_id: str,
+                             worker_folder_ids: Dict[int, str],
+                             merged_folder_name: str,
+                             merged_summary: Optional[dict] = None) -> Optional[str]:
+        """Merge all worker folder contents into a single folder.
+
+        Moves all items from worker batch subfolders into one merged folder,
+        then trashes the empty worker folders.
+
+        Args:
+            parent_folder_id: Parent Drive folder containing worker subfolders
+            worker_folder_ids: Mapping of worker index to folder ID
+            merged_folder_name: Name for the merged folder
+            merged_summary: Optional summary dict to upload as batch_summary.json
+
+        Returns:
+            Merged folder ID, or None on failure
+        """
+        if not self.service:
+            logger.error("gdrive_not_authenticated")
+            return None
+
+        try:
+            # Create merged folder
+            merged_folder_id = self.create_folder(
+                merged_folder_name, parent_folder_id, make_public=True)
+            if not merged_folder_id:
+                logger.error("gdrive_merge_folder_creation_failed")
+                return None
+
+            logger.info("gdrive_merge_folder_created",
+                       name=merged_folder_name,
+                       folder_id=merged_folder_id)
+
+            total_moved = 0
+
+            for worker_index, worker_folder_id in sorted(worker_folder_ids.items()):
+                # List batch_* subfolders in this worker folder
+                batch_query = (
+                    f"'{worker_folder_id}' in parents "
+                    f"and mimeType='application/vnd.google-apps.folder' "
+                    f"and name contains 'batch_' "
+                    f"and trashed=false"
+                )
+                batches = self.service.files().list(
+                    q=batch_query, fields="files(id, name)", pageSize=1000
+                ).execute().get('files', [])
+
+                worker_moved = 0
+
+                for batch in batches:
+                    # List ALL items in each batch subfolder (stories, reports, etc.)
+                    items_query = (
+                        f"'{batch['id']}' in parents "
+                        f"and trashed=false"
+                    )
+                    items = self.service.files().list(
+                        q=items_query, fields="files(id, name)", pageSize=1000
+                    ).execute().get('files', [])
+
+                    # Move each item to merged folder
+                    for item in items:
+                        self.service.files().update(
+                            fileId=item['id'],
+                            addParents=merged_folder_id,
+                            removeParents=batch['id'],
+                            fields='id, parents'
+                        ).execute()
+                        worker_moved += 1
+
+                    # Trash the now-empty batch subfolder
+                    self.service.files().update(
+                        fileId=batch['id'],
+                        body={'trashed': True}
+                    ).execute()
+
+                total_moved += worker_moved
+                print(f"  [Worker {worker_index + 1}] Moved {worker_moved} items")
+
+                logger.info("gdrive_worker_items_moved",
+                           worker_index=worker_index,
+                           items_moved=worker_moved)
+
+                # Trash the now-empty worker folder
+                self.service.files().update(
+                    fileId=worker_folder_id,
+                    body={'trashed': True}
+                ).execute()
+
+            # Upload merged summary if provided
+            if merged_summary:
+                self.upload_json_file(
+                    "batch_summary.json", merged_summary, merged_folder_id)
+
+            logger.info("gdrive_merge_complete",
+                       merged_folder_id=merged_folder_id,
+                       total_items_moved=total_moved,
+                       workers_merged=len(worker_folder_ids))
+
+            print(f"  Total: {total_moved} items merged from "
+                  f"{len(worker_folder_ids)} workers")
+
+            return merged_folder_id
+
+        except Exception as e:
+            logger.error("gdrive_merge_failed",
+                        error=str(e),
+                        exc_info=True)
+            return None
 
     def _make_public(self, folder_id: str) -> bool:
         """
