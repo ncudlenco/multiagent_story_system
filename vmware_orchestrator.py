@@ -1481,6 +1481,18 @@ class VMWareOrchestrator:
 
         print(f"[OK] All {num_workers} workers started autonomously\n")
 
+        # Fire-and-forget mode: skip monitoring entirely
+        if getattr(args, 'no_monitor', False):
+            print("--no-monitor: Workers launched. Orchestrator exiting.")
+            print("Workers will auto-shutdown when complete.")
+            if self.worker_folder_ids:
+                print(f"\nGoogle Drive Links:")
+                worker_links = self.gdrive_manager.get_worker_folder_links(self.worker_folder_ids)
+                for worker_id, link in worker_links.items():
+                    print(f"  Worker {worker_id + 1}: {link}")
+            print(f"\nLocal output: {self.batch_dir}")
+            return 0
+
         # Initialize monitoring
         log_silence_threshold = self.config["orchestration"]["monitoring"]["log_silence_threshold_seconds"]
         max_restart_attempts = self.config["orchestration"]["monitoring"]["max_restart_attempts"]
@@ -2113,6 +2125,8 @@ Examples:
     # Error handling
     parser.add_argument("--no-restart", action="store_true",
                        help="Don't restart crashed/hung workers, show errors and fail fast")
+    parser.add_argument("--no-monitor", action="store_true",
+                       help="Start workers and exit without monitoring (fire-and-forget mode)")
 
     # Debugging
     parser.add_argument("--keep-vms", action="store_true",
