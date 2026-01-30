@@ -45,6 +45,7 @@ class WorkerProgress:
     restart_count: int = 0
     batch_id: Optional[str] = None
     error_message: Optional[str] = None
+    replacement_spawned: bool = False  # Prevent duplicate replacement VMs
 
     @property
     def progress_percent(self) -> float:

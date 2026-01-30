@@ -149,6 +149,7 @@ class VMWareOrchestrator:
             token_path = self.config["google_drive"]["token_path"]
 
             self.gdrive_manager = GDriveManager(creds_path, token_path)
+            self.google_drive_parent_folder_id = parent_folder_id
 
             print("Authenticating with Google Drive...")
             if not self.gdrive_manager.authenticate():
@@ -507,8 +508,15 @@ class VMWareOrchestrator:
 
         return False
 
-    def monitor_workers(self, batch_params: Dict):
-        """Monitor all workers until completion"""
+    def monitor_workers(self, batch_params: Dict, ensure_target: bool = False,
+                        stories_per_vm: int = 0):
+        """Monitor all workers until completion.
+
+        Args:
+            batch_params: Batch parameters for replacement job configs
+            ensure_target: If True, spawn replacement VMs for failed workers
+            stories_per_vm: Original stories per VM (for replacement monitor total)
+        """
         poll_interval = self.config["orchestration"]["monitoring"]["poll_interval_seconds"]
         display_interval = self.config["orchestration"]["monitoring"]["display_update_interval_seconds"]
 
@@ -534,6 +542,28 @@ class VMWareOrchestrator:
                     monitor.progress.status = WorkerStatus.FAILED
                 elif monitor.should_restart():
                     self.restart_worker(monitor, batch_params)
+
+            # Spawn replacement VMs for permanently failed workers
+            if ensure_target:
+                for monitor in list(self.monitor_pool.monitors):
+                    if (monitor.progress.status == WorkerStatus.FAILED
+                            and not monitor.progress.replacement_spawned):
+                        completed = self._count_worker_completed_stories(monitor.worker_id)
+                        remaining = monitor.progress.total_stories - completed
+                        if remaining > 0:
+                            print(f"\n[!] Worker {monitor.worker_id + 1} failed. "
+                                  f"Completed {completed}/{monitor.progress.total_stories}. "
+                                  f"Spinning up replacement for {remaining} remaining stories...")
+                            new_monitor = self._provision_replacement_worker(
+                                monitor.worker_id, remaining, batch_params, stories_per_vm)
+                            if new_monitor:
+                                self.monitor_pool.monitors.append(new_monitor)
+                            monitor.progress.replacement_spawned = True
+                        else:
+                            monitor.progress.replacement_spawned = True
+                            logger.info("no_replacement_needed",
+                                       worker_id=monitor.worker_id,
+                                       completed=completed)
 
             # Update display
             if time.time() - last_display_update >= display_interval:
@@ -564,7 +594,157 @@ class VMWareOrchestrator:
                         worker_id=worker_id,
                         error=e.stderr)
 
-    def merge_outputs(self, num_workers: int) -> Path:
+    def _count_worker_completed_stories(self, worker_id: int) -> int:
+        """Count completed stories for a worker via Google Drive.
+
+        Args:
+            worker_id: Worker identifier (0-indexed)
+
+        Returns:
+            Number of completed stories, or 0 if no Drive configured
+        """
+        if not self.gdrive_manager or worker_id not in self.worker_folder_ids:
+            logger.info("no_gdrive_for_story_count", worker_id=worker_id)
+            return 0
+
+        count = self.gdrive_manager.count_story_folders(self.worker_folder_ids[worker_id])
+        logger.info("worker_completed_stories_from_gdrive",
+                    worker_id=worker_id,
+                    completed=count)
+        return count
+
+    def _provision_replacement_worker(
+        self, failed_worker_id: int, remaining_stories: int,
+        batch_params: Dict, stories_per_vm: int
+    ) -> Optional['VMMonitor']:
+        """Provision a replacement VM for a failed worker.
+
+        Args:
+            failed_worker_id: ID of the worker that failed (for logging)
+            remaining_stories: Number of stories the replacement should generate
+            batch_params: Batch parameters for job config
+            stories_per_vm: Original stories_per_vm (for monitor total)
+
+        Returns:
+            VMMonitor for the replacement worker, or None if provisioning failed
+        """
+        new_worker_id = len(self.workers)
+        print(f"\n[Worker {new_worker_id + 1}] (replacement for Worker {failed_worker_id + 1})")
+
+        # Create output and job directories
+        worker_output_dir = self.batch_dir / f"worker{new_worker_id + 1}"
+        worker_output_dir.mkdir(parents=True, exist_ok=True)
+
+        job_dir = self.batch_dir / f"worker{new_worker_id + 1}_job"
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate job config with remaining stories
+        print(f"  Generating job config ({remaining_stories} stories)...", end="", flush=True)
+        if not self._generate_worker_job_yaml(new_worker_id, job_dir, remaining_stories, batch_params):
+            print(" [X]")
+            return None
+        print(" [OK]")
+
+        # Create Google Drive subfolder for replacement worker
+        if self.gdrive_manager and hasattr(self, 'google_drive_parent_folder_id'):
+            try:
+                folder_id = self.gdrive_manager.create_folder(
+                    f"worker{new_worker_id + 1}",
+                    self.google_drive_parent_folder_id,
+                    make_public=True
+                )
+                if folder_id:
+                    self.worker_folder_ids[new_worker_id] = folder_id
+                    logger.info("replacement_worker_gdrive_folder_created",
+                               worker_id=new_worker_id,
+                               folder_id=folder_id)
+            except Exception as e:
+                logger.warning("replacement_worker_gdrive_folder_failed",
+                             worker_id=new_worker_id,
+                             error=str(e))
+
+        # Clone + configure + start with retry logic
+        shared_folders = [
+            {
+                "host_path": str(worker_output_dir.resolve()),
+                "guest_name": "output",
+                "write": True
+            },
+            {
+                "host_path": str(job_dir.resolve()),
+                "guest_name": "job",
+                "write": False
+            }
+        ]
+
+        max_vm_retries = self.config.get("orchestration", {}).get("vm_start_max_retries", 3)
+        worker_vmx_path = None
+
+        for attempt in range(max_vm_retries):
+            if attempt > 0:
+                print(f"  [!] Retry {attempt}/{max_vm_retries - 1} for replacement Worker {new_worker_id + 1}...")
+
+            worker_vmx_path = self.clone_worker_vm(new_worker_id)
+            if not worker_vmx_path:
+                if attempt < max_vm_retries - 1:
+                    print(f"  [!] Clone failed, retrying...")
+                    continue
+                print(f"  [X] Clone failed after {max_vm_retries} attempts")
+                return None
+
+            print(f"  Configuring shared folders in VMX...", end="", flush=True)
+            if not self._configure_shared_folders_in_vmx(worker_vmx_path, shared_folders):
+                print(" [X]")
+                if attempt < max_vm_retries - 1:
+                    print(f"  [!] Config failed, deleting VM and retrying...")
+                    self._delete_worker_vm(new_worker_id, worker_vmx_path)
+                    worker_vmx_path = None
+                    continue
+                return None
+            print(" [OK]")
+
+            if not self.start_worker_vm(new_worker_id, worker_vmx_path):
+                if attempt < max_vm_retries - 1:
+                    print(f"  [!] Start failed, deleting VM and retrying...")
+                    self._delete_worker_vm(new_worker_id, worker_vmx_path)
+                    worker_vmx_path = None
+                    continue
+                return None
+
+            break  # Success
+
+        # Store worker metadata
+        self.workers.append({
+            "worker_id": new_worker_id,
+            "vmx_path": worker_vmx_path,
+            "output_dir": worker_output_dir,
+            "job_dir": job_dir
+        })
+
+        # Create VMMonitor for replacement
+        from vm_monitor import VMMonitor
+        log_silence_threshold = self.config["orchestration"]["monitoring"]["log_silence_threshold_seconds"]
+        max_restart_attempts = self.config["orchestration"]["monitoring"]["max_restart_attempts"]
+
+        monitor = VMMonitor(
+            worker_id=new_worker_id,
+            vm_path=worker_vmx_path,
+            vmrun_exe=self.vmrun_exe,
+            shared_folder_path=worker_output_dir,
+            total_stories=remaining_stories,
+            log_silence_threshold=log_silence_threshold,
+            max_restart_attempts=max_restart_attempts
+        )
+
+        logger.info("replacement_worker_provisioned",
+                    new_worker_id=new_worker_id,
+                    failed_worker_id=failed_worker_id,
+                    remaining_stories=remaining_stories)
+
+        print(f"  [OK] Replacement Worker {new_worker_id + 1} started\n")
+        return monitor
+
+    def merge_outputs(self) -> Path:
         """Merge all worker outputs into single consolidated batch"""
         if not self.config["orchestration"]["merge_output"]:
             logger.info("output_merge_skipped")
@@ -573,25 +753,23 @@ class VMWareOrchestrator:
         merged_dir = self.batch_dir / "merged_batch"
         merged_dir.mkdir(exist_ok=True)
 
+        total_workers = len(self.workers)
         logger.info("merging_worker_outputs",
-                   num_workers=num_workers,
+                   num_workers=total_workers,
                    output_dir=str(merged_dir))
 
-        print(f"\nMerging outputs from {num_workers} workers...")
-
-        # TODO: Implement full merge logic (renumber stories, consolidate reports)
-        # For now, just copy all worker outputs
+        print(f"\nMerging outputs from {total_workers} workers...")
 
         story_counter = 1
         all_success = 0
         all_failed = 0
 
-        for worker_id in range(num_workers):
-            worker_output_dir = self.batch_dir / f"worker{worker_id + 1}"
+        for worker in self.workers:
+            worker_output_dir = worker["output_dir"]
             batch_dirs = list(worker_output_dir.glob("batch_*"))
 
             if not batch_dirs:
-                logger.warning("no_batch_output_found", worker_id=worker_id)
+                logger.warning("no_batch_output_found", worker_id=worker["worker_id"])
                 continue
 
             # Use most recent batch
@@ -615,7 +793,7 @@ class VMWareOrchestrator:
         # Write merged summary
         merged_summary = {
             "batch_id": f"vm_batch_{self.batch_timestamp}",
-            "num_workers": num_workers,
+            "num_workers": total_workers,
             "total_stories": story_counter - 1,
             "success_count": all_success,
             "failure_count": all_failed,
@@ -635,7 +813,7 @@ class VMWareOrchestrator:
 
         return merged_dir
 
-    def cleanup(self, num_workers: int):
+    def cleanup(self):
         """Cleanup worker VMs and temporary files"""
         if self.config["orchestration"]["cleanup_workers"]:
             print("\nCleaning up worker VMs...")
@@ -676,8 +854,8 @@ class VMWareOrchestrator:
             if self.config["orchestration"]["merge_output"]:
                 print("Cleaning up individual worker outputs...")
 
-                for worker_id in range(num_workers):
-                    worker_output_dir = self.batch_dir / f"worker{worker_id + 1}"
+                for worker in self.workers:
+                    worker_output_dir = worker["output_dir"]
                     if worker_output_dir.exists():
                         shutil.rmtree(worker_output_dir)
 
@@ -1208,7 +1386,11 @@ class VMWareOrchestrator:
         self.monitor_pool = VMMonitorPool(monitors, poll_interval)
 
         # Monitor until completion
-        self.monitor_workers(batch_params)
+        self.monitor_workers(
+            batch_params,
+            ensure_target=batch_params.get("ensure_target", False),
+            stories_per_vm=stories_per_vm
+        )
 
         # Note: Workers auto-shutdown, but we'll try to stop any still running
         print(f"\nEnsuring all workers are stopped...")
@@ -1225,10 +1407,10 @@ class VMWareOrchestrator:
         print("[OK] Workers stopped\n")
 
         # Merge outputs
-        merged_dir = self.merge_outputs(num_workers)
+        merged_dir = self.merge_outputs()
 
         # Cleanup
-        self.cleanup(num_workers)
+        self.cleanup()
 
         # Print summary
         summary = self.monitor_pool.get_summary()

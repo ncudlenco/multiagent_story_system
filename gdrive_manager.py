@@ -246,6 +246,56 @@ class GDriveManager:
 
         return worker_links
 
+    def count_story_folders(self, folder_id: str) -> int:
+        """Count story_* folders across all batch_* subfolders in a Drive folder.
+
+        Args:
+            folder_id: Google Drive folder ID to search in
+
+        Returns:
+            Number of story folders found, or 0 on error/no service
+        """
+        if not self.service:
+            return 0
+
+        try:
+            # List batch_* subfolders
+            batch_query = (
+                f"'{folder_id}' in parents "
+                f"and mimeType='application/vnd.google-apps.folder' "
+                f"and name contains 'batch_' "
+                f"and trashed=false"
+            )
+            batches = self.service.files().list(
+                q=batch_query, fields="files(id, name)", pageSize=1000
+            ).execute().get('files', [])
+
+            count = 0
+            for batch in batches:
+                # Count story_* folders in each batch
+                story_query = (
+                    f"'{batch['id']}' in parents "
+                    f"and mimeType='application/vnd.google-apps.folder' "
+                    f"and name contains 'story_' "
+                    f"and trashed=false"
+                )
+                stories = self.service.files().list(
+                    q=story_query, fields="files(id)", pageSize=1000
+                ).execute().get('files', [])
+                count += len(stories)
+
+            logger.info("gdrive_story_count",
+                       folder_id=folder_id,
+                       batch_count=len(batches),
+                       story_count=count)
+            return count
+
+        except Exception as e:
+            logger.error("gdrive_story_count_failed",
+                        folder_id=folder_id,
+                        error=str(e))
+            return 0
+
     def _make_public(self, folder_id: str) -> bool:
         """
         Make folder publicly accessible (anyone with link can view)
