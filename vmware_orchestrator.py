@@ -365,6 +365,53 @@ class VMWareOrchestrator:
                         error=e.stderr)
             return False
 
+    def _delete_worker_vm(self, worker_id: int, worker_vmx_path: str) -> bool:
+        """Stop and delete a worker VM for retry purposes.
+
+        Args:
+            worker_id: Worker identifier (0-indexed)
+            worker_vmx_path: Path to the worker .vmx file
+
+        Returns:
+            True if VM was successfully deleted, False otherwise
+        """
+        logger.info("deleting_worker_vm_for_retry", worker_id=worker_id, vmx_path=worker_vmx_path)
+
+        # Hard-stop VM if running (ignore errors - may not be running)
+        try:
+            subprocess.run(
+                [self.vmrun_exe, "-T", "ws", "stop", worker_vmx_path, "hard"],
+                capture_output=True,
+                text=True
+            )
+            time.sleep(5)
+        except Exception:
+            pass
+
+        # Delete the worker VM directory with retry
+        worker_vm_dir = Path(worker_vmx_path).parent
+        if not worker_vm_dir.exists():
+            return True
+
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                shutil.rmtree(worker_vm_dir)
+                logger.info("worker_vm_deleted_for_retry", worker_id=worker_id)
+                return True
+            except OSError as e:
+                if attempt < max_retries - 1:
+                    logger.warning("worker_vm_delete_retry",
+                                   worker_id=worker_id,
+                                   attempt=attempt + 1,
+                                   error=str(e))
+                    time.sleep(10)
+                else:
+                    logger.error("worker_vm_delete_failed",
+                                 worker_id=worker_id,
+                                 error=str(e))
+                    return False
+
     def _extract_worker_error(self, worker_output_dir: Path) -> Optional[str]:
         """Extract actual error from worker logs in shared folder"""
         # Look for log files in shared folder
@@ -1072,14 +1119,7 @@ class VMWareOrchestrator:
                 return 1
             print(" [OK]")
 
-            # Clone VM
-            worker_vmx_path = self.clone_worker_vm(worker_id)
-            if not worker_vmx_path:
-                print(f"  [X] Failed to clone VM")
-                return 1
-
-            # Configure shared folders in VMX (BEFORE starting VM)
-            print(f"  Configuring shared folders in VMX...", end="", flush=True)
+            # Clone + configure + start with retry logic
             shared_folders = [
                 {
                     "host_path": str(worker_output_dir.resolve()),
@@ -1093,16 +1133,47 @@ class VMWareOrchestrator:
                 }
             ]
 
-            if not self._configure_shared_folders_in_vmx(worker_vmx_path, shared_folders):
-                print(" [X]")
-                return 1
-            print(" [OK]")
+            max_vm_retries = self.config.get("orchestration", {}).get("vm_start_max_retries", 3)
+            worker_vmx_path = None
 
-            # Start VM (it will auto-run vm_auto_runner.ps1 on boot via Task Scheduler)
-            # Note: enableSharedFolders is called inside start_worker_vm() after VMware Tools is ready
-            if not self.start_worker_vm(worker_id, worker_vmx_path):
-                print(f"  [X] Failed to start VM")
-                return 1
+            for attempt in range(max_vm_retries):
+                if attempt > 0:
+                    print(f"  [!] Retry {attempt}/{max_vm_retries - 1} for Worker {worker_id + 1}...")
+
+                # Clone VM
+                worker_vmx_path = self.clone_worker_vm(worker_id)
+                if not worker_vmx_path:
+                    if attempt < max_vm_retries - 1:
+                        print(f"  [!] Clone failed, retrying...")
+                        continue
+                    print(f"  [X] Clone failed after {max_vm_retries} attempts")
+                    return 1
+
+                # Configure shared folders in VMX (BEFORE starting VM)
+                print(f"  Configuring shared folders in VMX...", end="", flush=True)
+                if not self._configure_shared_folders_in_vmx(worker_vmx_path, shared_folders):
+                    print(" [X]")
+                    if attempt < max_vm_retries - 1:
+                        print(f"  [!] Config failed, deleting VM and retrying...")
+                        self._delete_worker_vm(worker_id, worker_vmx_path)
+                        worker_vmx_path = None
+                        continue
+                    print(f"  [X] Config failed after {max_vm_retries} attempts")
+                    return 1
+                print(" [OK]")
+
+                # Start VM (auto-runs vm_auto_runner.ps1 on boot via Task Scheduler)
+                # Note: enableSharedFolders is called inside start_worker_vm() after VMware Tools is ready
+                if not self.start_worker_vm(worker_id, worker_vmx_path):
+                    if attempt < max_vm_retries - 1:
+                        print(f"  [!] Start failed, deleting VM and retrying...")
+                        self._delete_worker_vm(worker_id, worker_vmx_path)
+                        worker_vmx_path = None
+                        continue
+                    print(f"  [X] Start failed after {max_vm_retries} attempts")
+                    return 1
+
+                break  # Success
 
             # Store worker metadata
             self.workers.append({
