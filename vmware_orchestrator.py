@@ -907,6 +907,396 @@ class VMWareOrchestrator:
 
         return merged_dir
 
+    def merge_gdrive_results(self, folder_id: str) -> int:
+        """Merge worker folders in a Google Drive folder into a flat structure.
+
+        Standalone mode: indexes the folder structure, confirms with user,
+        flattens story folders into root, aggregates batch summaries,
+        and computes statistics.
+
+        Args:
+            folder_id: Google Drive root folder ID
+
+        Returns:
+            0 on success, 1 on failure
+        """
+        if not GOOGLE_DRIVE_AVAILABLE:
+            print("[X] Google Drive dependencies not installed")
+            print("  Install with: pip install google-auth google-api-python-client google-auth-oauthlib")
+            return 1
+
+        print(f"\n{'='*70}")
+        print("Google Drive Results Merge")
+        print(f"{'='*70}")
+        print(f"Folder ID: {folder_id}")
+        print(f"{'='*70}\n")
+
+        # Initialize Google Drive
+        try:
+            creds_path = self.config["google_drive"]["credentials_path"]
+            token_path = self.config["google_drive"]["token_path"]
+            self.gdrive_manager = GDriveManager(creds_path, token_path)
+
+            print("Authenticating with Google Drive...")
+            if not self.gdrive_manager.authenticate():
+                print("[X] Google Drive authentication failed")
+                return 1
+            print("[OK] Authenticated\n")
+        except Exception as e:
+            print(f"[X] Google Drive init failed: {e}")
+            return 1
+
+        # Phase 1: Index
+        print("Indexing folder structure...")
+        index = self.gdrive_manager.index_worker_batch_structure(folder_id)
+        totals = index['totals']
+
+        print(f"\n{'='*70}")
+        print(f"  Workers:              {totals['worker_count']}")
+        print(f"  Batches:              {totals['batch_count']}")
+        print(f"  Simulation folders:   {totals['total_story_folders']}")
+        print(f"  Complete batches:     {totals['complete_batches']}")
+        print(f"  Incomplete batches:   {totals['incomplete_batches']}")
+        print(f"{'='*70}")
+
+        if totals['total_story_folders'] == 0:
+            print("\nNothing to merge.")
+            return 0
+
+        # Phase 2: Confirm
+        print(f"\nThis will move {totals['total_story_folders']} simulation folders "
+              f"into the root folder.")
+        print("Worker and batch folders will be trashed (recoverable for 30 days).")
+        confirm = input("\nProceed with merge? [y/N]: ").strip().lower()
+        if confirm != 'y':
+            print("Aborted.")
+            return 0
+
+        # Phase 3: Aggregate batch summaries
+        print("\nAggregating batch summaries...")
+        merged_summary = self.gdrive_manager.aggregate_batch_summaries(index)
+        stats = merged_summary['statistics']
+        print(f"  Stories from complete batches: {stats['successful']} success, "
+              f"{stats['failed']} failed")
+        if stats['unknown'] > 0:
+            print(f"  Stories from incomplete batches: {stats['unknown']} (status unknown)")
+
+        # Phase 4: Flatten folders
+        print("\nMoving simulation folders to root...")
+        move_result = self.gdrive_manager.flatten_worker_batches_to_root(folder_id, index)
+
+        print(f"\n  Moved:   {move_result['moved_count']}")
+        print(f"  Failed:  {move_result['failed_count']}")
+        print(f"  Trashed: {move_result['trashed_folders']} empty folders")
+
+        if move_result['failed_count'] > 0:
+            print(f"\n[!] WARNING: {move_result['failed_count']} moves failed.")
+            print("    Simulations remain in their original locations (NOT lost).")
+            print("    Run this command again to retry failed moves.")
+            for err in move_result['errors'][:10]:
+                print(f"    - {err}")
+
+        # Phase 5: Upload merged batch_summary.json
+        print("\nUploading batch_summary.json...")
+        summary_id = self.gdrive_manager.upload_json_file(
+            "batch_summary.json", merged_summary, folder_id)
+        if summary_id:
+            print("[OK] batch_summary.json uploaded")
+        else:
+            print("[!] Failed to upload batch_summary.json")
+
+        # Phase 5b: Generate and upload batch_report.md
+        print("Generating batch_report.md...")
+        report_md = self.gdrive_manager.generate_merged_report(merged_summary, index)
+        report_id = self.gdrive_manager.upload_text_file(
+            "batch_report.md", report_md, folder_id)
+        if report_id:
+            print("[OK] batch_report.md uploaded")
+        else:
+            print("[!] Failed to upload batch_report.md")
+
+        # Phase 6: Compute and upload statistics
+        print("\nComputing batch statistics...")
+        try:
+            from gdrive_statistics import (GDriveStatisticsCollector,
+                                           GESTStatisticsExtractor,
+                                           StatisticsAggregator)
+
+            collector = GDriveStatisticsCollector(
+                credentials_path=self.config["google_drive"]["credentials_path"],
+                token_path=self.config["google_drive"]["token_path"])
+            extractor = GESTStatisticsExtractor()
+            aggregator = StatisticsAggregator()
+
+            count_seg = getattr(self, 'count_segmentations', True)
+            count_sp = getattr(self, 'count_spatial', True)
+
+            story_count = 0
+            for batch_name, story_name, gest, sim_folder_id in collector.traverse_stories_flat(
+                    folder_id, verbose=False):
+                story_stats = extractor.extract(gest)
+                artifact_stats = collector.collect_artifact_stats(
+                    sim_folder_id,
+                    count_segmentations=count_seg,
+                    count_spatial=count_sp)
+                story_stats.rgb_frames = artifact_stats['rgb_frames']
+                story_stats.segmented_frames = artifact_stats['segmented_frames']
+                story_stats.spatial_relations = artifact_stats['spatial_relations']
+                story_stats.simulation_count = artifact_stats['simulation_count']
+                story_stats.camera_count = artifact_stats['camera_count']
+                aggregator.add_story(batch_name, story_stats)
+                story_count += 1
+
+            if story_count > 0:
+                stats_dict = aggregator.to_dict()
+                stats_id = self.gdrive_manager.upload_json_file(
+                    "batch_statistics.json", stats_dict, folder_id)
+                if stats_id:
+                    print(f"[OK] batch_statistics.json uploaded ({story_count} stories analyzed)")
+                else:
+                    print("[!] Failed to upload batch_statistics.json")
+            else:
+                print("[!] No stories with detail_gest.json found for statistics")
+
+        except Exception as e:
+            logger.error("statistics_computation_failed", error=str(e), exc_info=True)
+            print(f"[!] Statistics computation failed: {e}")
+            print("    (Simulations are still merged successfully)")
+
+        # Summary
+        drive_link = self.gdrive_manager.get_folder_link(folder_id)
+
+        print(f"\n{'='*70}")
+        print("Merge Complete!")
+        print(f"{'='*70}")
+        print(f"  Simulations merged: {move_result['moved_count']}")
+        if move_result['failed_count'] > 0:
+            print(f"  Failed moves:       {move_result['failed_count']} (run again to retry)")
+        if drive_link:
+            print(f"  Drive folder:       {drive_link}")
+        print(f"{'='*70}\n")
+
+        return 0
+
+    def merge_flat_folders(self, folder_ids: List[str]) -> int:
+        """Merge multiple already-flat Google Drive folders into one.
+
+        First ID is the destination (existing simulations kept).
+        Remaining IDs are sources (simulations moved into destination).
+        Source folders are trashed after successful move.
+
+        Args:
+            folder_ids: List of folder IDs [dest, src1, src2, ...]
+
+        Returns:
+            0 on success, 1 on failure
+        """
+        if not GOOGLE_DRIVE_AVAILABLE:
+            print("[X] Google Drive dependencies not installed")
+            print("  Install with: pip install google-auth google-api-python-client google-auth-oauthlib")
+            return 1
+
+        if len(folder_ids) < 2:
+            print("[X] Need at least 2 folder IDs (destination + 1 or more sources)")
+            return 1
+
+        dest_id = folder_ids[0]
+        source_ids = folder_ids[1:]
+
+        print(f"\n{'='*70}")
+        print("Google Drive Flat Folder Merge")
+        print(f"{'='*70}")
+        print(f"Destination: {dest_id}")
+        for i, sid in enumerate(source_ids):
+            print(f"Source {i+1}:     {sid}")
+        print(f"{'='*70}\n")
+
+        # Initialize Google Drive
+        try:
+            creds_path = self.config["google_drive"]["credentials_path"]
+            token_path = self.config["google_drive"]["token_path"]
+            self.gdrive_manager = GDriveManager(creds_path, token_path)
+
+            print("Authenticating with Google Drive...")
+            if not self.gdrive_manager.authenticate():
+                print("[X] Google Drive authentication failed")
+                return 1
+            print("[OK] Authenticated\n")
+        except Exception as e:
+            print(f"[X] Google Drive init failed: {e}")
+            return 1
+
+        # Phase 1: Index all folders
+        print("Indexing folders...")
+        dest_subs = self.gdrive_manager.list_subfolders(dest_id)
+        dest_sims = [f for f in dest_subs
+                     if not f['name'].startswith(('worker', 'batch_'))]
+        dest_count = len(dest_sims)
+        print(f"  Destination ({dest_id}): {dest_count} simulations")
+
+        source_counts = {}
+        total_to_move = 0
+        for i, sid in enumerate(source_ids):
+            src_subs = self.gdrive_manager.list_subfolders(sid)
+            src_sims = [f for f in src_subs
+                        if not f['name'].startswith(('worker', 'batch_'))]
+            count = len(src_sims)
+            source_counts[sid] = count
+            total_to_move += count
+            print(f"  Source {i+1}    ({sid}): {count} simulations")
+
+        total_after = dest_count + total_to_move
+        print(f"\n  Total after merge: {total_after} simulations")
+
+        if total_to_move == 0:
+            print("\nNothing to move.")
+            return 0
+
+        # Phase 2: Confirm
+        print(f"\nThis will move {total_to_move} simulations into the destination folder.")
+        print("Source folders will be trashed (recoverable for 30 days).")
+        confirm = input("\nProceed? [y/N]: ").strip().lower()
+        if confirm != 'y':
+            print("Aborted.")
+            return 0
+
+        # Phase 3: Move simulations
+        print("\nMoving simulations...")
+        move_result = self.gdrive_manager.merge_flat_folders(dest_id, source_ids)
+
+        print(f"\n  Moved:   {move_result['moved_count']}")
+        print(f"  Failed:  {move_result['failed_count']}")
+        print(f"  Trashed: {move_result['trashed_folders']} source folders")
+
+        if move_result['failed_count'] > 0:
+            print(f"\n[!] WARNING: {move_result['failed_count']} moves failed.")
+            print("    Simulations remain in their original locations (NOT lost).")
+            print("    Run this command again to retry failed moves.")
+            for err in move_result['errors'][:10]:
+                print(f"    - {err}")
+
+        # Phase 4: Compute and upload statistics
+        print("\nComputing batch statistics...")
+        try:
+            from gdrive_statistics import (GDriveStatisticsCollector,
+                                           GESTStatisticsExtractor,
+                                           StatisticsAggregator)
+
+            collector = GDriveStatisticsCollector(
+                credentials_path=self.config["google_drive"]["credentials_path"],
+                token_path=self.config["google_drive"]["token_path"])
+            extractor = GESTStatisticsExtractor()
+            aggregator = StatisticsAggregator()
+
+            count_seg = getattr(self, 'count_segmentations', True)
+            count_sp = getattr(self, 'count_spatial', True)
+
+            story_count = 0
+            for batch_name, story_name, gest, sim_folder_id in collector.traverse_stories_flat(
+                    dest_id, verbose=False):
+                story_stats = extractor.extract(gest)
+                artifact_stats = collector.collect_artifact_stats(
+                    sim_folder_id,
+                    count_segmentations=count_seg,
+                    count_spatial=count_sp)
+                story_stats.rgb_frames = artifact_stats['rgb_frames']
+                story_stats.segmented_frames = artifact_stats['segmented_frames']
+                story_stats.spatial_relations = artifact_stats['spatial_relations']
+                story_stats.simulation_count = artifact_stats['simulation_count']
+                story_stats.camera_count = artifact_stats['camera_count']
+                aggregator.add_story(batch_name, story_stats)
+                story_count += 1
+
+            if story_count > 0:
+                stats_dict = aggregator.to_dict()
+                stats_id = self.gdrive_manager.upload_json_file(
+                    "batch_statistics.json", stats_dict, dest_id)
+                if stats_id:
+                    print(f"[OK] batch_statistics.json uploaded ({story_count} stories analyzed)")
+                else:
+                    print("[!] Failed to upload batch_statistics.json")
+            else:
+                print("[!] No stories with detail_gest.json found for statistics")
+
+        except Exception as e:
+            logger.error("statistics_computation_failed", error=str(e), exc_info=True)
+            print(f"[!] Statistics computation failed: {e}")
+            print("    (Simulations are still merged successfully)")
+
+        # Phase 5: Generate and upload summary + report
+        print("\nGenerating summary and report...")
+        merged_summary = {
+            'merged_at': datetime.now().isoformat(),
+            'root_folder_id': dest_id,
+            'merge_type': 'flat_folder_merge',
+            'statistics': {
+                'total': total_after,
+                'successful': 0,
+                'failed': 0,
+                'unknown': total_after,
+            },
+            'source_folders': [
+                {'folder_id': dest_id, 'role': 'destination',
+                 'simulation_count': dest_count},
+            ] + [
+                {'folder_id': sid, 'role': 'source',
+                 'simulation_count': source_counts.get(sid, 0)}
+                for sid in source_ids
+            ],
+        }
+
+        summary_id = self.gdrive_manager.upload_json_file(
+            "batch_summary.json", merged_summary, dest_id)
+        if summary_id:
+            print("[OK] batch_summary.json uploaded")
+        else:
+            print("[!] Failed to upload batch_summary.json")
+
+        # Generate a simple report
+        report_lines = [
+            "# Flat Folder Merge Report\n",
+            f"**Merged at:** {merged_summary['merged_at']}\n",
+            f"**Destination:** `{dest_id}`\n",
+            "\n---\n",
+            "\n## Summary\n\n",
+            f"- **Total simulations after merge:** {total_after}\n",
+            f"- **Moved from sources:** {move_result['moved_count']}\n",
+            f"- **Already in destination:** {dest_count}\n",
+            f"- **Failed moves:** {move_result['failed_count']}\n",
+            f"- **Source folders trashed:** {move_result['trashed_folders']}\n",
+            "\n## Source Folders\n\n",
+            "| # | Folder ID | Simulations | Role |\n",
+            "|---|-----------|-------------|------|\n",
+            f"| 0 | `{dest_id}` | {dest_count} | Destination |\n",
+        ]
+        for i, sid in enumerate(source_ids):
+            report_lines.append(
+                f"| {i+1} | `{sid}` | {source_counts.get(sid, 0)} | Source |\n")
+
+        report_md = "".join(report_lines)
+        report_id = self.gdrive_manager.upload_text_file(
+            "batch_report.md", report_md, dest_id)
+        if report_id:
+            print("[OK] batch_report.md uploaded")
+        else:
+            print("[!] Failed to upload batch_report.md")
+
+        # Summary
+        drive_link = self.gdrive_manager.get_folder_link(dest_id)
+
+        print(f"\n{'='*70}")
+        print("Flat Folder Merge Complete!")
+        print(f"{'='*70}")
+        print(f"  Simulations moved:  {move_result['moved_count']}")
+        print(f"  Total in dest:      {total_after}")
+        if move_result['failed_count'] > 0:
+            print(f"  Failed moves:       {move_result['failed_count']} (run again to retry)")
+        if drive_link:
+            print(f"  Drive folder:       {drive_link}")
+        print(f"{'='*70}\n")
+
+        return 0
+
     def cleanup(self):
         """Cleanup worker VMs and temporary files"""
         if self.config["orchestration"]["cleanup_workers"]:
@@ -2047,6 +2437,12 @@ Examples:
 
   # Delete ALL previous worker VM batches from disk
   python vmware_orchestrator.py --purge-vms
+
+  # Merge Google Drive results from a previous batch run
+  python vmware_orchestrator.py --merge-gdrive-results 1ABC_FOLDER_ID
+
+  # Merge two already-flat folders into one (first ID = destination)
+  python vmware_orchestrator.py --merge-flat-folders DEST_FOLDER_ID SRC_FOLDER_ID1 SRC_FOLDER_ID2
         """
     )
 
@@ -2058,6 +2454,10 @@ Examples:
                            help="Update master VM code from GitHub repositories")
     mode_group.add_argument("--purge-vms", action="store_true",
                            help="Delete ALL previous worker VM batches from disk")
+    mode_group.add_argument("--merge-gdrive-results", type=str, metavar="FOLDER_ID",
+                           help="Merge worker folders in a Google Drive folder into flat structure (standalone, no VMs)")
+    mode_group.add_argument("--merge-flat-folders", nargs='+', metavar="FOLDER_ID",
+                           help="Merge flat folders: first ID is destination, rest are sources")
 
     # Batch generation mode arguments
     parser.add_argument("--stories-per-vm", type=int,
@@ -2127,6 +2527,12 @@ Examples:
     parser.add_argument("--capture-segmentations", action=argparse.BooleanOptionalAction,
                        default=True, help="Capture segmentation masks during artifact collection (default: enabled)")
 
+    # Statistics counting flags
+    parser.add_argument("--no-count-segmentations", action="store_true",
+                       help="Skip counting segmentation frames in statistics")
+    parser.add_argument("--no-count-spatial", action="store_true",
+                       help="Skip counting spatial relations in statistics")
+
     # Error handling
     parser.add_argument("--no-restart", action="store_true",
                        help="Don't restart crashed/hung workers, show errors and fail fast")
@@ -2147,10 +2553,26 @@ Examples:
     try:
         orchestrator = VMWareOrchestrator(config_path=args.config)
 
+        # Set statistics counting flags
+        orchestrator.count_segmentations = not args.no_count_segmentations
+        orchestrator.count_spatial = not args.no_count_spatial
+
         # Handle --purge-vms mode
         if args.purge_vms:
             deleted, failed = orchestrator.purge_all_worker_vms()
             return 0 if failed == 0 else 1
+
+        # Handle --merge-gdrive-results mode
+        if args.merge_gdrive_results:
+            return orchestrator.merge_gdrive_results(args.merge_gdrive_results)
+
+        # Handle --merge-flat-folders mode
+        if args.merge_flat_folders:
+            if len(args.merge_flat_folders) < 2:
+                print("[X] --merge-flat-folders requires at least 2 folder IDs "
+                      "(destination + 1 or more sources)")
+                return 1
+            return orchestrator.merge_flat_folders(args.merge_flat_folders)
 
         # Handle --update-master mode
         if args.update_master:

@@ -13,6 +13,7 @@ import argparse
 import json
 import statistics
 import io
+import zipfile
 from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Iterator, Tuple
@@ -70,6 +71,12 @@ class StoryStats:
     object_types: List[str] = field(default_factory=list)
     action_categories: List[str] = field(default_factory=list)
     temporal_relation_types: List[str] = field(default_factory=list)
+    # Artifact statistics
+    rgb_frames: int = 0
+    segmented_frames: int = 0
+    spatial_relations: int = 0
+    simulation_count: int = 0
+    camera_count: int = 0
 
 
 class GESTStatisticsExtractor:
@@ -232,9 +239,141 @@ class GDriveStatisticsCollector:
             logger.debug("download_error", file_id=file_id, error=str(e))
             return None
 
-    def traverse_batches(self, root_folder_id: str, verbose: bool = False) -> Iterator[Tuple[str, str, Dict]]:
+    def download_file_bytes(self, file_id: str) -> Optional[bytes]:
+        """Download file content as raw bytes (for zip files).
+
+        No disk writes — everything stays in memory.
+        Caller is responsible for freeing the returned bytes.
         """
-        Traverse all batches and yield (batch_name, story_name, gest_dict) tuples
+        try:
+            request = self.service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+
+            fh.seek(0)
+            data = fh.read()
+            fh.close()
+            return data
+
+        except Exception as e:
+            logger.debug("download_bytes_error", file_id=file_id, error=str(e))
+            return None
+
+    def count_zip_entries(self, file_id: str) -> int:
+        """Count entries in a zip file on Drive without extracting.
+
+        Downloads the zip to memory, reads its central directory,
+        then immediately frees the memory. No disk writes.
+        """
+        raw = None
+        try:
+            raw = self.download_file_bytes(file_id)
+            if not raw:
+                return 0
+            bytesio = io.BytesIO(raw)
+            with zipfile.ZipFile(bytesio, 'r') as zf:
+                count = len(zf.namelist())
+            bytesio.close()
+            return count
+        except Exception as e:
+            logger.debug("count_zip_entries_error", file_id=file_id, error=str(e))
+            return 0
+        finally:
+            del raw
+
+    def list_files(self, parent_id: str,
+                   name: Optional[str] = None) -> List[Dict[str, str]]:
+        """List non-folder files in a folder.
+
+        Args:
+            parent_id: Parent folder ID
+            name: Optional exact filename filter
+        """
+        query = (f"'{parent_id}' in parents "
+                 f"and mimeType != 'application/vnd.google-apps.folder' "
+                 f"and trashed=false")
+        if name:
+            safe_name = name.replace("'", "\\'")
+            query += f" and name='{safe_name}'"
+
+        results = self.service.files().list(
+            q=query,
+            fields="files(id, name)",
+            pageSize=1000
+        ).execute()
+
+        return results.get('files', [])
+
+    def collect_artifact_stats(self, sim_folder_id: str,
+                               count_segmentations: bool = True,
+                               count_spatial: bool = True) -> Dict[str, int]:
+        """Collect artifact statistics from simulation zip files.
+
+        Traverses simulations/take*_sim*/camera*/ and counts entries
+        in rgb_frames.zip, segmentation_frames.zip, spatial_relations.zip.
+
+        All downloads are in-memory only, freed immediately after counting.
+
+        Args:
+            sim_folder_id: Simulation folder ID on Drive
+            count_segmentations: Whether to count segmentation_frames.zip entries
+            count_spatial: Whether to count spatial_relations.zip entries
+        """
+        result: Dict[str, int] = {
+            'rgb_frames': 0,
+            'segmented_frames': 0,
+            'spatial_relations': 0,
+            'simulation_count': 0,
+            'camera_count': 0,
+        }
+
+        try:
+            # Find 'simulations' subfolder
+            subfolders = self.list_folders(sim_folder_id)
+            sim_parent = next(
+                (f for f in subfolders if f['name'] == 'simulations'), None)
+            if not sim_parent:
+                return result
+
+            # List take*_sim* folders
+            take_sim_folders = self.list_folders(sim_parent['id'])
+            result['simulation_count'] = len(take_sim_folders)
+
+            for take_sim in take_sim_folders:
+                # List camera* folders
+                cam_folders = self.list_folders(take_sim['id'])
+                cam_folders = [f for f in cam_folders
+                               if f['name'].startswith('camera')]
+                result['camera_count'] += len(cam_folders)
+
+                for camera in cam_folders:
+                    files = self.list_files(camera['id'])
+                    for f in files:
+                        if f['name'] == 'rgb_frames.zip':
+                            result['rgb_frames'] += self.count_zip_entries(
+                                f['id'])
+                        elif (f['name'] == 'segmentation_frames.zip'
+                              and count_segmentations):
+                            result['segmented_frames'] += (
+                                self.count_zip_entries(f['id']))
+                        elif (f['name'] == 'spatial_relations.zip'
+                              and count_spatial):
+                            result['spatial_relations'] += (
+                                self.count_zip_entries(f['id']))
+
+        except Exception as e:
+            logger.debug("collect_artifact_stats_error",
+                        sim_folder_id=sim_folder_id, error=str(e))
+
+        return result
+
+    def traverse_batches(self, root_folder_id: str, verbose: bool = False) -> Iterator[Tuple[str, str, Dict, str]]:
+        """
+        Traverse all batches and yield (batch_name, story_name, gest_dict, folder_id) tuples.
         """
         # Get all batch folders
         batch_folders = self.list_folders(root_folder_id)
@@ -270,10 +409,99 @@ class GDriveStatisticsCollector:
 
                 try:
                     gest = json.loads(content)
-                    yield batch_name, story_name, gest
+                    yield batch_name, story_name, gest, story_folder['id']
                 except json.JSONDecodeError:
                     logger.warning("invalid_json", batch=batch_name, story=story_name)
                     continue
+
+    def find_detail_gest_any(self, sim_folder_id: str) -> Optional[str]:
+        """Find detail_gest.json in a simulation folder, trying multiple paths.
+
+        Supports both LLM-generated stories (detail/take1/detail_gest.json) and
+        random-generated simulations (detailed_graph/take1/detail_gest.json).
+
+        Args:
+            sim_folder_id: Google Drive folder ID of the simulation folder
+
+        Returns:
+            File ID of detail_gest.json, or None if not found
+        """
+        # Try both folder names: 'detailed_graph' (random generator) and 'detail' (LLM)
+        for folder_name in ('detailed_graph', 'detail'):
+            try:
+                subfolders = self.list_folders(sim_folder_id)
+                target = next((f for f in subfolders if f['name'] == folder_name), None)
+                if not target:
+                    continue
+
+                take_folders = self.list_folders(target['id'])
+                take_folder = next((f for f in take_folders if f['name'] == 'take1'), None)
+                if not take_folder:
+                    continue
+
+                query = (f"'{take_folder['id']}' in parents "
+                         f"and name='detail_gest.json' and trashed=false")
+                results = self.service.files().list(q=query, fields="files(id)").execute()
+                files = results.get('files', [])
+
+                if files:
+                    return files[0]['id']
+
+            except Exception as e:
+                logger.debug("find_detail_gest_any_error",
+                            folder_name=folder_name, error=str(e))
+                continue
+
+        return None
+
+    def traverse_stories_flat(self, folder_id: str,
+                              verbose: bool = False) -> Iterator[Tuple[str, str, Dict, str]]:
+        """Traverse simulation folders directly in a folder (flat structure, no batch_ layer).
+
+        Used after --merge-gdrive-results has flattened the worker/batch hierarchy.
+        Supports any simulation folder naming (story_*, house_*, garden_*, etc.).
+
+        Args:
+            folder_id: Folder containing simulation subfolders directly
+            verbose: Print progress
+
+        Yields:
+            (batch_name, story_name, gest_dict, sim_folder_id) tuples.
+            batch_name is "merged" for all.
+        """
+        # Skip non-simulation folders that may remain from partial merges
+        skip_prefixes = ('worker', 'batch_')
+
+        all_folders = self.list_folders(folder_id)
+        sim_folders = [f for f in all_folders
+                       if not any(f['name'].startswith(p) for p in skip_prefixes)]
+        sim_folders.sort(key=lambda x: x['name'])
+
+        if verbose:
+            print(f"Found {len(sim_folders)} simulation folders")
+
+        for idx, sim_folder in enumerate(sim_folders):
+            sim_name = sim_folder['name']
+
+            gest_file_id = self.find_detail_gest_any(sim_folder['id'])
+            if not gest_file_id:
+                if verbose:
+                    print(f"  Skipping {sim_name} - no detail_gest.json found")
+                continue
+
+            content = self.download_file_content(gest_file_id)
+            if not content:
+                continue
+
+            try:
+                gest = json.loads(content)
+                yield "merged", sim_name, gest, sim_folder['id']
+            except json.JSONDecodeError:
+                logger.warning("invalid_json", story=sim_name)
+                continue
+
+            if verbose and (idx + 1) % 50 == 0:
+                print(f"  Processed {idx + 1}/{len(sim_folders)} simulations...")
 
     def upload_file(self, file_path: Path, parent_folder_id: str, filename: Optional[str] = None) -> Optional[str]:
         """
@@ -365,6 +593,17 @@ class StatisticsAggregator:
         self.unique_object_types = set()
         self.unique_regions = set()
 
+        # Artifact per-story metrics
+        self.rgb_frames_per_story: List[int] = []
+        self.segmented_frames_per_story: List[int] = []
+        self.spatial_relations_per_story: List[int] = []
+
+        # Artifact totals
+        self.total_rgb_frames = 0
+        self.total_segmented_frames = 0
+        self.total_spatial_relations = 0
+        self.stories_with_artifacts = 0
+
     def add_story(self, batch_name: str, story_stats: StoryStats):
         """Add a story's statistics to the aggregator"""
         self.total_batches.add(batch_name)
@@ -403,6 +642,16 @@ class StatisticsAggregator:
         for rel_type in story_stats.temporal_relation_types:
             self.temporal_relation_types[rel_type] += 1
 
+        # Artifact stats
+        self.rgb_frames_per_story.append(story_stats.rgb_frames)
+        self.segmented_frames_per_story.append(story_stats.segmented_frames)
+        self.spatial_relations_per_story.append(story_stats.spatial_relations)
+        self.total_rgb_frames += story_stats.rgb_frames
+        self.total_segmented_frames += story_stats.segmented_frames
+        self.total_spatial_relations += story_stats.spatial_relations
+        if story_stats.rgb_frames > 0 or story_stats.segmented_frames > 0:
+            self.stories_with_artifacts += 1
+
     def _compute_stats(self, values: List[int]) -> Dict[str, float]:
         """Compute min, max, mean, std for a list of values"""
         if not values:
@@ -438,12 +687,19 @@ class StatisticsAggregator:
                 "total_temporal_relations": self.total_temporal_relations,
                 "unique_actions": len(self.unique_actions),
                 "unique_object_types": len(self.unique_object_types),
-                "unique_regions": len(self.unique_regions)
+                "unique_regions": len(self.unique_regions),
+                "total_rgb_frames": self.total_rgb_frames,
+                "total_segmented_frames": self.total_segmented_frames,
+                "total_spatial_relations": self.total_spatial_relations,
+                "stories_with_artifacts": self.stories_with_artifacts,
             },
             "per_story_averages": {
                 "actors_per_story": self._compute_stats(self.actors_per_story),
                 "events_per_story": self._compute_stats(self.events_per_story),
-                "temporal_relations_per_story": self._compute_stats(self.temporal_relations_per_story)
+                "temporal_relations_per_story": self._compute_stats(self.temporal_relations_per_story),
+                "rgb_frames_per_story": self._compute_stats(self.rgb_frames_per_story),
+                "segmented_frames_per_story": self._compute_stats(self.segmented_frames_per_story),
+                "spatial_relations_per_story": self._compute_stats(self.spatial_relations_per_story),
             },
             "distributions": {
                 "regions": self._counter_to_distribution(self.regions),
@@ -492,6 +748,16 @@ def main():
         action="store_true",
         help="Upload statistics file to Google Drive root folder"
     )
+    parser.add_argument(
+        "--no-count-segmentations",
+        action="store_true",
+        help="Skip counting segmentation_frames.zip entries"
+    )
+    parser.add_argument(
+        "--no-count-spatial",
+        action="store_true",
+        help="Skip counting spatial_relations.zip entries"
+    )
 
     args = parser.parse_args()
 
@@ -512,9 +778,22 @@ def main():
         # Traverse and collect statistics
         print(f"\nCollecting statistics from folder: {args.folder_id}")
 
+        count_seg = not args.no_count_segmentations
+        count_sp = not args.no_count_spatial
+
         story_count = 0
-        for batch_name, story_name, gest in collector.traverse_batches(args.folder_id, verbose=args.verbose):
+        for batch_name, story_name, gest, story_folder_id in collector.traverse_batches(
+                args.folder_id, verbose=args.verbose):
             story_stats = extractor.extract(gest)
+            artifact_stats = collector.collect_artifact_stats(
+                story_folder_id,
+                count_segmentations=count_seg,
+                count_spatial=count_sp)
+            story_stats.rgb_frames = artifact_stats['rgb_frames']
+            story_stats.segmented_frames = artifact_stats['segmented_frames']
+            story_stats.spatial_relations = artifact_stats['spatial_relations']
+            story_stats.simulation_count = artifact_stats['simulation_count']
+            story_stats.camera_count = artifact_stats['camera_count']
             aggregator.add_story(batch_name, story_stats)
             story_count += 1
 
@@ -540,6 +819,10 @@ def main():
         print(f"  Unique actions: {result['summary']['unique_actions']}")
         print(f"  Unique object types: {result['summary']['unique_object_types']}")
         print(f"  Unique regions: {result['summary']['unique_regions']}")
+        print(f"  Total RGB frames: {result['summary']['total_rgb_frames']}")
+        print(f"  Total segmented frames: {result['summary']['total_segmented_frames']}")
+        print(f"  Total spatial relations: {result['summary']['total_spatial_relations']}")
+        print(f"  Stories with artifacts: {result['summary']['stories_with_artifacts']}")
 
         print(f"\nPer-story averages:")
         for metric, stats in result['per_story_averages'].items():

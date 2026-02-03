@@ -5,11 +5,13 @@ Handles Google Drive authentication, subfolder creation, and credential
 distribution to worker VMs for batch story generation.
 """
 
+import io
 import os
 import json
 import subprocess
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -21,7 +23,7 @@ try:
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
-    from googleapiclient.http import MediaInMemoryUpload
+    from googleapiclient.http import MediaInMemoryUpload, MediaIoBaseDownload
     GOOGLE_DRIVE_AVAILABLE = True
 except ImportError:
     GOOGLE_DRIVE_AVAILABLE = False
@@ -297,6 +299,125 @@ class GDriveManager:
                         error=str(e))
             return 0
 
+    def list_subfolders(self, folder_id: str,
+                        name_prefix: Optional[str] = None) -> List[Dict[str, str]]:
+        """List subfolders in a Google Drive folder.
+
+        Args:
+            folder_id: Parent folder ID
+            name_prefix: Optional name prefix filter (e.g., 'worker', 'batch_', 'story_')
+
+        Returns:
+            List of dicts with 'id' and 'name' keys, sorted by name
+        """
+        if not self.service:
+            logger.error("gdrive_not_authenticated")
+            return []
+
+        try:
+            query = (
+                f"'{folder_id}' in parents "
+                f"and mimeType='application/vnd.google-apps.folder' "
+                f"and trashed=false"
+            )
+            if name_prefix:
+                query += f" and name contains '{name_prefix}'"
+
+            all_files = []
+            page_token = None
+
+            while True:
+                response = self.service.files().list(
+                    q=query,
+                    fields="nextPageToken, files(id, name)",
+                    pageSize=1000,
+                    pageToken=page_token
+                ).execute()
+
+                all_files.extend(response.get('files', []))
+                page_token = response.get('nextPageToken')
+                if not page_token:
+                    break
+
+            all_files.sort(key=lambda f: f['name'])
+            return all_files
+
+        except Exception as e:
+            logger.error("gdrive_list_subfolders_failed",
+                        folder_id=folder_id,
+                        error=str(e))
+            return []
+
+    def list_files_in_folder(self, folder_id: str,
+                             name: Optional[str] = None) -> List[Dict[str, str]]:
+        """List non-folder files in a Google Drive folder.
+
+        Args:
+            folder_id: Parent folder ID
+            name: Optional exact filename filter (e.g., 'batch_summary.json')
+
+        Returns:
+            List of dicts with 'id' and 'name' keys
+        """
+        if not self.service:
+            logger.error("gdrive_not_authenticated")
+            return []
+
+        try:
+            query = (
+                f"'{folder_id}' in parents "
+                f"and mimeType!='application/vnd.google-apps.folder' "
+                f"and trashed=false"
+            )
+            if name:
+                query += f" and name='{name}'"
+
+            response = self.service.files().list(
+                q=query,
+                fields="files(id, name)",
+                pageSize=1000
+            ).execute()
+
+            return response.get('files', [])
+
+        except Exception as e:
+            logger.error("gdrive_list_files_failed",
+                        folder_id=folder_id,
+                        error=str(e))
+            return []
+
+    def download_json_file(self, file_id: str) -> Optional[dict]:
+        """Download a JSON file from Google Drive and parse it.
+
+        Args:
+            file_id: Google Drive file ID
+
+        Returns:
+            Parsed dict, or None on failure
+        """
+        if not self.service:
+            logger.error("gdrive_not_authenticated")
+            return None
+
+        try:
+            request = self.service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+
+            fh.seek(0)
+            content = fh.read().decode('utf-8')
+            return json.loads(content)
+
+        except Exception as e:
+            logger.error("gdrive_download_json_failed",
+                        file_id=file_id,
+                        error=str(e))
+            return None
+
     def upload_json_file(self, name: str, data: dict,
                          parent_folder_id: str) -> Optional[str]:
         """Upload JSON data as a file to Google Drive.
@@ -338,6 +459,471 @@ class GDriveManager:
 
         except Exception as e:
             logger.error("gdrive_json_upload_failed",
+                        name=name,
+                        error=str(e),
+                        exc_info=True)
+            return None
+
+    # =========================================================================
+    # Google Drive Results Merge (--merge-gdrive-results)
+    # =========================================================================
+
+    def index_worker_batch_structure(self, root_folder_id: str) -> Dict[str, Any]:
+        """Index the worker/batch/story folder structure in a Google Drive folder.
+
+        Traverses: root/ -> worker*/ -> batch_*/ -> story_*/
+
+        Args:
+            root_folder_id: Root Google Drive folder ID
+
+        Returns:
+            Dict with full index including workers, batches, stories, and totals
+        """
+        index: Dict[str, Any] = {
+            'root_folder_id': root_folder_id,
+            'workers': [],
+            'totals': {
+                'worker_count': 0,
+                'batch_count': 0,
+                'total_story_folders': 0,
+                'complete_batches': 0,
+                'incomplete_batches': 0,
+            }
+        }
+
+        worker_folders = self.list_subfolders(root_folder_id, 'worker')
+        index['totals']['worker_count'] = len(worker_folders)
+
+        for worker_folder in worker_folders:
+            worker_info: Dict[str, Any] = {
+                'name': worker_folder['name'],
+                'id': worker_folder['id'],
+                'batches': [],
+            }
+
+            batch_folders = self.list_subfolders(worker_folder['id'], 'batch_')
+
+            for batch_folder in batch_folders:
+                story_folders = self.list_subfolders(batch_folder['id'])
+                batch_files = self.list_files_in_folder(batch_folder['id'])
+
+                batch_summary_file = next(
+                    (f for f in batch_files if f['name'] == 'batch_summary.json'), None)
+                has_summary = batch_summary_file is not None
+
+                batch_info = {
+                    'name': batch_folder['name'],
+                    'id': batch_folder['id'],
+                    'story_folders': story_folders,
+                    'has_batch_summary': has_summary,
+                    'batch_summary_file_id': batch_summary_file['id'] if batch_summary_file else None,
+                }
+
+                worker_info['batches'].append(batch_info)
+
+                index['totals']['batch_count'] += 1
+                index['totals']['total_story_folders'] += len(story_folders)
+                if has_summary:
+                    index['totals']['complete_batches'] += 1
+                else:
+                    index['totals']['incomplete_batches'] += 1
+
+            story_count = sum(len(b['story_folders']) for b in worker_info['batches'])
+            print(f"  {worker_folder['name']}: {len(worker_info['batches'])} batch(es), "
+                  f"{story_count} simulation(s)")
+
+            index['workers'].append(worker_info)
+
+        return index
+
+    def aggregate_batch_summaries(self, index: Dict[str, Any]) -> dict:
+        """Aggregate batch summaries from all workers/batches.
+
+        For complete batches (have batch_summary.json): downloads and aggregates stats.
+        For incomplete batches: counts story folders as total with unknown status.
+
+        Args:
+            index: Index from index_worker_batch_structure()
+
+        Returns:
+            Merged summary dict for upload as batch_summary.json
+        """
+        total_stories_from_summaries = 0
+        total_success = 0
+        total_failed = 0
+        total_from_incomplete = 0
+        source_batches = []
+
+        for worker in index['workers']:
+            for batch in worker['batches']:
+                story_count = len(batch['story_folders'])
+
+                if batch['has_batch_summary'] and batch['batch_summary_file_id']:
+                    summary = self.download_json_file(batch['batch_summary_file_id'])
+                    if summary:
+                        # Try different summary formats (batch_reporter vs orchestrator)
+                        stats = summary.get('statistics', summary)
+                        batch_success = stats.get('success_count',
+                                                  stats.get('successful', 0))
+                        batch_failed = stats.get('failure_count',
+                                                 stats.get('failed', 0))
+                        total_success += batch_success
+                        total_failed += batch_failed
+                        total_stories_from_summaries += stats.get(
+                            'total_stories', story_count)
+
+                        source_batches.append({
+                            'worker': worker['name'],
+                            'batch': batch['name'],
+                            'stories': story_count,
+                            'complete': True,
+                            'success': batch_success,
+                            'failed': batch_failed,
+                        })
+                        continue
+
+                # Incomplete batch or failed to download summary
+                total_from_incomplete += story_count
+                source_batches.append({
+                    'worker': worker['name'],
+                    'batch': batch['name'],
+                    'stories': story_count,
+                    'complete': False,
+                })
+
+        total_all = total_stories_from_summaries + total_from_incomplete
+        return {
+            'merged_from_gdrive': True,
+            'root_folder_id': index['root_folder_id'],
+            'num_workers': index['totals']['worker_count'],
+            'num_batches': index['totals']['batch_count'],
+            'total_story_folders': index['totals']['total_story_folders'],
+            'complete_batches': index['totals']['complete_batches'],
+            'incomplete_batches': index['totals']['incomplete_batches'],
+            'statistics': {
+                'total_stories': total_all,
+                'successful': total_success,
+                'failed': total_failed,
+                'unknown': total_from_incomplete,
+            },
+            'merged_at': datetime.now().isoformat(),
+            'source_batches': source_batches,
+        }
+
+    def flatten_worker_batches_to_root(self, root_folder_id: str,
+                                        index: Dict[str, Any]) -> Dict[str, Any]:
+        """Flatten story folders from worker/batch hierarchy into root folder.
+
+        Moves all story_* folders from worker*/batch_*/ directly into root/.
+        Trashes empty worker and batch folders after ALL their stories are moved.
+
+        SAFETY: Uses Google Drive API move (addParents/removeParents) which is
+        atomic -- if it fails, the file stays in the original location.
+        Only trashes folders after verifying all children moved successfully.
+
+        Args:
+            root_folder_id: Root folder ID (destination)
+            index: Index from index_worker_batch_structure()
+
+        Returns:
+            Dict with move results
+        """
+        result: Dict[str, Any] = {
+            'moved_count': 0,
+            'failed_count': 0,
+            'trashed_folders': 0,
+            'errors': [],
+        }
+
+        # Check for name conflicts in root
+        existing_in_root = self.list_subfolders(root_folder_id)
+        existing_names = {f['name'] for f in existing_in_root}
+
+        for worker in index['workers']:
+            worker_all_moved = True
+
+            for batch in worker['batches']:
+                batch_all_moved = True
+
+                for story in batch['story_folders']:
+                    story_name = story['name']
+
+                    # Handle name conflicts
+                    if story_name in existing_names:
+                        story_name = f"{story_name}_{worker['name']}"
+                        logger.info("gdrive_rename_conflict",
+                                   original=story['name'],
+                                   renamed=story_name)
+
+                    try:
+                        update_body = {}
+                        if story_name != story['name']:
+                            update_body['name'] = story_name
+
+                        self.service.files().update(
+                            fileId=story['id'],
+                            body=update_body if update_body else None,
+                            addParents=root_folder_id,
+                            removeParents=batch['id'],
+                            fields='id, parents'
+                        ).execute()
+
+                        existing_names.add(story_name)
+                        result['moved_count'] += 1
+
+                    except Exception as e:
+                        result['failed_count'] += 1
+                        error_msg = f"Failed to move {story['name']}: {e}"
+                        result['errors'].append(error_msg)
+                        logger.error("gdrive_move_failed",
+                                    story=story['name'],
+                                    error=str(e))
+                        batch_all_moved = False
+                        worker_all_moved = False
+
+                # Trash batch folder only if all stories moved
+                if batch_all_moved:
+                    try:
+                        self.service.files().update(
+                            fileId=batch['id'],
+                            body={'trashed': True}
+                        ).execute()
+                        result['trashed_folders'] += 1
+                    except Exception as e:
+                        logger.warning("gdrive_trash_batch_failed",
+                                      batch=batch['name'],
+                                      error=str(e))
+
+            # Trash worker folder only if all batches moved
+            if worker_all_moved:
+                try:
+                    self.service.files().update(
+                        fileId=worker['id'],
+                        body={'trashed': True}
+                    ).execute()
+                    result['trashed_folders'] += 1
+                except Exception as e:
+                    logger.warning("gdrive_trash_worker_failed",
+                                  worker=worker['name'],
+                                  error=str(e))
+
+            status = "OK" if worker_all_moved else "PARTIAL"
+            worker_stories = sum(len(b['story_folders']) for b in worker['batches'])
+            print(f"  [{worker['name']}] [{status}] Moved stories from "
+                  f"{len(worker['batches'])} batch(es)")
+
+        return result
+
+    def merge_flat_folders(self, dest_folder_id: str,
+                            source_folder_ids: List[str]) -> Dict[str, Any]:
+        """Merge simulation folders from multiple flat folders into a destination.
+
+        Moves all subfolders from each source folder into the destination folder.
+        Trashes source folders after all their contents are moved successfully.
+
+        SAFETY: Atomic moves, trash-only-after-success, idempotent.
+
+        Args:
+            dest_folder_id: Destination folder ID (keeps existing simulations)
+            source_folder_ids: List of source folder IDs to move FROM
+
+        Returns:
+            Dict with merge results
+        """
+        result: Dict[str, Any] = {
+            'moved_count': 0,
+            'failed_count': 0,
+            'trashed_folders': 0,
+            'errors': [],
+            'dest_existing': 0,
+            'source_counts': {},
+        }
+
+        if not self.service:
+            logger.error("gdrive_not_authenticated")
+            return result
+
+        # Index destination for conflict detection
+        dest_folders = self.list_subfolders(dest_folder_id)
+        existing_names = {f['name'] for f in dest_folders}
+        result['dest_existing'] = len(dest_folders)
+
+        for src_idx, src_folder_id in enumerate(source_folder_ids):
+            src_folders = self.list_subfolders(src_folder_id)
+            # Skip non-simulation items (metadata files are files, not folders)
+            sim_folders = [f for f in src_folders
+                           if not f['name'].startswith(('worker', 'batch_'))]
+            result['source_counts'][src_folder_id] = len(sim_folders)
+
+            all_moved = True
+
+            for sim in sim_folders:
+                sim_name = sim['name']
+
+                # Handle name conflicts
+                if sim_name in existing_names:
+                    sim_name = f"{sim_name}_src{src_idx + 1}"
+                    logger.info("gdrive_rename_conflict",
+                               original=sim['name'],
+                               renamed=sim_name)
+
+                try:
+                    update_body = {}
+                    if sim_name != sim['name']:
+                        update_body['name'] = sim_name
+
+                    self.service.files().update(
+                        fileId=sim['id'],
+                        body=update_body if update_body else None,
+                        addParents=dest_folder_id,
+                        removeParents=src_folder_id,
+                        fields='id, parents'
+                    ).execute()
+
+                    existing_names.add(sim_name)
+                    result['moved_count'] += 1
+
+                except Exception as e:
+                    result['failed_count'] += 1
+                    error_msg = f"Failed to move {sim['name']}: {e}"
+                    result['errors'].append(error_msg)
+                    logger.error("gdrive_flat_move_failed",
+                                sim=sim['name'], error=str(e))
+                    all_moved = False
+
+            status = "OK" if all_moved else "PARTIAL"
+            print(f"  [Source {src_idx + 1}] [{status}] Moved {len(sim_folders)} simulations")
+
+            # Trash source folder only if ALL simulations moved
+            if all_moved:
+                try:
+                    self.service.files().update(
+                        fileId=src_folder_id,
+                        body={'trashed': True}
+                    ).execute()
+                    result['trashed_folders'] += 1
+                except Exception as e:
+                    logger.warning("gdrive_trash_source_failed",
+                                  folder_id=src_folder_id, error=str(e))
+
+        return result
+
+    def generate_merged_report(self, merged_summary: dict,
+                                index: Dict[str, Any]) -> str:
+        """Generate a human-readable markdown report from merged results.
+
+        Args:
+            merged_summary: Aggregated summary from aggregate_batch_summaries()
+            index: Index from index_worker_batch_structure()
+
+        Returns:
+            Markdown report string
+        """
+        stats = merged_summary['statistics']
+        totals = index['totals']
+        lines = []
+
+        lines.append("# Merged Batch Report\n")
+        lines.append(f"**Merged at:** {merged_summary['merged_at']}\n")
+        lines.append(f"**Source folder:** `{merged_summary['root_folder_id']}`\n")
+        lines.append("\n---\n")
+
+        # Summary
+        lines.append("\n## Summary\n\n")
+        lines.append(f"- **Total simulations:** {totals['total_story_folders']}\n")
+        lines.append(f"- **Workers:** {totals['worker_count']}\n")
+        lines.append(f"- **Batches:** {totals['batch_count']}\n")
+
+        if stats['successful'] or stats['failed']:
+            total_known = stats['successful'] + stats['failed']
+            success_rate = (
+                f"{100 * stats['successful'] / total_known:.1f}%"
+                if total_known > 0 else "N/A"
+            )
+            lines.append(f"- **Successful:** {stats['successful']} ({success_rate})\n")
+            lines.append(f"- **Failed:** {stats['failed']}\n")
+
+        if stats['unknown'] > 0:
+            lines.append(f"- **Unknown (incomplete batches):** {stats['unknown']}\n")
+
+        lines.append(f"- **Complete batches:** {totals['complete_batches']}\n")
+        lines.append(f"- **Incomplete batches:** {totals['incomplete_batches']}\n")
+        lines.append("\n")
+
+        # Per-worker breakdown
+        lines.append("## Per-Worker Breakdown\n\n")
+        lines.append("| Worker | Batches | Simulations |\n")
+        lines.append("|--------|---------|-------------|\n")
+
+        for worker in index['workers']:
+            sim_count = sum(len(b['story_folders']) for b in worker['batches'])
+            lines.append(
+                f"| {worker['name']} | {len(worker['batches'])} | {sim_count} |\n")
+
+        lines.append("\n")
+
+        # Source batches
+        lines.append("## Source Batches\n\n")
+        lines.append("| Worker | Batch | Simulations | Complete | Success | Failed |\n")
+        lines.append("|--------|-------|-------------|----------|---------|--------|\n")
+
+        for batch_info in merged_summary.get('source_batches', []):
+            complete = "Yes" if batch_info['complete'] else "No"
+            success = batch_info.get('success', '-')
+            failed = batch_info.get('failed', '-')
+            lines.append(
+                f"| {batch_info['worker']} | {batch_info['batch']} "
+                f"| {batch_info['stories']} | {complete} "
+                f"| {success} | {failed} |\n")
+
+        lines.append("\n---\n\n")
+        lines.append("*Report generated by Multiagent Story Generation System "
+                      "(--merge-gdrive-results)*\n")
+
+        return "".join(lines)
+
+    def upload_text_file(self, name: str, content: str,
+                          parent_folder_id: str,
+                          mimetype: str = 'text/markdown') -> Optional[str]:
+        """Upload text content as a file to Google Drive.
+
+        Args:
+            name: File name (e.g. "batch_report.md")
+            content: Text content to upload
+            parent_folder_id: Parent folder ID
+            mimetype: MIME type (default: text/markdown)
+
+        Returns:
+            File ID, or None on failure
+        """
+        if not self.service:
+            logger.error("gdrive_not_authenticated")
+            return None
+
+        try:
+            encoded = content.encode('utf-8')
+            media = MediaInMemoryUpload(encoded, mimetype=mimetype)
+
+            file_metadata = {
+                'name': name,
+                'parents': [parent_folder_id],
+            }
+
+            uploaded = self.service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
+
+            file_id = uploaded.get('id')
+            logger.info("gdrive_text_file_uploaded",
+                       name=name,
+                       file_id=file_id,
+                       parent_id=parent_folder_id)
+            return file_id
+
+        except Exception as e:
+            logger.error("gdrive_text_upload_failed",
                         name=name,
                         error=str(e),
                         exc_info=True)
