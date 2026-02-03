@@ -3,7 +3,7 @@
 
 vmware:
   # Path to master VM (base for cloning)
-  master_vm_path: "W:\\VMs\\2\\Windows 10 and later x64.vmx"
+  master_vm_path: "path\\to\\base\\image.vmx"
 
   # Snapshot name to use for linked clones (must exist)
   # Create with: vmrun snapshot "master.vmx" Ready
@@ -11,7 +11,7 @@ vmware:
 
   # Directory where worker VMs will be created
   # Each batch creates: {workers_dir}/vm_batch_{timestamp}/worker{N}/
-  workers_dir: "W:\\VMs\\workers"
+  workers_dir: "path\\to\\workers"
 
   # Paths to search for vmrun.exe (in order)
   vmrun_paths:
@@ -61,7 +61,7 @@ orchestration:
     display_update_interval_seconds: 5
 
     # Consider worker hung if log file hasn't changed in this many seconds
-    log_silence_threshold_seconds: 3600  # 1 hour
+    log_silence_threshold_seconds: 18000  # 5 hours
 
     # Maximum number of restart attempts per worker before giving up
     max_restart_attempts: 3
@@ -126,22 +126,22 @@ batch_defaults:
 code_sync:
   # GitHub repositories to sync
   repositories:
-    - name: "sv2l"
-      url: "https://github.com/OWNER/mta-sim.git"
-      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\sv2l"
-    - name: "multiagent_story_system"
-      url: "https://github.com/OWNER/multiagent_story_system.git"
-      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system"
-    - name: "VideoDescriptionGEST"
-      url: "https://github.com/OWNER/VideoDescriptionGEST"
-      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\VideoDescriptionGEST"
+    - name: "gest-engine"
+      url: "https://github.com/OWNER/real-github-name.git"
+      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\gest-engine"
+    - name: "infrastruture-repo"
+      url: "https://github.com/OWNER/real-github-name.git"
+      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\infrastructure-repo"
+    - name: "gest-post-processor"
+      url: "https://github.com/OWNER/gest-post-processor"
+      guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\gest-post-processor"
 
   # Files to copy from host to guest after cloning
   copy_files:
     - host: ".env"
-      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system\\.env"
+      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\infrastructure-repo\\.env"
     - host: "temp_configs/master_vm_config.yaml"
-      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system\\config.yaml"
+      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\infrastructure-repo\\config.yaml"
     # MTA config files (disable external network connections to prevent freeze)
     - host: "../../mtaserver.conf"
       guest: "C:\\mta1.6\\server\\mods\\deathmatch\\mtaserver.conf"
@@ -151,7 +151,7 @@ code_sync:
   # Directories to copy from host to guest after cloning
   copy_dirs:
     - host: "credentials"
-      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system\\credentials"
+      guest: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\infrastructure-repo\\credentials"
 
   # Update snapshot after sync
   update_snapshot: true

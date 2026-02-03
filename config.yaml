@@ -105,4 +105,4 @@ batch:
 # Google Drive integration configuration
 google_drive:
   credentials_path: "credentials/google_drive_credentials.json"  # Path to Google Drive credentials
-  default_folder_id: null  # Optional default Google Drive folder ID
+  default_folder_id: the_id  # Optional default Google Drive folder ID
