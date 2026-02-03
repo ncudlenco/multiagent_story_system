@@ -2365,13 +2365,13 @@ class VMWareOrchestrator:
 
         # Build clone URLs with token if provided
         if github_token:
-            sv2l_url = f"https://{github_token}@github.com/ncudlenco/mta-sim.git"
-            mass_url = f"https://{github_token}@github.com/ncudlenco/multiagent_story_system.git"
-            vdg_url = f"https://{github_token}@github.com/MihaiMasala/VideoDescriptionGEST"
+            sv2l_url = f"https://{github_token}@github.com/OWNER/mta-sim.git"
+            mass_url = f"https://{github_token}@github.com/OWNER/multiagent_story_system.git"
+            vdg_url = f"https://{github_token}@github.com/OWNER/VideoDescriptionGEST"
         else:
-            sv2l_url = "https://github.com/ncudlenco/mta-sim.git"
-            mass_url = "https://github.com/ncudlenco/multiagent_story_system.git"
-            vdg_url = "https://github.com/MihaiMasala/VideoDescriptionGEST"
+            sv2l_url = "https://github.com/OWNER/mta-sim.git"
+            mass_url = "https://github.com/OWNER/multiagent_story_system.git"
+            vdg_url = "https://github.com/OWNER/VideoDescriptionGEST"
 
         print(f"""
 Open a terminal in the VM and run:

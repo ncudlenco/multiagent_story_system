@@ -4,10 +4,6 @@ FORMALIZED TEMPORAL RULES FOR SCENE DETAIL AGENT
 
 This file contains the complete formalized temporal relation rules for the multiagent story system.
 These rules should be integrated into the SceneDetailAgent to ensure valid GEST generation.
-
-Author: Generated from analysis of simulation_environment_capabilities.json,
-        prompts_about_temporal relations.md, and incredibly_complex.json
-Date: 2025-11-02
 """
 
 # =============================================================================

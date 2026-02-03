@@ -475,7 +475,6 @@ Examples:
                 Path(args.output_folder or ".") / args.reset_failed,
                 Path(".") / args.reset_failed,
                 Path("./test_artifacts") / args.reset_failed,
-                Path("./cvpr2026") / args.reset_failed,
             ]
 
             output_path = None
@@ -527,7 +526,6 @@ Examples:
                 Path(args.output_folder or ".") / args.reset_success,
                 Path(".") / args.reset_success,
                 Path("./test_artifacts") / args.reset_success,
-                Path("./cvpr2026") / args.reset_success,
             ]
 
             output_path = None
@@ -579,7 +577,6 @@ Examples:
                 Path(args.output_folder or ".") / args.reset_simulations,
                 Path(".") / args.reset_simulations,
                 Path("./test_artifacts") / args.reset_simulations,
-                Path("./cvpr2026") / args.reset_simulations,
             ]
 
             output_path = None
@@ -631,7 +628,6 @@ Examples:
                 Path(args.output_folder) / args.resume_batch if args.output_folder else None,
                 Path(".") / args.resume_batch,
                 Path("./test_artifacts") / args.resume_batch,
-                Path("./cvpr2026") / args.resume_batch,
             ]
             possible_paths = [p for p in possible_paths if p is not None]
 

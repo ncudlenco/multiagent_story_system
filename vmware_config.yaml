@@ -127,13 +127,13 @@ code_sync:
   # GitHub repositories to sync
   repositories:
     - name: "sv2l"
-      url: "https://github.com/ncudlenco/mta-sim.git"
+      url: "https://github.com/OWNER/mta-sim.git"
       guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\sv2l"
     - name: "multiagent_story_system"
-      url: "https://github.com/ncudlenco/multiagent_story_system.git"
+      url: "https://github.com/OWNER/multiagent_story_system.git"
       guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\multiagent_story_system"
     - name: "VideoDescriptionGEST"
-      url: "https://github.com/MihaiMasala/VideoDescriptionGEST"
+      url: "https://github.com/OWNER/VideoDescriptionGEST"
       guest_path: "C:\\mta1.6\\server\\mods\\deathmatch\\resources\\VideoDescriptionGEST"
 
   # Files to copy from host to guest after cloning
