@@ -35,7 +35,7 @@ class GDriveManager:
     """Manages Google Drive integration for VMware orchestration"""
 
     # OAuth scopes for Drive API (limited to app-created files)
-    SCOPES = ['https://www.googleapis.com/auth/drive.file']
+    SCOPES = ['https://www.googleapis.com/auth/drive']
 
     def __init__(self, credentials_path: str = "credentials/google_drive_credentials.json",
                  token_path: str = "credentials/token.json"):
