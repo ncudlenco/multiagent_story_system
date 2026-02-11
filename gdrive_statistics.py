@@ -13,6 +13,7 @@ import argparse
 import json
 import statistics
 import io
+import struct
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -77,6 +78,10 @@ class StoryStats:
     spatial_relations: int = 0
     simulation_count: int = 0
     camera_count: int = 0
+    # Video statistics
+    clip_count: int = 0
+    total_duration_seconds: float = 0.0
+    clip_durations: List[float] = field(default_factory=list)
 
 
 class GESTStatisticsExtractor:
@@ -605,6 +610,13 @@ class StatisticsAggregator:
         self.total_spatial_relations = 0
         self.stories_with_artifacts = 0
 
+        # Video per-story metrics
+        self.clip_count_per_story: List[int] = []
+        self.duration_per_story: List[float] = []
+        self.all_clip_durations: List[float] = []
+        self.total_clips = 0
+        self.total_duration_seconds = 0.0
+
     def add_story(self, batch_name: str, story_stats: StoryStats,
                   global_category: Optional[str] = None):
         """Add a story's statistics to the aggregator"""
@@ -656,15 +668,23 @@ class StatisticsAggregator:
         if story_stats.rgb_frames > 0 or story_stats.segmented_frames > 0:
             self.stories_with_artifacts += 1
 
-    def _compute_stats(self, values: List[int]) -> Dict[str, float]:
-        """Compute min, max, mean, std for a list of values"""
+        # Video stats
+        self.clip_count_per_story.append(story_stats.clip_count)
+        self.duration_per_story.append(story_stats.total_duration_seconds)
+        self.all_clip_durations.extend(story_stats.clip_durations)
+        self.total_clips += story_stats.clip_count
+        self.total_duration_seconds += story_stats.total_duration_seconds
+
+    def _compute_stats(self, values: list) -> Dict[str, float]:
+        """Compute min, max, mean, median, std for a list of values"""
         if not values:
-            return {"mean": 0, "min": 0, "max": 0, "std": 0}
+            return {"mean": 0, "median": 0, "min": 0, "max": 0, "std": 0}
         return {
             "mean": round(statistics.mean(values), 2),
-            "min": min(values),
-            "max": max(values),
-            "std": round(statistics.stdev(values) if len(values) > 1 else 0, 2)
+            "median": round(statistics.median(values), 2),
+            "min": round(min(values), 2),
+            "max": round(max(values), 2),
+            "std": round(statistics.stdev(values) if len(values) > 1 else 0, 2),
         }
 
     def _counter_to_distribution(self, counter: Counter) -> Dict[str, Dict[str, Any]]:
@@ -696,6 +716,9 @@ class StatisticsAggregator:
                 "total_segmented_frames": self.total_segmented_frames,
                 "total_spatial_relations": self.total_spatial_relations,
                 "stories_with_artifacts": self.stories_with_artifacts,
+                "total_clips": self.total_clips,
+                "total_duration_seconds": round(self.total_duration_seconds, 2),
+                "total_duration_hours": round(self.total_duration_seconds / 3600, 2),
             },
             "per_story_averages": {
                 "actors_per_story": self._compute_stats(self.actors_per_story),
@@ -704,6 +727,9 @@ class StatisticsAggregator:
                 "rgb_frames_per_story": self._compute_stats(self.rgb_frames_per_story),
                 "segmented_frames_per_story": self._compute_stats(self.segmented_frames_per_story),
                 "spatial_relations_per_story": self._compute_stats(self.spatial_relations_per_story),
+                "clips_per_story": self._compute_stats(self.clip_count_per_story),
+                "duration_per_story_seconds": self._compute_stats(self.duration_per_story),
+                "clip_duration_seconds": self._compute_stats(self.all_clip_durations),
             },
             "distributions": {
                 "regions": self._counter_to_distribution(self.regions),
@@ -749,6 +775,97 @@ def traverse_local_flat(folder_path: str, verbose: bool = False):
                 break
 
 
+def get_mp4_info(filepath: Path) -> Dict[str, float]:
+    """Get MP4 duration and frame count by parsing moov/mvhd/stts atoms.
+
+    Pure Python — no external dependencies. Reads only the atom headers
+    (a few KB) regardless of file size.
+    """
+    result = {'duration_seconds': 0.0, 'frame_count': 0}
+    try:
+        with open(filepath, 'rb') as f:
+            file_size = filepath.stat().st_size
+
+            def find_atom(start: int, end: int, target: bytes) -> Optional[Tuple[int, int]]:
+                """Find atom within range, return (data_start, data_end)."""
+                f.seek(start)
+                while f.tell() < end:
+                    pos = f.tell()
+                    header = f.read(8)
+                    if len(header) < 8:
+                        return None
+                    size, atom_type = struct.unpack('>I4s', header)
+                    if size == 0:
+                        size = end - pos
+                    elif size == 1:
+                        ext = f.read(8)
+                        if len(ext) < 8:
+                            return None
+                        size = struct.unpack('>Q', ext)[0]
+                    if size < 8:
+                        return None
+                    if atom_type == target:
+                        return (f.tell(), pos + size)
+                    f.seek(pos + size)
+                return None
+
+            # Find moov atom at top level
+            moov = find_atom(0, file_size, b'moov')
+            if not moov:
+                return result
+
+            # Find mvhd inside moov for duration
+            mvhd = find_atom(moov[0], moov[1], b'mvhd')
+            if mvhd:
+                f.seek(mvhd[0])
+                version = struct.unpack('>B', f.read(1))[0]
+                f.read(3)  # flags
+                if version == 0:
+                    f.read(8)  # create/modify time
+                    timescale = struct.unpack('>I', f.read(4))[0]
+                    duration = struct.unpack('>I', f.read(4))[0]
+                else:
+                    f.read(16)  # create/modify time (64-bit)
+                    timescale = struct.unpack('>I', f.read(4))[0]
+                    duration = struct.unpack('>Q', f.read(8))[0]
+                if timescale:
+                    result['duration_seconds'] = round(duration / timescale, 3)
+
+            # Find trak -> mdia -> minf -> stbl -> stsz for frame count
+            trak_start = moov[0]
+            while trak_start < moov[1]:
+                trak = find_atom(trak_start, moov[1], b'trak')
+                if not trak:
+                    break
+                mdia = find_atom(trak[0], trak[1], b'mdia')
+                if mdia:
+                    # Check handler type to find video track
+                    hdlr = find_atom(mdia[0], mdia[1], b'hdlr')
+                    if hdlr:
+                        f.seek(hdlr[0] + 4)  # skip version/flags
+                        f.read(4)  # pre_defined
+                        handler_type = f.read(4)
+                        if handler_type == b'vide':
+                            minf = find_atom(mdia[0], mdia[1], b'minf')
+                            if minf:
+                                stbl = find_atom(minf[0], minf[1], b'stbl')
+                                if stbl:
+                                    stsz = find_atom(stbl[0], stbl[1], b'stsz')
+                                    if stsz:
+                                        f.seek(stsz[0])
+                                        version = struct.unpack('>B', f.read(1))[0]
+                                        f.read(3)  # flags
+                                        f.read(4)  # sample_size
+                                        sample_count = struct.unpack('>I', f.read(4))[0]
+                                        result['frame_count'] = sample_count
+                                        return result
+                trak_start = trak[1]
+
+    except (OSError, struct.error):
+        pass
+    return result
+
+
 def collect_local_artifact_stats(sim_dir: str,
                                  count_segmentations: bool = True,
                                  count_spatial: bool = True) -> Dict[str, int]:
@@ -759,6 +876,7 @@ def collect_local_artifact_stats(sim_dir: str,
     result = {
         'rgb_frames': 0, 'segmented_frames': 0,
         'spatial_relations': 0, 'simulation_count': 0, 'camera_count': 0,
+        'clip_count': 0, 'total_duration_seconds': 0.0, 'clip_durations': [],
     }
     sim_path = Path(sim_dir) / 'simulations'
     if not sim_path.exists():
@@ -781,6 +899,14 @@ def collect_local_artifact_stats(sim_dir: str,
                 if zip_path.exists():
                     with zipfile.ZipFile(zip_path, 'r') as zf:
                         result[key] += len(zf.namelist())
+            # Video: raw.mp4
+            mp4_path = camera / 'raw.mp4'
+            if mp4_path.exists():
+                info = get_mp4_info(mp4_path)
+                result['clip_count'] += 1
+                result['total_duration_seconds'] += info['duration_seconds']
+                result['clip_durations'].append(info['duration_seconds'])
+                result['rgb_frames'] += info['frame_count']
     return result
 
 
@@ -899,6 +1025,9 @@ def main():
                 story_stats.spatial_relations = artifact_stats['spatial_relations']
                 story_stats.simulation_count = artifact_stats['simulation_count']
                 story_stats.camera_count = artifact_stats['camera_count']
+                story_stats.clip_count = artifact_stats.get('clip_count', 0)
+                story_stats.total_duration_seconds = artifact_stats.get('total_duration_seconds', 0.0)
+                story_stats.clip_durations = artifact_stats.get('clip_durations', [])
                 category = story_name.split('_')[0] if story_name else None
                 aggregator.add_story(batch_name, story_stats,
                                      global_category=category)
@@ -930,10 +1059,12 @@ def main():
         print(f"  Total segmented frames: {result['summary']['total_segmented_frames']}")
         print(f"  Total spatial relations: {result['summary']['total_spatial_relations']}")
         print(f"  Stories with artifacts: {result['summary']['stories_with_artifacts']}")
+        print(f"  Total clips: {result['summary']['total_clips']}")
+        print(f"  Total duration: {result['summary']['total_duration_seconds']}s ({result['summary']['total_duration_hours']}h)")
 
-        print(f"\nPer-story averages:")
+        print(f"\nPer-story statistics:")
         for metric, stats in result['per_story_averages'].items():
-            print(f"  {metric}: mean={stats['mean']}, min={stats['min']}, max={stats['max']}")
+            print(f"  {metric}: mean={stats['mean']}, median={stats['median']}, min={stats['min']}, max={stats['max']}")
 
         print(f"\nTop 5 actions:")
         for action, data in list(result['distributions']['actions'].items())[:5]:
