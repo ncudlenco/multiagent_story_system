@@ -78,10 +78,17 @@ class StoryStats:
     spatial_relations: int = 0
     simulation_count: int = 0
     camera_count: int = 0
-    # Video statistics
+    # Movie statistics (per-camera raw.mp4 recordings)
+    movie_count: int = 0
+    movie_total_duration_seconds: float = 0.0
+    movie_durations: List[float] = field(default_factory=list)
+    # Clip statistics (per-action from event_frame_mapping.json)
     clip_count: int = 0
-    total_duration_seconds: float = 0.0
+    total_clip_duration_seconds: float = 0.0
     clip_durations: List[float] = field(default_factory=list)
+    # Relation details (opt-in, from spatial_relations.zip)
+    object_relations: int = 0
+    spatial_relation_zip_paths: List[str] = field(default_factory=list)
 
 
 class GESTStatisticsExtractor:
@@ -610,12 +617,23 @@ class StatisticsAggregator:
         self.total_spatial_relations = 0
         self.stories_with_artifacts = 0
 
-        # Video per-story metrics
+        # Movie per-story metrics (per-camera mp4 recordings)
+        self.movie_count_per_story: List[int] = []
+        self.movie_duration_per_story: List[float] = []
+        self.all_movie_durations: List[float] = []
+        self.total_movies = 0
+        self.total_movie_duration_seconds = 0.0
+
+        # Clip per-story metrics (per-action from event_frame_mapping)
         self.clip_count_per_story: List[int] = []
-        self.duration_per_story: List[float] = []
+        self.clip_duration_per_story: List[float] = []
         self.all_clip_durations: List[float] = []
         self.total_clips = 0
-        self.total_duration_seconds = 0.0
+        self.total_clip_duration_seconds = 0.0
+
+        # Relation details (opt-in)
+        self.object_relations_per_story: List[int] = []
+        self.total_object_relations = 0
 
     def add_story(self, batch_name: str, story_stats: StoryStats,
                   global_category: Optional[str] = None):
@@ -668,12 +686,23 @@ class StatisticsAggregator:
         if story_stats.rgb_frames > 0 or story_stats.segmented_frames > 0:
             self.stories_with_artifacts += 1
 
-        # Video stats
+        # Movie stats (per-camera mp4)
+        self.movie_count_per_story.append(story_stats.movie_count)
+        self.movie_duration_per_story.append(story_stats.movie_total_duration_seconds)
+        self.all_movie_durations.extend(story_stats.movie_durations)
+        self.total_movies += story_stats.movie_count
+        self.total_movie_duration_seconds += story_stats.movie_total_duration_seconds
+
+        # Clip stats (per-action)
         self.clip_count_per_story.append(story_stats.clip_count)
-        self.duration_per_story.append(story_stats.total_duration_seconds)
+        self.clip_duration_per_story.append(story_stats.total_clip_duration_seconds)
         self.all_clip_durations.extend(story_stats.clip_durations)
         self.total_clips += story_stats.clip_count
-        self.total_duration_seconds += story_stats.total_duration_seconds
+        self.total_clip_duration_seconds += story_stats.total_clip_duration_seconds
+
+        # Relation details
+        self.object_relations_per_story.append(story_stats.object_relations)
+        self.total_object_relations += story_stats.object_relations
 
     def _compute_stats(self, values: list) -> Dict[str, float]:
         """Compute min, max, mean, median, std for a list of values"""
@@ -716,9 +745,13 @@ class StatisticsAggregator:
                 "total_segmented_frames": self.total_segmented_frames,
                 "total_spatial_relations": self.total_spatial_relations,
                 "stories_with_artifacts": self.stories_with_artifacts,
+                "total_movies": self.total_movies,
+                "total_movie_duration_seconds": round(self.total_movie_duration_seconds, 2),
+                "total_movie_duration_hours": round(self.total_movie_duration_seconds / 3600, 2),
                 "total_clips": self.total_clips,
-                "total_duration_seconds": round(self.total_duration_seconds, 2),
-                "total_duration_hours": round(self.total_duration_seconds / 3600, 2),
+                "total_clip_duration_seconds": round(self.total_clip_duration_seconds, 2),
+                "total_clip_duration_hours": round(self.total_clip_duration_seconds / 3600, 2),
+                "total_object_relations": self.total_object_relations,
             },
             "per_story_averages": {
                 "actors_per_story": self._compute_stats(self.actors_per_story),
@@ -727,9 +760,11 @@ class StatisticsAggregator:
                 "rgb_frames_per_story": self._compute_stats(self.rgb_frames_per_story),
                 "segmented_frames_per_story": self._compute_stats(self.segmented_frames_per_story),
                 "spatial_relations_per_story": self._compute_stats(self.spatial_relations_per_story),
+                "movies_per_story": self._compute_stats(self.movie_count_per_story),
+                "movie_duration_seconds": self._compute_stats(self.all_movie_durations),
                 "clips_per_story": self._compute_stats(self.clip_count_per_story),
-                "duration_per_story_seconds": self._compute_stats(self.duration_per_story),
                 "clip_duration_seconds": self._compute_stats(self.all_clip_durations),
+                "object_relations_per_story": self._compute_stats(self.object_relations_per_story),
             },
             "distributions": {
                 "regions": self._counter_to_distribution(self.regions),
@@ -866,17 +901,38 @@ def get_mp4_info(filepath: Path) -> Dict[str, float]:
     return result
 
 
+def count_relations_in_zip(zip_path: str) -> int:
+    """Count objectRelations by byte-searching for 'fromId' marker (no JSON parsing).
+
+    ~4x faster than parsing each JSON file. Works on local zip files only.
+    """
+    marker = b'"fromId"'
+    total = 0
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            for name in zf.namelist():
+                total += zf.read(name).count(marker)
+    except (OSError, zipfile.BadZipFile):
+        pass
+    return total
+
+
 def collect_local_artifact_stats(sim_dir: str,
                                  count_segmentations: bool = True,
-                                 count_spatial: bool = True) -> Dict[str, int]:
-    """Count zip entries from local filesystem (instant, no decompression).
+                                 count_spatial: bool = True) -> Dict[str, Any]:
+    """Collect artifact statistics from local filesystem.
 
-    Reads only the zip central directory index — no file extraction needed.
+    Reads zip central directories (instant), MP4 headers, and event_frame_mapping.
     """
     result = {
         'rgb_frames': 0, 'segmented_frames': 0,
         'spatial_relations': 0, 'simulation_count': 0, 'camera_count': 0,
-        'clip_count': 0, 'total_duration_seconds': 0.0, 'clip_durations': [],
+        # Movies (per-camera mp4 recordings)
+        'movie_count': 0, 'movie_total_duration_seconds': 0.0, 'movie_durations': [],
+        # Clips (per-action from event_frame_mapping)
+        'clip_count': 0, 'total_clip_duration_seconds': 0.0, 'clip_durations': [],
+        # Relation detail zip paths (for parallel counting later)
+        'spatial_relation_zip_paths': [],
     }
     sim_path = Path(sim_dir) / 'simulations'
     if not sim_path.exists():
@@ -885,6 +941,26 @@ def collect_local_artifact_stats(sim_dir: str,
         if not take_sim.is_dir():
             continue
         result['simulation_count'] += 1
+
+        # Clips from event_frame_mapping.json (at take_sim level)
+        efm_path = take_sim / 'event_frame_mapping.json'
+        if efm_path.exists():
+            try:
+                with open(efm_path, 'r', encoding='utf-8') as f:
+                    efm = json.load(f)
+                fps = efm[0].get('fps', 30)
+                events = efm[0].get('events', [])
+                result['clip_count'] += len(events)
+                for ev in events:
+                    start = ev.get('startFrame', 0)
+                    end = ev.get('endFrame')
+                    if end is not None:
+                        duration = (end - start) / fps
+                        result['clip_durations'].append(duration)
+                        result['total_clip_duration_seconds'] += duration
+            except (json.JSONDecodeError, IndexError, KeyError):
+                pass
+
         for camera in sorted(take_sim.iterdir()):
             if not camera.is_dir() or not camera.name.startswith('camera'):
                 continue
@@ -899,13 +975,17 @@ def collect_local_artifact_stats(sim_dir: str,
                 if zip_path.exists():
                     with zipfile.ZipFile(zip_path, 'r') as zf:
                         result[key] += len(zf.namelist())
-            # Video: raw.mp4
+            # Collect spatial_relations.zip paths for parallel relation counting
+            sr_zip = camera / 'spatial_relations.zip'
+            if sr_zip.exists():
+                result['spatial_relation_zip_paths'].append(str(sr_zip))
+            # Movie: raw.mp4
             mp4_path = camera / 'raw.mp4'
             if mp4_path.exists():
                 info = get_mp4_info(mp4_path)
-                result['clip_count'] += 1
-                result['total_duration_seconds'] += info['duration_seconds']
-                result['clip_durations'].append(info['duration_seconds'])
+                result['movie_count'] += 1
+                result['movie_total_duration_seconds'] += info['duration_seconds']
+                result['movie_durations'].append(info['duration_seconds'])
                 result['rgb_frames'] += info['frame_count']
     return result
 
@@ -961,6 +1041,11 @@ def main():
         nargs='+',
         metavar="DIR",
         help="Local folder path(s) instead of Google Drive (skips authentication)"
+    )
+    parser.add_argument(
+        "--count-relation-details",
+        action="store_true",
+        help="Count individual objectRelations inside spatial_relations.zip (parallel, ~8min for 1.5M files)"
     )
 
     args = parser.parse_args()
@@ -1025,9 +1110,16 @@ def main():
                 story_stats.spatial_relations = artifact_stats['spatial_relations']
                 story_stats.simulation_count = artifact_stats['simulation_count']
                 story_stats.camera_count = artifact_stats['camera_count']
+                # Movie stats (per-camera mp4)
+                story_stats.movie_count = artifact_stats.get('movie_count', 0)
+                story_stats.movie_total_duration_seconds = artifact_stats.get('movie_total_duration_seconds', 0.0)
+                story_stats.movie_durations = artifact_stats.get('movie_durations', [])
+                # Clip stats (per-action from event_frame_mapping)
                 story_stats.clip_count = artifact_stats.get('clip_count', 0)
-                story_stats.total_duration_seconds = artifact_stats.get('total_duration_seconds', 0.0)
+                story_stats.total_clip_duration_seconds = artifact_stats.get('total_clip_duration_seconds', 0.0)
                 story_stats.clip_durations = artifact_stats.get('clip_durations', [])
+                # Collect zip paths for parallel relation counting
+                story_stats.spatial_relation_zip_paths = artifact_stats.get('spatial_relation_zip_paths', [])
                 category = story_name.split('_')[0] if story_name else None
                 aggregator.add_story(batch_name, story_stats,
                                      global_category=category)
@@ -1035,6 +1127,54 @@ def main():
 
                 if args.verbose and story_count % 50 == 0:
                     print(f"  Processed {story_count} stories...")
+
+        # Parallel relation counting (opt-in, local mode only)
+        if args.count_relation_details and use_local:
+            from concurrent.futures import ThreadPoolExecutor
+            # Gather all zip paths with story index mapping
+            print(f"\nCounting object relations (parallel, 4 threads)...")
+            all_zip_paths = []
+            zip_to_story_idx = []
+            story_idx = 0
+            for traversal_fn in (args.local_path if use_local else []):
+                folder = Path(traversal_fn)
+                skip_prefixes = ('worker', 'batch_')
+                sim_dirs = sorted(
+                    d for d in folder.iterdir()
+                    if d.is_dir() and not d.name.startswith(skip_prefixes)
+                )
+                for sim_dir in sim_dirs:
+                    sim_path = sim_dir / 'simulations'
+                    if not sim_path.exists():
+                        story_idx += 1
+                        continue
+                    for take_sim in sorted(sim_path.iterdir()):
+                        if not take_sim.is_dir():
+                            continue
+                        for camera in sorted(take_sim.iterdir()):
+                            if not camera.is_dir() or not camera.name.startswith('camera'):
+                                continue
+                            sr_zip = camera / 'spatial_relations.zip'
+                            if sr_zip.exists():
+                                all_zip_paths.append(str(sr_zip))
+                                zip_to_story_idx.append(story_idx)
+                    story_idx += 1
+
+            print(f"  Found {len(all_zip_paths)} spatial_relations.zip files")
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                counts = list(pool.map(count_relations_in_zip, all_zip_paths))
+
+            # Assign counts back to per-story aggregator
+            per_story_relations = {}
+            for idx, count in zip(zip_to_story_idx, counts):
+                per_story_relations[idx] = per_story_relations.get(idx, 0) + count
+            total_rel = sum(counts)
+            aggregator.total_object_relations = total_rel
+            # Update per-story list
+            for idx, rel_count in per_story_relations.items():
+                if idx < len(aggregator.object_relations_per_story):
+                    aggregator.object_relations_per_story[idx] = rel_count
+            print(f"  Total object relations: {total_rel:,}")
 
         # Generate output
         result = aggregator.to_dict()
@@ -1059,8 +1199,12 @@ def main():
         print(f"  Total segmented frames: {result['summary']['total_segmented_frames']}")
         print(f"  Total spatial relations: {result['summary']['total_spatial_relations']}")
         print(f"  Stories with artifacts: {result['summary']['stories_with_artifacts']}")
-        print(f"  Total clips: {result['summary']['total_clips']}")
-        print(f"  Total duration: {result['summary']['total_duration_seconds']}s ({result['summary']['total_duration_hours']}h)")
+        print(f"  Total movies: {result['summary']['total_movies']}")
+        print(f"  Total movie duration: {result['summary']['total_movie_duration_seconds']}s ({result['summary']['total_movie_duration_hours']}h)")
+        print(f"  Total clips (actions): {result['summary']['total_clips']}")
+        print(f"  Total clip duration: {result['summary']['total_clip_duration_seconds']}s ({result['summary']['total_clip_duration_hours']}h)")
+        if result['summary']['total_object_relations'] > 0:
+            print(f"  Total object relations: {result['summary']['total_object_relations']:,}")
 
         print(f"\nPer-story statistics:")
         for metric, stats in result['per_story_averages'].items():
