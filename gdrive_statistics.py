@@ -587,6 +587,7 @@ class StatisticsAggregator:
         self.genders = Counter()
         self.object_types = Counter()
         self.temporal_relation_types = Counter()
+        self.global_categories = Counter()
 
         # Unique sets
         self.unique_actions = set()
@@ -604,9 +605,12 @@ class StatisticsAggregator:
         self.total_spatial_relations = 0
         self.stories_with_artifacts = 0
 
-    def add_story(self, batch_name: str, story_stats: StoryStats):
+    def add_story(self, batch_name: str, story_stats: StoryStats,
+                  global_category: Optional[str] = None):
         """Add a story's statistics to the aggregator"""
         self.total_batches.add(batch_name)
+        if global_category:
+            self.global_categories[global_category] += 1
         self.total_stories += 1
         self.total_events += story_stats.events
         self.total_temporal_relations += story_stats.temporal_relations
@@ -708,7 +712,8 @@ class StatisticsAggregator:
                 "action_categories": self._counter_to_distribution(self.action_categories),
                 "genders": self._counter_to_distribution(self.genders),
                 "object_types": self._counter_to_distribution(self.object_types),
-                "temporal_relation_types": self._counter_to_distribution(self.temporal_relation_types)
+                "temporal_relation_types": self._counter_to_distribution(self.temporal_relation_types),
+                "global_categories": self._counter_to_distribution(self.global_categories),
             },
             "unique_values": {
                 "actions": sorted(self.unique_actions),
@@ -894,7 +899,9 @@ def main():
                 story_stats.spatial_relations = artifact_stats['spatial_relations']
                 story_stats.simulation_count = artifact_stats['simulation_count']
                 story_stats.camera_count = artifact_stats['camera_count']
-                aggregator.add_story(batch_name, story_stats)
+                category = story_name.split('_')[0] if story_name else None
+                aggregator.add_story(batch_name, story_stats,
+                                     global_category=category)
                 story_count += 1
 
                 if args.verbose and story_count % 50 == 0:
@@ -935,6 +942,10 @@ def main():
         print(f"\nGender distribution:")
         for gender, data in result['distributions']['genders'].items():
             print(f"  {gender}: {data['count']} ({data['percentage']}%)")
+
+        print(f"\nGlobal categories:")
+        for cat, data in result['distributions']['global_categories'].items():
+            print(f"  {cat}: {data['count']} ({data['percentage']}%)")
 
         # Upload to Google Drive if requested (first folder ID, skip in local mode)
         if args.upload:

@@ -1044,7 +1044,9 @@ class VMWareOrchestrator:
                 story_stats.spatial_relations = artifact_stats['spatial_relations']
                 story_stats.simulation_count = artifact_stats['simulation_count']
                 story_stats.camera_count = artifact_stats['camera_count']
-                aggregator.add_story(batch_name, story_stats)
+                category = story_name.split('_')[0] if story_name else None
+                aggregator.add_story(batch_name, story_stats,
+                                     global_category=category)
                 story_count += 1
 
             if story_count > 0:
@@ -1204,7 +1206,9 @@ class VMWareOrchestrator:
                 story_stats.spatial_relations = artifact_stats['spatial_relations']
                 story_stats.simulation_count = artifact_stats['simulation_count']
                 story_stats.camera_count = artifact_stats['camera_count']
-                aggregator.add_story(batch_name, story_stats)
+                category = story_name.split('_')[0] if story_name else None
+                aggregator.add_story(batch_name, story_stats,
+                                     global_category=category)
                 story_count += 1
 
             if story_count > 0:
