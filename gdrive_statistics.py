@@ -758,6 +758,11 @@ def main():
         action="store_true",
         help="Skip counting spatial_relations.zip entries"
     )
+    parser.add_argument(
+        "--flat",
+        action="store_true",
+        help="Flat folder structure (simulations directly in root, no batch_ layer)"
+    )
 
     args = parser.parse_args()
 
@@ -781,9 +786,15 @@ def main():
         count_seg = not args.no_count_segmentations
         count_sp = not args.no_count_spatial
 
+        if args.flat:
+            traversal = collector.traverse_stories_flat(
+                args.folder_id, verbose=args.verbose)
+        else:
+            traversal = collector.traverse_batches(
+                args.folder_id, verbose=args.verbose)
+
         story_count = 0
-        for batch_name, story_name, gest, story_folder_id in collector.traverse_batches(
-                args.folder_id, verbose=args.verbose):
+        for batch_name, story_name, gest, story_folder_id in traversal:
             story_stats = extractor.extract(gest)
             artifact_stats = collector.collect_artifact_stats(
                 story_folder_id,
