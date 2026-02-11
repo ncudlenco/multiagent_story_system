@@ -718,6 +718,67 @@ class StatisticsAggregator:
         }
 
 
+def traverse_local_flat(folder_path: str, verbose: bool = False):
+    """Traverse local flat folder, yield (batch_name, sim_name, gest, sim_path).
+
+    Skips worker*/batch_* folders (infrastructure, not simulations).
+    Looks for GEST in detailed_graph/take1/ (random generator) or
+    detail/take1/ (LLM generator).
+    """
+    folder = Path(folder_path)
+    skip_prefixes = ('worker', 'batch_')
+    sim_dirs = sorted(
+        d for d in folder.iterdir()
+        if d.is_dir() and not d.name.startswith(skip_prefixes)
+    )
+    if verbose:
+        print(f"  Found {len(sim_dirs)} simulation folders in {folder}")
+
+    for sim_dir in sim_dirs:
+        for subdir in ('detailed_graph', 'detail'):
+            gest_path = sim_dir / subdir / 'take1' / 'detail_gest.json'
+            if gest_path.exists():
+                with open(gest_path, 'r', encoding='utf-8') as f:
+                    gest = json.load(f)
+                yield "merged", sim_dir.name, gest, str(sim_dir)
+                break
+
+
+def collect_local_artifact_stats(sim_dir: str,
+                                 count_segmentations: bool = True,
+                                 count_spatial: bool = True) -> Dict[str, int]:
+    """Count zip entries from local filesystem (instant, no decompression).
+
+    Reads only the zip central directory index — no file extraction needed.
+    """
+    result = {
+        'rgb_frames': 0, 'segmented_frames': 0,
+        'spatial_relations': 0, 'simulation_count': 0, 'camera_count': 0,
+    }
+    sim_path = Path(sim_dir) / 'simulations'
+    if not sim_path.exists():
+        return result
+    for take_sim in sorted(sim_path.iterdir()):
+        if not take_sim.is_dir():
+            continue
+        result['simulation_count'] += 1
+        for camera in sorted(take_sim.iterdir()):
+            if not camera.is_dir() or not camera.name.startswith('camera'):
+                continue
+            result['camera_count'] += 1
+            for zip_name, key, flag in [
+                ('segmentation_frames.zip', 'segmented_frames', count_segmentations),
+                ('spatial_relations.zip', 'spatial_relations', count_spatial),
+            ]:
+                if not flag:
+                    continue
+                zip_path = camera / zip_name
+                if zip_path.exists():
+                    with zipfile.ZipFile(zip_path, 'r') as zf:
+                        result[key] += len(zf.namelist())
+    return result
+
+
 def main():
     """CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -725,8 +786,9 @@ def main():
     )
     parser.add_argument(
         "--folder-id",
-        default="null",
-        help="Google Drive root folder ID (default: configured folder)"
+        nargs='+',
+        default=["null"],
+        help="Google Drive root folder ID(s) (default: configured folder)"
     )
     parser.add_argument(
         "--output",
@@ -763,53 +825,80 @@ def main():
         action="store_true",
         help="Flat folder structure (simulations directly in root, no batch_ layer)"
     )
+    parser.add_argument(
+        "--local-path",
+        nargs='+',
+        metavar="DIR",
+        help="Local folder path(s) instead of Google Drive (skips authentication)"
+    )
 
     args = parser.parse_args()
 
-    if not GOOGLE_DRIVE_AVAILABLE:
+    use_local = bool(args.local_path)
+
+    if not use_local and not GOOGLE_DRIVE_AVAILABLE:
         print("Error: Google Drive dependencies not installed.")
         print("Install with: pip install google-auth google-api-python-client google-auth-oauthlib")
         return 1
 
     try:
-        # Initialize collector
-        print("Authenticating with Google Drive...")
-        collector = GDriveStatisticsCollector(credentials_path=args.credentials)
-
         # Initialize extractor and aggregator
         extractor = GESTStatisticsExtractor()
         aggregator = StatisticsAggregator()
 
-        # Traverse and collect statistics
-        print(f"\nCollecting statistics from folder: {args.folder_id}")
-
         count_seg = not args.no_count_segmentations
         count_sp = not args.no_count_spatial
 
-        if args.flat:
-            traversal = collector.traverse_stories_flat(
-                args.folder_id, verbose=args.verbose)
+        # Build traversals based on local vs Drive mode
+        collector = None
+        if use_local:
+            print("Using local filesystem (no Google Drive API)")
+            if not args.flat:
+                print("[!] --local-path requires --flat")
+                return 1
+            traversals = [
+                traverse_local_flat(p, verbose=args.verbose)
+                for p in args.local_path
+            ]
         else:
-            traversal = collector.traverse_batches(
-                args.folder_id, verbose=args.verbose)
+            print("Authenticating with Google Drive...")
+            collector = GDriveStatisticsCollector(credentials_path=args.credentials)
+            folder_ids = args.folder_id
+            print(f"\nCollecting statistics from {len(folder_ids)} folder(s)")
+            traversals = []
+            for fid in folder_ids:
+                if args.flat:
+                    traversals.append(
+                        collector.traverse_stories_flat(fid, verbose=args.verbose))
+                else:
+                    traversals.append(
+                        collector.traverse_batches(fid, verbose=args.verbose))
 
+        # Traverse and collect statistics
         story_count = 0
-        for batch_name, story_name, gest, story_folder_id in traversal:
-            story_stats = extractor.extract(gest)
-            artifact_stats = collector.collect_artifact_stats(
-                story_folder_id,
-                count_segmentations=count_seg,
-                count_spatial=count_sp)
-            story_stats.rgb_frames = artifact_stats['rgb_frames']
-            story_stats.segmented_frames = artifact_stats['segmented_frames']
-            story_stats.spatial_relations = artifact_stats['spatial_relations']
-            story_stats.simulation_count = artifact_stats['simulation_count']
-            story_stats.camera_count = artifact_stats['camera_count']
-            aggregator.add_story(batch_name, story_stats)
-            story_count += 1
+        for traversal in traversals:
+            for batch_name, story_name, gest, sim_ref in traversal:
+                story_stats = extractor.extract(gest)
+                if use_local:
+                    artifact_stats = collect_local_artifact_stats(
+                        sim_ref,
+                        count_segmentations=count_seg,
+                        count_spatial=count_sp)
+                else:
+                    artifact_stats = collector.collect_artifact_stats(
+                        sim_ref,
+                        count_segmentations=count_seg,
+                        count_spatial=count_sp)
+                story_stats.rgb_frames = artifact_stats['rgb_frames']
+                story_stats.segmented_frames = artifact_stats['segmented_frames']
+                story_stats.spatial_relations = artifact_stats['spatial_relations']
+                story_stats.simulation_count = artifact_stats['simulation_count']
+                story_stats.camera_count = artifact_stats['camera_count']
+                aggregator.add_story(batch_name, story_stats)
+                story_count += 1
 
-            if args.verbose and story_count % 50 == 0:
-                print(f"  Processed {story_count} stories...")
+                if args.verbose and story_count % 50 == 0:
+                    print(f"  Processed {story_count} stories...")
 
         # Generate output
         result = aggregator.to_dict()
@@ -847,18 +936,21 @@ def main():
         for gender, data in result['distributions']['genders'].items():
             print(f"  {gender}: {data['count']} ({data['percentage']}%)")
 
-        # Upload to Google Drive if requested
+        # Upload to Google Drive if requested (first folder ID, skip in local mode)
         if args.upload:
-            print(f"\nUploading to Google Drive...")
-            file_id = collector.upload_file(output_path, args.folder_id)
-            if file_id:
-                link = collector.get_file_link(file_id)
-                print(f"  Uploaded successfully!")
-                print(f"  File ID: {file_id}")
-                if link:
-                    print(f"  Link: {link}")
+            if use_local:
+                print("\n[!] --upload ignored in local mode (no Drive connection)")
             else:
-                print(f"  Upload failed!")
+                print(f"\nUploading to Google Drive...")
+                file_id = collector.upload_file(output_path, args.folder_id[0])
+                if file_id:
+                    link = collector.get_file_link(file_id)
+                    print(f"  Uploaded successfully!")
+                    print(f"  File ID: {file_id}")
+                    if link:
+                        print(f"  Link: {link}")
+                else:
+                    print(f"  Upload failed!")
 
         return 0
 
