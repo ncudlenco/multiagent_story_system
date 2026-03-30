@@ -73,6 +73,9 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
     scene_boundaries: List[Dict[str, str]] = []  # per-scene {actor_id: last_event_id}
     scene_order: List[str] = []  # ordered list of scene IDs
     completed_scenes: set = set()  # scene IDs that have been fully built (end_scene called)
+    # POI-to-object instance mapping: {poi_index: (obj_type, instance_num)}
+    # Built at start_scene from episode data. Maps each POI to the physical object instance it uses.
+    poi_object_map: Dict[int, tuple] = {}  # {poi_index: (obj_type, instance_num)}
 
     # Round tracking
     round_events: List[str] = []  # event IDs created in current round
@@ -297,6 +300,37 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             gen.poi_capacity_tracker.init_from_episode(ep_data)
             gen.current_episode_name = episode
             initialized_episodes.add(episode)
+
+        # Build POI-to-object instance mapping for this region
+        poi_object_map.clear()
+        region_obj_counts: Dict[str, int] = {}
+        for region_data in ep_data.get('regions', []):
+            if region_data.get('name') == region:
+                for obj_str in region_data.get('objects', []):
+                    ot = obj_str.split('(')[0].strip()
+                    region_obj_counts[ot] = region_obj_counts.get(ot, 0) + 1
+                break
+
+        # Group POIs by object type for this region
+        poi_type_groups: Dict[str, List[int]] = {}
+        all_pois = ep_data.get('pois', [])
+        for i, poi_data in enumerate(all_pois):
+            if poi_data.get('region') != region or not poi_data.get('actions'):
+                continue
+            ot = poi_data['actions'][0].get('object_type', '')
+            if ot:
+                if ot not in poi_type_groups:
+                    poi_type_groups[ot] = []
+                poi_type_groups[ot].append(i)
+
+        # Map each POI to an object instance (round-robin over available objects)
+        for ot, poi_indices in poi_type_groups.items():
+            obj_count = region_obj_counts.get(ot, 0)
+            if obj_count == 0:
+                continue
+            for j, pi in enumerate(poi_indices):
+                instance = j % obj_count
+                poi_object_map[pi] = (ot, instance)
 
         # Update state
         current_scene_id['value'] = scene_id
@@ -567,6 +601,13 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         if not poi_data.get('actions'):
             return {'error': 'This POI has no actions'}
 
+        # Block spawnable-only POIs (MobilePhone, Cigarette)
+        first_obj_type = poi_data['actions'][0].get('object_type', '')
+        SPAWNABLE_ONLY = {'MobilePhone', 'Cigarette'}
+        if first_obj_type in SPAWNABLE_ONLY:
+            return {'error': f'{first_obj_type} can only be used as spawnable objects. '
+                    f'Use start_spawnable_chain instead of start_chain at this POI.'}
+
         # Get region objects for POI capacity/allocation
         region_name = poi_data.get('region', '')
         region_objects = []
@@ -605,8 +646,10 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         # Handle object requirement
         if first_action.get('requires_object'):
             obj_type = first_action.get('object_type', '')
+            # Get POI-to-object instance mapping
+            poi_inst = poi_object_map.get(poi_index, (None, None))[1] if poi_index in poi_object_map else None
             obj_id = gen._get_or_create_poi_object_temp(
-                poi, obj_type, actor_id, temp_objects
+                poi, obj_type, actor_id, temp_objects, poi_object_instance=poi_inst
             )
             if not obj_id:
                 return {'error': f'Cannot allocate {obj_type} in {poi.region} (capacity full)'}
@@ -863,8 +906,10 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
 
                 # If not holding a matching object, get or create from POI
                 if not obj_id:
+                    poi_idx = chain.get('poi_index', -1)
+                    poi_inst = poi_object_map.get(poi_idx, (None, None))[1] if poi_idx in poi_object_map else None
                     obj_id = gen._get_or_create_poi_object_temp(
-                        poi, obj_type, actor_id, chain['temp_objects']
+                        poi, obj_type, actor_id, chain['temp_objects'], poi_object_instance=poi_inst
                     )
                 if obj_id:
                     entities.append(obj_id)

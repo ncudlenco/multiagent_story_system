@@ -162,8 +162,10 @@ class SimpleGESTRandomGenerator:
                                                 prev_event_id, temp_events, temp_temporal, temp_actor_state)
 
     def _get_or_create_poi_object_temp(self, poi: POIInfo, obj_type: str,
-                                        actor_id: str, temp_objects: Dict) -> Optional[str]:
-        return self.builder._get_or_create_poi_object_temp(poi, obj_type, actor_id, temp_objects)
+                                        actor_id: str, temp_objects: Dict,
+                                        poi_object_instance: Optional[int] = None) -> Optional[str]:
+        return self.builder._get_or_create_poi_object_temp(poi, obj_type, actor_id, temp_objects,
+                                                            poi_object_instance=poi_object_instance)
 
     def _is_object_available_temp(self, obj_id: str, actor_id: str,
                                    temp_actor_state: Dict, temp_occupied: Dict) -> bool:
