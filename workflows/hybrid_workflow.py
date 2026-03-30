@@ -54,13 +54,15 @@ Your job:
 1. Explore available episodes, regions, POIs, and actions using tools
 2. Pick character skins using get_skins (browse by gender, paginated)
 3. Call create_story(title, narrative) to initialize the story
-4. Call create_actor for each protagonist (and extras if needed)
+4. Call create_actor for ALL protagonists upfront (and extras if needed) -- create every actor BEFORE delegating any scenes
 5. Write the initial plot to "plot.txt" (use write_file): the seed idea, what you discovered, and your planned story
-6. For each scene, delegate ONE at a time to the scene_builder subagent (use task tool)
-   - Tell the scene builder: scene_id, action_name, narrative, episode, region, actor_ids, what should happen
-   - Between scenes: call move_actors to transition actors to the next region
+6. For each scene:
+   a. Call start_scene(scene_id, action_name, narrative, episode, region, actor_ids) yourself
+   b. Delegate to scene_builder subagent (use task tool) to build the rounds and chains
+   c. After scene_builder returns: if end_scene returned REQUIRED_NEXT, call relations tasks in parallel
+   d. Call move_actors to transition actors to the next region (if needed)
 7. After all scenes, write "narrative.txt" (use write_file): final structured summary
-8. Call finalize_gest to complete the story
+8. Call finalize_gest to complete the story -- if it returns REQUIRED_NEXT, call cross-scene relations
 
 CRITICAL -- NO HALLUCINATIONS:
 - ONLY reference actions and objects you confirmed exist by calling get_pois and get_poi_first_actions
@@ -85,13 +87,19 @@ SEQUENTIAL SCENES:
 
 {constraints}"""
 
-SCENE_BUILDER_PROMPT = """You build GEST events for one scene using a round-based structure.
+SCENE_BUILDER_PROMPT = """You build GEST events for EXACTLY ONE scene using a round-based structure.
+
+CRITICAL:
+- You build ONE scene only. After end_scene(), you are DONE. Return your summary immediately.
+- Do NOT start another scene. Do NOT test or experiment. Every action is FINAL and cannot be undone.
+- Do NOT create extra scenes, retry scenes, or test scenes. Build it right the first time.
 
 You receive a scene description with scene_id, episode, region, characters, and what should happen.
 
+The scene has already been started by the director. You build the content.
+
 MANDATORY FLOW:
-1. Call start_scene(scene_id, action_name, narrative, episode, region, actor_ids)
-2. For each round (as many as the narrative needs):
+1. For each round (as many as the narrative needs):
    a. Call start_round() (or start_round(setup=True) for off-camera preparation)
    b. For each actor: build ONE chain (can interleave across actors):
       - start_chain → continue_chain (step by step) → end_chain
@@ -102,7 +110,8 @@ MANDATORY FLOW:
    d. Optionally: add_temporal_dependency to order cross-actor events,
       or add_starts_with to synchronize events (e.g. two actors sit simultaneously)
    e. Call end_round()
-3. Call end_scene()
+2. Call end_scene()
+3. Return a summary of what was built. DO NOT call any more tools after end_scene.
 
 RULES:
 - All chains in a round must be committed (end_chain) before end_round
@@ -231,8 +240,10 @@ def deep_agent_node(state: HybridState) -> Dict[str, Any]:
     state_tools = create_state_tools(gen, config=tool_config)
     finalize_tool = next(t for t in state_tools if t.name == 'finalize_gest')
 
-    # Main agent tools: exploration + skins + finalize
-    main_tools = EXPLORATION_TOOLS + [finalize_tool]
+    # Main agent tools: exploration + director-only building tools + finalize
+    director_tools = [t for t in building_tools if t.name in
+                      {'create_story', 'create_actor', 'start_scene', 'move_actors'}]
+    main_tools = EXPLORATION_TOOLS + director_tools + [finalize_tool]
 
     # Scene builder tools: building + POI exploration
     from tools.exploration_tools import (
@@ -240,7 +251,10 @@ def deep_agent_node(state: HybridState) -> Dict[str, Any]:
         get_next_actions, get_region_capacity, get_skins,
         get_spawnable_types, get_interaction_types,
     )
-    scene_tools = building_tools + [
+    # Scene builder gets chain/round tools only -- NOT scene/story/actor/move/finalize
+    director_only_tools = {'create_story', 'create_actor', 'start_scene', 'move_actors'}
+    scene_building_tools = [t for t in building_tools if t.name not in director_only_tools]
+    scene_tools = scene_building_tools + [
         get_pois, get_poi_first_actions, get_next_actions, get_region_capacity,
         get_episodes, get_regions, get_skins,
         get_spawnable_types, get_interaction_types,

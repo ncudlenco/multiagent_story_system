@@ -837,8 +837,15 @@ class GESTBuilder:
           - First checks for released/available instance to reuse
           - Creates new instance if none available (up to region's max count)
         """
-        # Objects that require exclusive POI access (can't be shared simultaneously)
-        EXCLUSIVE_POI_OBJECTS = {"Chair", "Sofa", "Armchair", "Bed", "ArmChair", "BenchPress", "GymBike"}
+        # ALL objects are per-actor exclusive to prevent two actors using the same
+        # object instance in the GEST. Objects can only be shared through Give/Receive.
+        # The non-exclusive path is kept but unreachable -- all types are listed here.
+        EXCLUSIVE_POI_OBJECTS = {
+            "Chair", "Sofa", "ArmChair", "Bed", "BenchPress", "GymBike",
+            "Drinks", "Food", "Remote", "Laptop", "Desk", "Sink",
+            "Televisor", "TurnTable", "TapePlayer", "Dumbbells",
+            "FlowerPot", "PunchingBag", "MobilePhone", "Cigarette",
+        }
 
         if obj_type in EXCLUSIVE_POI_OBJECTS:
             # Per-actor key: each actor needs their own seat

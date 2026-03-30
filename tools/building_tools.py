@@ -72,6 +72,7 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
     current_scene_events: List[str] = []  # event IDs created in this scene
     scene_boundaries: List[Dict[str, str]] = []  # per-scene {actor_id: last_event_id}
     scene_order: List[str] = []  # ordered list of scene IDs
+    completed_scenes: set = set()  # scene IDs that have been fully built (end_scene called)
 
     # Round tracking
     round_events: List[str] = []  # event IDs created in current round
@@ -228,6 +229,11 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         err = _require_state('STORY_CREATED', 'IDLE')
         if err:
             return err
+
+        # Reject if this exact scene_id was already built
+        if scene_id in completed_scenes:
+            return {'error': f'Scene "{scene_id}" was already built. '
+                    'Each scene can only be built once. Do NOT retry or duplicate.'}
 
         # Validate actors exist
         for aid in actor_ids:
@@ -400,6 +406,7 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         # Reset scene state
         current_scene_id['value'] = None
         current_scene_episode['value'] = None
+        completed_scenes.add(scene_id)
         current_scene_region['value'] = None
 
         state['current'] = 'IDLE'
