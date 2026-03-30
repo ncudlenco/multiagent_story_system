@@ -1,8 +1,16 @@
 # Core LLM - OpenAI with structured outputs
 openai>=1.12.0
 
-# Workflow Orchestration
+# Workflow Orchestration (LangGraph + LangChain + Deep Agents)
 langgraph>=0.0.20
+langchain-core>=0.3.0
+deepagents>=0.4.0
+
+# LLM Providers (install the one(s) you need)
+langchain-openai>=0.3.0
+langchain-anthropic>=0.3.0     # Anthropic Claude (used for hybrid generation)
+# langchain-ollama>=0.3.0      # Optional: Local models via Ollama
+# langchain-google-genai>=2.0.0 # Optional: Google Gemini
 
 # Data Validation and Schemas
 pydantic>=2.5.0
