@@ -309,9 +309,9 @@ Examples:
     parser.add_argument(
         '--generator-type',
         type=str,
-        choices=['llm', 'simple_random'],
+        choices=['llm', 'simple_random', 'hybrid'],
         default='llm',
-        help='Story generator type: "llm" for LLM-based generation, "simple_random" for random generator (default: llm)'
+        help='Story generator type: "llm" for old LLM-based generation, "simple_random" for random generator, "hybrid" for LLM-directed reactive generation (default: llm)'
     )
     parser.add_argument(
         '--random-chains-per-actor',
