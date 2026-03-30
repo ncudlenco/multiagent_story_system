@@ -102,6 +102,15 @@ batch:
   simulation_timeout_retry: 14400  # Timeout for retry attempts (4 hours - rely on 90s no-progress timeout)
   keep_intermediates: true  # Keep intermediate files (scene_detail_agent/, concept_N/)
 
+# Hybrid LLM-directed generation configuration
+# Model-agnostic: supports openai, anthropic, ollama, google
+llm:
+  provider: "anthropic"
+  model: "claude-haiku-4-5-20251001"
+  temperature: 0.7
+  api_key_env: "CLAUDE_API_KEY"
+  # base_url: null  # For Ollama: "http://localhost:11434/v1"
+
 # Google Drive integration configuration
 google_drive:
   credentials_path: "credentials/google_drive_credentials.json"  # Path to Google Drive credentials

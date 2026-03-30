@@ -479,8 +479,9 @@ class BatchController:
         Generate a story with variations (router method).
 
         Routes to appropriate generator based on batch_config.generator_type:
-        - "llm": LLM-based multi-phase generation
+        - "llm": LLM-based multi-phase generation (old approach)
         - "simple_random": Simple random action chain generation
+        - "hybrid": LLM-directed reactive generation with programmatic tools
 
         Args:
             story_status: Story status tracker
@@ -490,6 +491,8 @@ class BatchController:
         """
         if self.batch_config.generator_type == "simple_random":
             return self._generate_story_simple_random(story_status)
+        elif self.batch_config.generator_type == "hybrid":
+            return self._generate_story_hybrid(story_status)
         else:  # Default to "llm"
             return self._generate_story_llm(story_status)
 
@@ -605,6 +608,111 @@ class BatchController:
                 exc_info=True
             )
             story_status.errors.append(f"Random generation failed: {e}")
+            return False
+
+    def _generate_story_hybrid(self, story_status: StoryStatus) -> bool:
+        """
+        Generate a story using the hybrid LLM-directed reactive pipeline.
+
+        Uses LangGraph workflow with 3 stages:
+        1. Concept: LLM explores world via tools, creates story plan
+        2. Casting: LLM assigns skins to characters
+        3. Generation: LLM builds GEST event-by-event using building tools
+
+        Args:
+            story_status: Story status tracker
+
+        Returns:
+            True if generation succeeds
+        """
+        from workflows.hybrid_workflow import run_hybrid_generation
+        from schemas.hybrid_planning import GenerationConfig
+
+        logger.info(
+            "generating_hybrid_story",
+            story_id=story_status.story_id
+        )
+
+        try:
+            # Build generation config from batch settings
+            gen_config = GenerationConfig(
+                seed_text=getattr(self.batch_config, 'narrative_seeds', [None])[0]
+                if getattr(self.batch_config, 'narrative_seeds', None) else None,
+                num_scenes=getattr(self.batch_config, 'scene_number', 3) or 3,
+                num_protagonists=getattr(self.batch_config, 'max_num_protagonists', 2) or 2,
+                include_extras=getattr(self.batch_config, 'max_num_extras', 0) > 0,
+                seed_episodes=None,
+                seed_regions=None,
+                max_events_per_scene=20
+            ).model_dump()
+
+            # Run hybrid generation
+            gest_dict, metadata = run_hybrid_generation(
+                seed_text=gen_config.get('seed_text'),
+                generation_config=gen_config
+            )
+
+            if not gest_dict:
+                story_status.errors.append("Hybrid generation produced empty GEST")
+                return False
+
+            # Build folder name
+            num_actors = metadata.get('num_actors', 0)
+            num_events = metadata.get('num_events', 0)
+            concept = metadata.get('story_concept', {})
+            title = concept.get('title', 'untitled').replace(' ', '_')[:30]
+            folder_name = f"story_{title}_{num_actors}actors_{num_events}events_{story_status.story_id}"
+
+            # Create output directory
+            batch_output_dir = Path(_normalize_path(self.batch_config.output_base_dir)) / self.batch_state.batch_id
+            story_dir = batch_output_dir / folder_name
+            story_status.output_dir = str(story_dir)
+
+            take_dir = story_dir / "detailed_graph" / "take1"
+            take_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save GEST
+            take_file = take_dir / "detail_gest.json"
+            with open(take_file, 'w', encoding='utf-8') as f:
+                json.dump(gest_dict, f, indent=2, ensure_ascii=False)
+
+            # Save concept and casting as metadata
+            if concept:
+                concept_file = story_dir / "story_concept.json"
+                with open(concept_file, 'w', encoding='utf-8') as f:
+                    json.dump(concept, f, indent=2, ensure_ascii=False)
+
+            casting = metadata.get('casting', {})
+            if casting:
+                casting_file = story_dir / "casting.json"
+                with open(casting_file, 'w', encoding='utf-8') as f:
+                    json.dump(casting, f, indent=2, ensure_ascii=False)
+
+            logger.info(
+                "hybrid_story_generated",
+                story_id=story_status.story_id,
+                file=str(take_file),
+                folder_name=folder_name,
+                actors=num_actors,
+                events=num_events
+            )
+
+            # Update story metadata
+            meta_keys = {'temporal', 'spatial', 'semantic', 'logical', 'camera', 'title', 'narrative'}
+            event_count = sum(1 for k in gest_dict.keys() if k not in meta_keys)
+            story_status.event_count = event_count
+            story_status.scene_count = len(concept.get('scenes', [1]))
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "hybrid_generation_failed",
+                story_id=story_status.story_id,
+                error=str(e),
+                exc_info=True
+            )
+            story_status.errors.append(f"Hybrid generation failed: {e}")
             return False
 
     def _generate_story_llm(self, story_status: StoryStatus) -> bool:
