@@ -34,15 +34,15 @@ from utils.validation_tools import validate_temporal_structure
 # ============================================================================
 
 COMPLEXITY_LEVELS = [
-    # (level_name, expected_actors, chains_per_actor, min_events, max_events, regions, seed)
-    # Note: Generator creates random number of actors (1-10) and locations (1-4)
-    # Event counts are approximate and depend on random episode/region selections
-    ("minimal", 1, 1, 0, 60, 1, 100),
-    ("small", 2, 2, 0, 100, 1, 110),      # Seed updated to generate events
-    ("medium", 4, 3, 0, 200, 2, 102),
-    ("large", 6, 5, 0, 300, 2, 103),
-    ("xlarge", 8, 8, 0, 1200, 3, 104),  # Increased max due to guaranteed fallback chains
-    ("extreme", 10, 10, 0, 1500, 4, 152),  # Increased max due to guaranteed fallback chains
+    # (level_name, max_actors_per_region, chains_per_actor, min_events, max_events, max_regions, seed)
+    # Note: Generator creates random number of actors (2-4 base + new per region)
+    # Event counts depend on episode/region selections and action chain lengths
+    ("minimal", 1, 1, 0, 80, 1, 100),
+    ("small", 2, 2, 0, 250, 2, 110),
+    ("medium", 4, 3, 0, 500, 2, 102),
+    ("large", 6, 5, 0, 800, 3, 103),
+    ("xlarge", 8, 8, 0, 1500, 4, 104),
+    ("extreme", 10, 10, 0, 2500, None, 152),  # None = unlimited regions
 ]
 
 
@@ -195,7 +195,7 @@ def check_starts_with_relations(gest_data: Dict[str, Any]) -> Dict[str, Any]:
 # ============================================================================
 
 @pytest.mark.parametrize(
-    "level,expected_actors,chains_per_actor,min_events,max_events,regions,seed",
+    "level,max_actors_per_region,chains_per_actor,min_events,max_events,max_regions,seed",
     COMPLEXITY_LEVELS,
     ids=[params[0] for params in COMPLEXITY_LEVELS]
 )
@@ -213,11 +213,11 @@ class TestRandomGESTStress:
     def test_generate_random_graph(
         self,
         level,
-        expected_actors,
+        max_actors_per_region,
         chains_per_actor,
         min_events,
         max_events,
-        regions,
+        max_regions,
         seed,
         random_graph_output_dir
     ):
@@ -226,7 +226,11 @@ class TestRandomGESTStress:
 
         # Generate random GEST
         generator = create_generator_with_seed(seed)
-        gest_data = generator.generate(chains_per_actor=chains_per_actor)
+        gest_data, _metadata = generator.generate(
+                chains_per_actor=chains_per_actor,
+                max_actors_per_region=max_actors_per_region,
+                max_regions=max_regions
+            )
 
         # Save to file
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -244,7 +248,7 @@ class TestRandomGESTStress:
         assert "starting_actions" in loaded_data["temporal"], "Missing starting_actions"
 
         # Count events (excluding meta keys)
-        meta_keys = {"temporal", "spatial", "semantic", "camera", "title", "narrative"}
+        meta_keys = {"temporal", "spatial", "semantic", "logical", "camera", "title", "narrative"}
         total_events = len([k for k in loaded_data.keys() if k not in meta_keys])
 
         # Verify event count is in expected range
@@ -259,11 +263,11 @@ class TestRandomGESTStress:
     def test_temporal_integrity(
         self,
         level,
-        expected_actors,
+        max_actors_per_region,
         chains_per_actor,
         min_events,
         max_events,
-        regions,
+        max_regions,
         seed,
         random_graph_output_dir
     ):
@@ -273,7 +277,11 @@ class TestRandomGESTStress:
         # Generate if not exists
         if not output_file.exists():
             generator = create_generator_with_seed(seed)
-            gest_data = generator.generate(chains_per_actor=chains_per_actor)
+            gest_data, _metadata = generator.generate(
+                chains_per_actor=chains_per_actor,
+                max_actors_per_region=max_actors_per_region,
+                max_regions=max_regions
+            )
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(gest_data, f, indent=2, ensure_ascii=False)
 
@@ -282,7 +290,7 @@ class TestRandomGESTStress:
             gest_data = json.load(f)
 
         # Extract events only (exclude metadata keys)
-        meta_keys = {"temporal", "spatial", "semantic", "camera", "title", "narrative"}
+        meta_keys = {"temporal", "spatial", "semantic", "logical", "camera", "title", "narrative"}
         events_only = {k: v for k, v in gest_data.items() if k not in meta_keys}
 
         # Skip if no events generated (valid random outcome)
@@ -314,11 +322,11 @@ class TestRandomGESTStress:
     def test_all_actors_in_starting_actions(
         self,
         level,
-        expected_actors,
+        max_actors_per_region,
         chains_per_actor,
         min_events,
         max_events,
-        regions,
+        max_regions,
         seed,
         random_graph_output_dir
     ):
@@ -327,7 +335,11 @@ class TestRandomGESTStress:
 
         if not output_file.exists():
             generator = create_generator_with_seed(seed)
-            gest_data = generator.generate(chains_per_actor=chains_per_actor)
+            gest_data, _metadata = generator.generate(
+                chains_per_actor=chains_per_actor,
+                max_actors_per_region=max_actors_per_region,
+                max_regions=max_regions
+            )
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(gest_data, f, indent=2, ensure_ascii=False)
 
@@ -355,11 +367,11 @@ class TestRandomGESTStress:
     def test_all_events_reachable(
         self,
         level,
-        expected_actors,
+        max_actors_per_region,
         chains_per_actor,
         min_events,
         max_events,
-        regions,
+        max_regions,
         seed,
         random_graph_output_dir
     ):
@@ -368,7 +380,11 @@ class TestRandomGESTStress:
 
         if not output_file.exists():
             generator = create_generator_with_seed(seed)
-            gest_data = generator.generate(chains_per_actor=chains_per_actor)
+            gest_data, _metadata = generator.generate(
+                chains_per_actor=chains_per_actor,
+                max_actors_per_region=max_actors_per_region,
+                max_regions=max_regions
+            )
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(gest_data, f, indent=2, ensure_ascii=False)
 
@@ -399,11 +415,11 @@ class TestRandomGESTStress:
     def test_starts_with_relations(
         self,
         level,
-        expected_actors,
+        max_actors_per_region,
         chains_per_actor,
         min_events,
         max_events,
-        regions,
+        max_regions,
         seed,
         random_graph_output_dir
     ):
@@ -412,7 +428,11 @@ class TestRandomGESTStress:
 
         if not output_file.exists():
             generator = create_generator_with_seed(seed)
-            gest_data = generator.generate(chains_per_actor=chains_per_actor)
+            gest_data, _metadata = generator.generate(
+                chains_per_actor=chains_per_actor,
+                max_actors_per_region=max_actors_per_region,
+                max_regions=max_regions
+            )
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(gest_data, f, indent=2, ensure_ascii=False)
 
@@ -438,11 +458,11 @@ class TestRandomGESTStress:
     def test_give_receive_pairs(
         self,
         level,
-        expected_actors,
+        max_actors_per_region,
         chains_per_actor,
         min_events,
         max_events,
-        regions,
+        max_regions,
         seed,
         random_graph_output_dir
     ):
@@ -451,7 +471,11 @@ class TestRandomGESTStress:
 
         if not output_file.exists():
             generator = create_generator_with_seed(seed)
-            gest_data = generator.generate(chains_per_actor=chains_per_actor)
+            gest_data, _metadata = generator.generate(
+                chains_per_actor=chains_per_actor,
+                max_actors_per_region=max_actors_per_region,
+                max_regions=max_regions
+            )
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(gest_data, f, indent=2, ensure_ascii=False)
 
@@ -490,11 +514,11 @@ class TestRandomGESTStress:
     def test_spawnable_objects(
         self,
         level,
-        expected_actors,
+        max_actors_per_region,
         chains_per_actor,
         min_events,
         max_events,
-        regions,
+        max_regions,
         seed,
         random_graph_output_dir
     ):
@@ -503,7 +527,11 @@ class TestRandomGESTStress:
 
         if not output_file.exists():
             generator = create_generator_with_seed(seed)
-            gest_data = generator.generate(chains_per_actor=chains_per_actor)
+            gest_data, _metadata = generator.generate(
+                chains_per_actor=chains_per_actor,
+                max_actors_per_region=max_actors_per_region,
+                max_regions=max_regions
+            )
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(gest_data, f, indent=2, ensure_ascii=False)
 
@@ -534,11 +562,11 @@ class TestRandomGESTStress:
     def test_event_type_distribution(
         self,
         level,
-        expected_actors,
+        max_actors_per_region,
         chains_per_actor,
         min_events,
         max_events,
-        regions,
+        max_regions,
         seed,
         random_graph_output_dir
     ):
@@ -547,7 +575,11 @@ class TestRandomGESTStress:
 
         if not output_file.exists():
             generator = create_generator_with_seed(seed)
-            gest_data = generator.generate(chains_per_actor=chains_per_actor)
+            gest_data, _metadata = generator.generate(
+                chains_per_actor=chains_per_actor,
+                max_actors_per_region=max_actors_per_region,
+                max_regions=max_regions
+            )
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(gest_data, f, indent=2, ensure_ascii=False)
 

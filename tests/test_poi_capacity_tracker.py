@@ -128,7 +128,7 @@ class TestPOIReleaseIntegration:
         # Generate a graph
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(200)
-        gest = generator.generate(chains_per_actor=2)
+        gest, _metadata = generator.generate(chains_per_actor=2)
 
         # Count objects per type per region
         object_counts: Dict[str, Dict[str, int]] = {}
@@ -188,7 +188,7 @@ class TestRegionTransitionOrdering:
         """Test that all before/after relations are cross-actor only."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(300)
-        gest = generator.generate(chains_per_actor=3)
+        gest, _metadata = generator.generate(chains_per_actor=3)
 
         temporal = gest.get("temporal", {})
 
@@ -229,7 +229,7 @@ class TestRegionTransitionOrdering:
         """Test that Move events have before relations to first events in destination."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(301)
-        gest = generator.generate(chains_per_actor=3)
+        gest, _metadata = generator.generate(chains_per_actor=3)
 
         temporal = gest.get("temporal", {})
 
@@ -264,7 +264,7 @@ class TestRegionTransitionOrdering:
         """Test that last normal events are before Move events (cross-actor)."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(302)
-        gest = generator.generate(chains_per_actor=3)
+        gest, _metadata = generator.generate(chains_per_actor=3)
 
         temporal = gest.get("temporal", {})
 
@@ -308,7 +308,7 @@ class TestNoTemporalCycles:
         """Test that generated GESTs have no circular temporal dependencies."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(400)
-        gest = generator.generate(chains_per_actor=4)
+        gest, _metadata = generator.generate(chains_per_actor=4)
 
         temporal = gest.get("temporal", {})
 
@@ -360,7 +360,7 @@ class TestRoundBasedOrdering:
         """Test that cross-actor BEFORE relations exist between rounds."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(500)
-        gest = generator.generate(chains_per_actor=3)
+        gest, _metadata = generator.generate(chains_per_actor=3)
 
         temporal = gest.get("temporal", {})
 
@@ -387,7 +387,7 @@ class TestRoundBasedOrdering:
         """Test that round-based ordering doesn't create cycles."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(501)
-        gest = generator.generate(chains_per_actor=4)
+        gest, _metadata = generator.generate(chains_per_actor=4)
 
         temporal = gest.get("temporal", {})
 
@@ -426,7 +426,7 @@ class TestRoundBasedOrdering:
         """Test that with 4 chains_per_actor, there are round transitions."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(502)
-        gest = generator.generate(chains_per_actor=4)
+        gest, _metadata = generator.generate(chains_per_actor=4)
 
         temporal = gest.get("temporal", {})
 
@@ -453,7 +453,7 @@ class TestRetryLogicGuaranteedChains:
         """Test that all actors receive at least some action events."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(3600)
-        gest = generator.generate(chains_per_actor=3)
+        gest, _metadata = generator.generate(chains_per_actor=3)
 
         # Find all actors
         actors = set()
@@ -490,7 +490,7 @@ class TestRetryLogicGuaranteedChains:
         random.seed(601)
 
         # Generate with many chains to stress the system
-        gest = generator.generate(chains_per_actor=4)
+        gest, _metadata = generator.generate(chains_per_actor=4)
 
         # Should complete without raising exceptions
         assert gest is not None
@@ -508,7 +508,7 @@ class TestRetryLogicGuaranteedChains:
         # Try multiple seeds
         for seed in [610, 611, 612]:
             random.seed(seed)
-            gest = generator.generate(chains_per_actor=3)
+            gest, _metadata = generator.generate(chains_per_actor=3)
 
             temporal = gest.get("temporal", {})
             starting_actions = temporal.get("starting_actions", {})
@@ -531,7 +531,7 @@ class TestSitDownTogetherLinking:
         """Test that all action events (not Exists) are reachable from starting_actions."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(710)
-        gest = generator.generate(chains_per_actor=3)
+        gest, _metadata = generator.generate(chains_per_actor=3)
 
         temporal = gest.get("temporal", {})
 
@@ -580,7 +580,7 @@ class TestSitDownTogetherLinking:
         # Need wider range since Remote Give + SitDownTogether is rare
         for seed in range(100, 500):
             random.seed(seed)
-            gest = generator.generate(chains_per_actor=2)
+            gest, _metadata = generator.generate(chains_per_actor=2)
 
             temporal = gest.get("temporal", {})
 
@@ -630,7 +630,7 @@ class TestSitDownTogetherLinking:
         """Test that every SitDown has a matching StandUp in the chain."""
         generator = SimpleGESTRandomGenerator("data/simulation_environment_capabilities.json")
         random.seed(720)
-        gest = generator.generate(chains_per_actor=3)
+        gest, _metadata = generator.generate(chains_per_actor=3)
 
         temporal = gest.get("temporal", {})
 
