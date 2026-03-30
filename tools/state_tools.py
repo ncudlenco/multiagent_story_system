@@ -7,7 +7,7 @@ being built: actor states, generation progress, and validation results.
 Tools are created via create_state_tools() bound to a generator instance.
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from langchain_core.tools import tool
 
@@ -15,16 +15,21 @@ from simple_gest_random_generator import SimpleGESTRandomGenerator
 from utils.validation_tools import validate_temporal_structure
 
 
-def create_state_tools(gen: SimpleGESTRandomGenerator) -> List:
+def create_state_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[str, Any]] = None) -> List:
     """
     Create state query tools bound to a specific generator instance.
 
     Args:
         gen: Initialized SimpleGESTRandomGenerator holding GEST state.
+        config: Optional dict with enable_logical_relations, enable_semantic_relations flags.
 
     Returns:
         List of LangChain tool functions.
     """
+    if config is None:
+        config = {}
+    enable_logical_relations = config.get('enable_logical_relations', True)
+    enable_semantic_relations = config.get('enable_semantic_relations', True)
 
     @tool
     def get_actor_state(actor_id: str) -> Dict[str, Any]:
@@ -172,11 +177,30 @@ def create_state_tools(gen: SimpleGESTRandomGenerator) -> List:
                 ))
             }
 
-            return {
+            result = {
                 'success': True,
                 'gest': gest,
                 'metadata': metadata
             }
+
+            # Directive: cross-scene relations (if enabled)
+            # Collect all scene event IDs
+            scene_events = [eid for eid, e in gen.events.items()
+                          if isinstance(e, dict) and e.get('Properties', {}).get('scene_type') == 'leaf']
+            required_tasks = []
+            if enable_logical_relations and len(scene_events) > 1:
+                required_tasks.append(
+                    f'task(logical_relations_agent, "Add cross-scene logical relations between scenes: {", ".join(scene_events)}")'
+                )
+            if enable_semantic_relations and len(scene_events) > 1:
+                required_tasks.append(
+                    f'task(semantic_relations_agent, "Add cross-scene semantic relations between scenes: {", ".join(scene_events)}")'
+                )
+            if required_tasks:
+                result['REQUIRED_NEXT'] = required_tasks
+                result['note'] = 'Call the above task(s) in parallel for cross-scene relations, then the story is complete.'
+
+            return result
         except Exception as e:
             return {'error': str(e)}
 

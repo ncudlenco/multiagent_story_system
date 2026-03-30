@@ -80,6 +80,8 @@ SEQUENTIAL SCENES:
 - Actors persist across scenes -- tell scene_builder which actor_ids already exist (e.g. "a0 is James, a1 is Sarah")
 - Tell scene_builder what new actors to create (name, gender, skin_id, is_extra)
 - Call move_actors between scenes to transition actors to the next region
+- After each scene completes: if end_scene returns REQUIRED_NEXT, call those tasks in parallel (relations agents)
+- After finalize_gest: if it returns REQUIRED_NEXT, call those tasks in parallel (cross-scene relations)
 
 {constraints}"""
 
@@ -216,9 +218,17 @@ def deep_agent_node(state: HybridState) -> Dict[str, Any]:
     capabilities_path = config.paths.simulation_environment_capabilities
     gen = SimpleGESTRandomGenerator(capabilities_path)
 
-    # Create tools bound to this generator
-    building_tools = create_building_tools(gen)
-    state_tools = create_state_tools(gen)
+    # Build config for tools
+    gen_cfg = GenerationConfig(**gen_config) if gen_config else GenerationConfig()
+    tool_config = {
+        'enable_concept_events': gen_cfg.enable_concept_events,
+        'enable_logical_relations': gen_cfg.enable_logical_relations,
+        'enable_semantic_relations': gen_cfg.enable_semantic_relations,
+    }
+
+    # Create tools bound to this generator with config
+    building_tools = create_building_tools(gen, config=tool_config)
+    state_tools = create_state_tools(gen, config=tool_config)
     finalize_tool = next(t for t in state_tools if t.name == 'finalize_gest')
 
     # Main agent tools: exploration + skins + finalize
@@ -239,11 +249,44 @@ def deep_agent_node(state: HybridState) -> Dict[str, Any]:
     # Define scene builder subagent
     scene_builder = SubAgent(
         name="scene_builder",
-        description="Builds one scene of the story as GEST events. Give it: episode, region, character names with actor_ids and skin_ids, and what should happen.",
+        description="Builds one scene of the story as GEST events. Give it: scene_id, action_name, narrative, episode, region, actor_ids, and what should happen.",
         system_prompt=SCENE_BUILDER_PROMPT,
         tools=scene_tools,
         model=model_name,
     )
+
+    # Define relations subagents (sibling to scene_builder, called by main agent)
+    all_subagents = [scene_builder]
+
+    if gen_cfg.enable_logical_relations:
+        logical_relations_agent = SubAgent(
+            name="logical_relations_agent",
+            description="Adds logical relations (causes, enables, prevents, etc.) between GEST events. Give it a list of event IDs to analyze.",
+            system_prompt=(
+                "You add logical relations between events in a simulation story graph. "
+                "Use add_logical_relation(source_event, target_event, relation_type) for each relation. "
+                "Types: causes, caused_by, enables, prevents, blocks, implies, requires, depends_on. "
+                "Analyze the events provided and add meaningful causal/dependency relations."
+            ),
+            tools=[t for t in building_tools if t.name == 'add_logical_relation'],
+            model=model_name,
+        )
+        all_subagents.append(logical_relations_agent)
+
+    if gen_cfg.enable_semantic_relations:
+        semantic_relations_agent = SubAgent(
+            name="semantic_relations_agent",
+            description="Adds semantic relations (narrative coherence) between GEST events. Give it a list of event IDs to analyze.",
+            system_prompt=(
+                "You add semantic relations for narrative coherence in a simulation story graph. "
+                "Use add_semantic_relation(event_id, relation_type, target_events) for each relation. "
+                "Types are free-text: observes, interrupts, reflects_on, contrasts_with, motivates, sets_context_for, etc. "
+                "Analyze the events provided and add meaningful narrative coherence relations."
+            ),
+            tools=[t for t in building_tools if t.name == 'add_semantic_relation'],
+            model=model_name,
+        )
+        all_subagents.append(semantic_relations_agent)
 
     # System prompt
     system_prompt = MAIN_AGENT_PROMPT.format(constraints=constraints)
@@ -260,7 +303,7 @@ def deep_agent_node(state: HybridState) -> Dict[str, Any]:
         model=model,
         tools=main_tools,
         system_prompt=system_prompt,
-        subagents=[scene_builder],
+        subagents=all_subagents,
         backend=backend,
     )
 
