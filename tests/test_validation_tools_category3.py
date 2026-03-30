@@ -90,8 +90,8 @@ class TestCheckRegionFeasibility:
         )
 
         assert result["feasible"] is True
-        assert "capacity_check" in result
-        assert "objects_check" in result
+        assert "capacity_ok" in result
+        assert "objects_available" in result
 
     def test_infeasible_overcapacity(self, minimal_capabilities, monkeypatch):
         """Test infeasibility due to actor overcapacity."""
@@ -106,7 +106,7 @@ class TestCheckRegionFeasibility:
         )
 
         assert result["feasible"] is False
-        assert "capacity" in result.get("reason", "").lower()
+        assert result["capacity_ok"] is False
 
     def test_infeasible_missing_objects(self, minimal_capabilities, monkeypatch):
         """Test infeasibility due to missing required objects."""
@@ -120,7 +120,8 @@ class TestCheckRegionFeasibility:
         )
 
         assert result["feasible"] is False
-        assert "objects" in result.get("reason", "").lower()
+        assert result["objects_available"] is False
+        assert len(result["missing_objects"]) > 0
 
     def test_feasible_with_available_objects(self, minimal_capabilities, monkeypatch):
         """Test feasibility with available objects."""
@@ -219,15 +220,22 @@ class TestScoreRegionFit:
         assert 0.0 <= result <= 1.0
 
     def test_score_nonexistent_region(self, minimal_capabilities, monkeypatch):
-        """Test scoring non-existent region."""
+        """Test scoring non-existent region scores low with real requirements."""
         monkeypatch.setattr("utils.validation_tools._get_capabilities", lambda: minimal_capabilities)
 
-        requirements = {"min_actor_capacity": 2}
+        # Use actor_count (the key score_region_fit actually reads) and
+        # required_objects to ensure nonexistent region scores poorly.
+        requirements = {
+            "actor_count": 2,
+            "required_objects": ["laptop"]
+        }
 
         result = score_region_fit("test_episode_1", "nonexistent_region", requirements)
 
         assert isinstance(result, float)
-        assert result == 0.0  # Non-existent region scores 0
+        # Non-existent region: capacity=0 (fails actor_count check -> 0),
+        # no objects (fails required_objects -> 0), no POIs (0).
+        assert result == 0.0
 
     def test_score_comparison(self, minimal_capabilities, monkeypatch):
         """Test scoring multiple regions for comparison."""

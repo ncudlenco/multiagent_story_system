@@ -13,54 +13,132 @@
             "max_actors": 6
           }
         ],
-        "points_of_interest": [
+        "pois": [
           {
-            "id": "chair_1",
-            "type": "chair",
+            "description": "poi for chair_1",
             "region": "test_region_office",
-            "actions": ["SitDown"]
+            "episode_links": [],
+            "actions": [
+              {
+                "type": "SitDown",
+                "possible_next_actions": [
+                  "StandUp"
+                ],
+                "requires_object": true,
+                "object_type": "Chair",
+                "entities": [
+                  "Actor",
+                  "Chair"
+                ]
+              }
+            ],
+            "interactions_only": false
           },
           {
-            "id": "chair_2",
-            "type": "chair",
+            "description": "poi for chair_2",
             "region": "test_region_office",
-            "actions": ["SitDown"]
+            "episode_links": [],
+            "actions": [
+              {
+                "type": "SitDown",
+                "possible_next_actions": [
+                  "StandUp"
+                ],
+                "requires_object": true,
+                "object_type": "Chair",
+                "entities": [
+                  "Actor",
+                  "Chair"
+                ]
+              }
+            ],
+            "interactions_only": false
           },
           {
-            "id": "desk_1",
-            "type": "desk",
+            "description": "poi for desk_1",
             "region": "test_region_office",
-            "actions": []
+            "episode_links": [],
+            "actions": [],
+            "interactions_only": false
           },
           {
-            "id": "phone_1",
-            "type": "phone",
+            "description": "poi for phone_1",
             "region": "test_region_office",
-            "actions": ["TalkPhone"]
+            "episode_links": [],
+            "actions": [
+              {
+                "type": "TalkPhone",
+                "possible_next_actions": [],
+                "requires_object": false,
+                "entities": [
+                  "Actor"
+                ]
+              }
+            ],
+            "interactions_only": false
           },
           {
-            "id": "computer_1",
-            "type": "computer",
+            "description": "poi for computer_1",
             "region": "test_region_office",
-            "actions": ["UseComputer"]
+            "episode_links": [],
+            "actions": [
+              {
+                "type": "UseComputer",
+                "possible_next_actions": [],
+                "requires_object": false,
+                "entities": [
+                  "Actor"
+                ]
+              }
+            ],
+            "interactions_only": false
           },
           {
-            "id": "bench_1",
-            "type": "bench",
+            "description": "poi for bench_1",
             "region": "test_region_park",
-            "actions": ["SitDown"]
+            "episode_links": [],
+            "actions": [
+              {
+                "type": "SitDown",
+                "possible_next_actions": [
+                  "StandUp"
+                ],
+                "requires_object": true,
+                "object_type": "Bench",
+                "entities": [
+                  "Actor",
+                  "Bench"
+                ]
+              }
+            ],
+            "interactions_only": false
           },
           {
-            "id": "bench_2",
-            "type": "bench",
+            "description": "poi for bench_2",
             "region": "test_region_park",
-            "actions": ["SitDown"]
+            "episode_links": [],
+            "actions": [
+              {
+                "type": "SitDown",
+                "possible_next_actions": [
+                  "StandUp"
+                ],
+                "requires_object": true,
+                "object_type": "Bench",
+                "entities": [
+                  "Actor",
+                  "Bench"
+                ]
+              }
+            ],
+            "interactions_only": false
           },
           {
-            "id": "tree_1",
-            "type": "tree",
+            "description": "poi for tree_1",
             "region": "test_region_park",
-            "actions": []
+            "episode_links": [],
+            "actions": [],
+            "interactions_only": false
           }
         ],
         "objects": [
@@ -69,49 +147,56 @@
             "type": "laptop",
             "region": "test_region_office",
             "pickupable": true,
-            "spawnable": false
+            "spawnable": false,
+            "object_id": "laptop_1"
           },
           {
             "id": "laptop_2",
             "type": "laptop",
             "region": "test_region_office",
             "pickupable": true,
-            "spawnable": false
+            "spawnable": false,
+            "object_id": "laptop_2"
           },
           {
             "id": "pen_1",
             "type": "pen",
             "region": "test_region_office",
             "pickupable": true,
-            "spawnable": true
+            "spawnable": true,
+            "object_id": "pen_1"
           },
           {
             "id": "coffee_cup_1",
             "type": "coffee_cup",
             "region": "test_region_office",
             "pickupable": true,
-            "spawnable": true
+            "spawnable": true,
+            "object_id": "coffee_cup_1"
           },
           {
             "id": "document_1",
             "type": "document",
             "region": "test_region_office",
             "pickupable": true,
-            "spawnable": true
+            "spawnable": true,
+            "object_id": "document_1"
           },
           {
             "id": "ball_1",
             "type": "ball",
             "region": "test_region_park",
             "pickupable": true,
-            "spawnable": true
+            "spawnable": true,
+            "object_id": "ball_1"
           },
           {
             "id": "book_1",
             "type": "book",
             "region": "test_region_park",
             "pickupable": true,
-            "spawnable": false
+            "spawnable": false,
+            "object_id": "book_1"
           }
         ]
       }
@@ -142,49 +227,81 @@
       "SitDown": {
         "requires_state": "standing",
         "creates_state": "sitting",
-        "next_actions": ["StandUp", "Talk", "Eat", "Drink"]
+        "next_actions": [
+          "StandUp",
+          "Talk",
+          "Eat",
+          "Drink"
+        ]
       },
       "StandUp": {
         "requires_state": "sitting",
         "creates_state": "standing",
-        "next_actions": ["Walk", "Run", "SitDown", "PickUp"]
+        "next_actions": [
+          "Walk",
+          "Run",
+          "SitDown",
+          "PickUp"
+        ]
       },
       "PickUp": {
         "requires_state": "standing",
         "requires_holding": false,
         "creates_holding": true,
-        "next_actions": ["Drop", "Give", "Walk"]
+        "next_actions": [
+          "Drop",
+          "Give",
+          "Walk"
+        ]
       },
       "Drop": {
         "requires_holding": true,
         "creates_holding": false,
-        "next_actions": ["Walk", "PickUp"]
+        "next_actions": [
+          "Walk",
+          "PickUp"
+        ]
       },
       "Give": {
         "requires_holding": true,
         "creates_holding": false,
         "synchronized_with": "INV-Give",
-        "next_actions": ["Talk", "Walk"]
+        "next_actions": [
+          "Talk",
+          "Walk"
+        ]
       },
       "INV-Give": {
         "requires_holding": false,
         "creates_holding": true,
         "synchronized_with": "Give",
-        "next_actions": ["Drop", "Give"]
+        "next_actions": [
+          "Drop",
+          "Give"
+        ]
       },
       "TalkPhone": {
         "requires_state": "standing",
         "requires_poi": "phone",
-        "next_actions": ["StandUp", "Walk"]
+        "next_actions": [
+          "StandUp",
+          "Walk"
+        ]
       },
       "UseComputer": {
         "requires_state": "sitting",
         "requires_poi": "computer",
-        "next_actions": ["StandUp"]
+        "next_actions": [
+          "StandUp"
+        ]
       },
       "Talk": {
         "synchronized_with": "Talk",
-        "next_actions": ["Walk", "Wave", "HandShake"]
+        "next_actions": [
+          "Walk",
+          "Wave",
+          "HandShake"
+        ]
       }
     },
     "spawnable_objects": [
