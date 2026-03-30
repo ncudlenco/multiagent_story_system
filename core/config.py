@@ -98,6 +98,31 @@ class GoogleDriveConfig(BaseModel):
     )
 
 
+class LLMConfig(BaseModel):
+    """Model-agnostic LLM configuration for hybrid generation."""
+    provider: Literal["openai", "anthropic", "ollama", "google"] = Field(
+        default="openai",
+        description="LLM provider"
+    )
+    model: str = Field(
+        default="gpt-4o",
+        description="Model name (e.g., 'gpt-4o', 'claude-sonnet-4-20250514', 'llama3', 'gemini-pro')"
+    )
+    temperature: float = Field(
+        default=0.7,
+        ge=0.0, le=2.0,
+        description="Sampling temperature"
+    )
+    api_key_env: str = Field(
+        default="OPENAI_API_KEY",
+        description="Environment variable name for the API key"
+    )
+    base_url: Optional[str] = Field(
+        default=None,
+        description="Custom base URL (e.g., 'http://localhost:11434/v1' for Ollama)"
+    )
+
+
 class Config(BaseModel):
     """
     Root configuration for the multiagent story system.
@@ -112,6 +137,7 @@ class Config(BaseModel):
     logging: LoggingConfig
     prompt_logging: PromptLoggingConfig = Field(default_factory=PromptLoggingConfig)
     google_drive: GoogleDriveConfig = Field(default_factory=GoogleDriveConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
 
     class Config:
         extra = "allow"  # Allow additional fields for extensibility
