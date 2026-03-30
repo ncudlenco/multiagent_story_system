@@ -47,7 +47,7 @@ class TestDryRunPipeline:
     """
 
     def test_full_pipeline(self):
-        """Complete pipeline: concept → casting → generation → validation."""
+        """Complete pipeline: concept -> casting -> generation -> validation."""
         gen = SimpleGESTRandomGenerator(CAPABILITIES_PATH)
         building = {t.name: t for t in create_building_tools(gen)}
         state = {t.name: t for t in create_state_tools(gen)}
@@ -81,6 +81,13 @@ class TestDryRunPipeline:
 
         # === STAGE 3: Build GEST (what the generation agent would do) ===
 
+        # Create story
+        r = building["create_story"].invoke({
+            "title": "OfficeMeeting",
+            "narrative": "Two office workers discuss a project over coffee."
+        })
+        assert "story_id" in r, f"create_story failed: {r}"
+
         # Create actors
         r1 = building["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": skin_m, "region": "kitchen"
@@ -98,11 +105,25 @@ class TestDryRunPipeline:
         actors = state["get_current_actors"].invoke({})
         assert len(actors) == 2
 
+        # Start scene
+        r = building["start_scene"].invoke({
+            "scene_id": "scene_1",
+            "action_name": "CoffeePreparation",
+            "narrative": "Bob and Alice prepare coffee in the kitchen.",
+            "episode": "house9",
+            "region": "kitchen",
+            "actor_ids": [bob_id, alice_id]
+        })
+        assert "error" not in r, f"start_scene failed: {r}"
+
+        # Start round 1: main action
+        building["start_round"].invoke({"setup": False})
+
         # Find SitDown POIs in kitchen
         pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
         sit_pois = [p for p in pois if p.get("first_action_type") == "SitDown"]
 
-        # Bob: SitDown → OpenLaptop → TypeOnKeyboard → CloseLaptop → StandUp
+        # Bob: SitDown -> OpenLaptop -> TypeOnKeyboard -> CloseLaptop -> StandUp
         assert len(sit_pois) >= 2, f"Need at least 2 SitDown POIs, found {len(sit_pois)}"
 
         # Bob's chain
@@ -111,9 +132,6 @@ class TestDryRunPipeline:
         })
         assert "event_id" in r, f"start_chain failed: {r}"
         bob_sit_event = r["event_id"]
-
-        # Start camera recording at Bob sitting
-        building["start_recording"].invoke({"event_id": bob_sit_event})
 
         # Continue Bob's chain if OpenLaptop is available
         if "OpenLaptop" in r.get("next_actions", []):
@@ -128,6 +146,9 @@ class TestDryRunPipeline:
             r = building["continue_chain"].invoke({"actor_id": bob_id, "next_action": "StandUp"})
 
         building["end_chain"].invoke({"actor_id": bob_id})
+
+        # Start camera recording at Bob sitting (committed now)
+        building["start_recording"].invoke({"event_id": bob_sit_event})
 
         # Alice: spawnable phone call chain
         r = building["start_spawnable_chain"].invoke({
@@ -165,6 +186,10 @@ class TestDryRunPipeline:
             "relation_type": "motivates",
             "target_events": [last_event]
         })
+
+        # End round and scene
+        building["end_round"].invoke({})
+        building["end_scene"].invoke({})
 
         # === VALIDATION ===
 
@@ -228,11 +253,22 @@ class TestDryRunPipeline:
         building = {t.name: t for t in create_building_tools(gen)}
         state = {t.name: t for t in create_state_tools(gen)}
 
-        # Create actor in kitchen
+        # Create story and actor
+        building["create_story"].invoke({
+            "title": "MultiRegion", "narrative": "Bob moves between rooms."
+        })
         r = building["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 0, "region": "kitchen"
         })
         bob_id = r["actor_id"]
+
+        # Scene 1: kitchen
+        building["start_scene"].invoke({
+            "scene_id": "scene_1", "action_name": "KitchenSmoke",
+            "narrative": "Bob smokes in kitchen.", "episode": "house9",
+            "region": "kitchen", "actor_ids": [bob_id]
+        })
+        building["start_round"].invoke({"setup": False})
 
         # Bob does spawnable chain in kitchen
         building["start_spawnable_chain"].invoke({
@@ -242,9 +278,12 @@ class TestDryRunPipeline:
             building["continue_chain"].invoke({"actor_id": bob_id, "next_action": action})
         building["end_chain"].invoke({"actor_id": bob_id})
 
-        # Move Bob to livingroom
-        r = building["move_actor"].invoke({"actor_id": bob_id, "to_region": "livingroom"})
-        assert r.get("success") is True, f"move_actor failed: {r}"
+        building["end_round"].invoke({})
+        building["end_scene"].invoke({})
+
+        # Move Bob to livingroom (IDLE state)
+        r = building["move_actors"].invoke({"actor_ids": [bob_id], "to_region": "livingroom"})
+        assert r.get("success") is True, f"move_actors failed: {r}"
 
         # Verify actor moved
         actor_state = state["get_actor_state"].invoke({"actor_id": bob_id})
@@ -258,7 +297,7 @@ class TestDryRunPipeline:
         meta_keys = {"temporal", "spatial", "semantic", "logical", "camera"}
         event_count = sum(1 for k in gest if k not in meta_keys)
 
-        print(f"\nMulti-region pipeline: {event_count} events, move kitchen→livingroom")
+        print(f"\nMulti-region pipeline: {event_count} events, move kitchen->livingroom")
 
     def test_interleaved_spawnable_chains(self):
         """Test that two actors can have active spawnable chains simultaneously."""
@@ -266,8 +305,20 @@ class TestDryRunPipeline:
         building = {t.name: t for t in create_building_tools(gen)}
         state = {t.name: t for t in create_state_tools(gen)}
 
+        # Create story and actors
+        building["create_story"].invoke({
+            "title": "InterleavedChains", "narrative": "Two actors interleave chains."
+        })
         building["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
         building["create_actor"].invoke({"name": "B", "gender": 2, "skin_id": 1, "region": "kitchen"})
+
+        # Start scene and round
+        building["start_scene"].invoke({
+            "scene_id": "scene_1", "action_name": "KitchenActivity",
+            "narrative": "Interleaved activity.", "episode": "house9",
+            "region": "kitchen", "actor_ids": ["a0", "a1"]
+        })
+        building["start_round"].invoke({"setup": False})
 
         # Start phone chain for A
         building["start_spawnable_chain"].invoke({
@@ -295,6 +346,10 @@ class TestDryRunPipeline:
         building["continue_chain"].invoke({"actor_id": "a1", "next_action": "SmokeOut"})
         building["continue_chain"].invoke({"actor_id": "a1", "next_action": "Stash"})
         building["end_chain"].invoke({"actor_id": "a1"})
+
+        # End round and scene
+        building["end_round"].invoke({})
+        building["end_scene"].invoke({})
 
         result = state["finalize_gest"].invoke({})
         assert result.get("success") is True

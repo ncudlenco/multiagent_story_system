@@ -45,6 +45,18 @@ class GenerationConfig(BaseModel):
         ge=5, le=100,
         description="Maximum events per scene"
     )
+    enable_concept_events: bool = Field(
+        default=True,
+        description="Create scene/story parent events in GEST (disable to save budget when debugging)"
+    )
+    enable_logical_relations: bool = Field(
+        default=True,
+        description="Run logical relations subagent after rounds/scenes/finalize"
+    )
+    enable_semantic_relations: bool = Field(
+        default=True,
+        description="Run semantic relations subagent after rounds/scenes/finalize"
+    )
 
 
 class CharacterDescription(BaseModel):
