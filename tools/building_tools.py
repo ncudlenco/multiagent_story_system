@@ -372,13 +372,30 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
                     gen.events[sid]['Properties']['child_scenes'].append(scene_id)
 
         scene_number = len(scene_boundaries)
+        all_scene_events = list(current_scene_events)
+
         result = {
             'success': True,
             'scene_id': scene_id,
             'scene_number': scene_number,
-            'events_in_scene': len(current_scene_events),
+            'events_in_scene': len(all_scene_events),
+            'scene_event_ids': all_scene_events,
             'actor_boundaries': boundaries
         }
+
+        # Directive: call relations subagents for whole scene if enabled
+        required_tasks = []
+        if enable_logical_relations and all_scene_events:
+            required_tasks.append(
+                f'task(logical_relations_agent, "Add logical relations across all events in scene {scene_id}: {", ".join(all_scene_events[:20])}")'
+            )
+        if enable_semantic_relations and all_scene_events:
+            required_tasks.append(
+                f'task(semantic_relations_agent, "Add semantic relations across all events in scene {scene_id}: {", ".join(all_scene_events[:20])}")'
+            )
+        if required_tasks:
+            result['REQUIRED_NEXT'] = required_tasks
+            result['note'] = 'Call the above task(s) in parallel for scene-level relations.'
 
         # Reset scene state
         current_scene_id['value'] = None
@@ -476,7 +493,8 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         return {
             'success': True,
             'events_in_round': len(round_events),
-            'actors_active': list(round_last_events.keys())
+            'actors_active': list(round_last_events.keys()),
+            'round_event_ids': list(round_events)
         }
 
     # =========================================================================

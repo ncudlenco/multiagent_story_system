@@ -1685,3 +1685,163 @@ class TestStateTool:
         assert result.get("success") is True
         assert "gest" in result
         assert "temporal" in result["gest"]
+
+
+# =============================================================================
+# RELATIONS DIRECTIVES
+# =============================================================================
+
+class TestRelationsDirectives:
+    """Test that end_scene and finalize_gest return directives when relations are enabled."""
+
+    def test_end_scene_returns_directive_when_enabled(self):
+        """end_scene returns REQUIRED_NEXT with relations tasks when enabled."""
+        gen = SimpleGESTRandomGenerator(CAPABILITIES_PATH)
+        bt = {t.name: t for t in create_building_tools(gen, config={
+            'enable_logical_relations': True,
+            'enable_semantic_relations': True,
+        })}
+
+        _init_story(bt)
+        bt["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        _start_kitchen_scene(bt, ["a0"])
+        _start_round(bt)
+
+        bt["start_spawnable_chain"].invoke({"actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"})
+        for a in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+            bt["continue_chain"].invoke({"actor_id": "a0", "next_action": a})
+        bt["end_chain"].invoke({"actor_id": "a0"})
+
+        _end_round(bt)
+
+        result = bt["end_scene"].invoke({})
+        assert result.get("success") is True
+        assert "REQUIRED_NEXT" in result
+        assert len(result["REQUIRED_NEXT"]) == 2  # logical + semantic
+        assert any("logical_relations_agent" in t for t in result["REQUIRED_NEXT"])
+        assert any("semantic_relations_agent" in t for t in result["REQUIRED_NEXT"])
+
+    def test_end_scene_no_directive_when_disabled(self):
+        """end_scene does NOT return REQUIRED_NEXT when relations are disabled."""
+        gen = SimpleGESTRandomGenerator(CAPABILITIES_PATH)
+        bt = {t.name: t for t in create_building_tools(gen, config={
+            'enable_logical_relations': False,
+            'enable_semantic_relations': False,
+        })}
+
+        _init_story(bt)
+        bt["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        _start_kitchen_scene(bt, ["a0"])
+        _start_round(bt)
+
+        bt["start_spawnable_chain"].invoke({"actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"})
+        for a in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+            bt["continue_chain"].invoke({"actor_id": "a0", "next_action": a})
+        bt["end_chain"].invoke({"actor_id": "a0"})
+
+        _end_round(bt)
+
+        result = bt["end_scene"].invoke({})
+        assert result.get("success") is True
+        assert "REQUIRED_NEXT" not in result
+
+    def test_end_scene_only_logical_when_semantic_disabled(self):
+        """Only logical directive when semantic is disabled."""
+        gen = SimpleGESTRandomGenerator(CAPABILITIES_PATH)
+        bt = {t.name: t for t in create_building_tools(gen, config={
+            'enable_logical_relations': True,
+            'enable_semantic_relations': False,
+        })}
+
+        _init_story(bt)
+        bt["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        _start_kitchen_scene(bt, ["a0"])
+        _start_round(bt)
+
+        bt["start_spawnable_chain"].invoke({"actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"})
+        for a in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+            bt["continue_chain"].invoke({"actor_id": "a0", "next_action": a})
+        bt["end_chain"].invoke({"actor_id": "a0"})
+
+        _end_round(bt)
+
+        result = bt["end_scene"].invoke({})
+        assert result.get("success") is True
+        assert "REQUIRED_NEXT" in result
+        assert len(result["REQUIRED_NEXT"]) == 1
+        assert "logical_relations_agent" in result["REQUIRED_NEXT"][0]
+
+    def test_finalize_returns_directive_for_cross_scene(self):
+        """finalize_gest returns REQUIRED_NEXT for cross-scene relations with multiple scenes."""
+        gen = SimpleGESTRandomGenerator(CAPABILITIES_PATH)
+        bt = {t.name: t for t in create_building_tools(gen, config={
+            'enable_logical_relations': True,
+            'enable_semantic_relations': True,
+        })}
+        st = {t.name: t for t in create_state_tools(gen, config={
+            'enable_logical_relations': True,
+            'enable_semantic_relations': True,
+        })}
+
+        _init_story(bt)
+        bt["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+
+        # Scene 1
+        _start_kitchen_scene(bt, ["a0"])
+        _start_round(bt)
+        bt["start_spawnable_chain"].invoke({"actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"})
+        for a in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+            bt["continue_chain"].invoke({"actor_id": "a0", "next_action": a})
+        bt["end_chain"].invoke({"actor_id": "a0"})
+        _end_round(bt)
+        bt["end_scene"].invoke({})
+
+        # Scene 2
+        bt["start_scene"].invoke({
+            "scene_id": "scene_2", "action_name": "Scene2",
+            "narrative": "Second scene.", "episode": "house9",
+            "region": "kitchen", "actor_ids": ["a0"]
+        })
+        _start_round(bt)
+        bt["start_spawnable_chain"].invoke({"actor_id": "a0", "spawnable_type": "Cigarette", "region": "kitchen"})
+        for a in ["SmokeIn", "Smoke", "SmokeOut", "Stash"]:
+            bt["continue_chain"].invoke({"actor_id": "a0", "next_action": a})
+        bt["end_chain"].invoke({"actor_id": "a0"})
+        _end_round(bt)
+        bt["end_scene"].invoke({})
+
+        # Finalize -- should have cross-scene directive
+        result = st["finalize_gest"].invoke({})
+        assert result.get("success") is True
+        assert "REQUIRED_NEXT" in result
+        assert len(result["REQUIRED_NEXT"]) == 2
+        assert any("logical_relations_agent" in t for t in result["REQUIRED_NEXT"])
+        assert any("semantic_relations_agent" in t for t in result["REQUIRED_NEXT"])
+
+    def test_finalize_no_directive_single_scene(self):
+        """finalize_gest does NOT return cross-scene directive with only 1 scene."""
+        gen = SimpleGESTRandomGenerator(CAPABILITIES_PATH)
+        bt = {t.name: t for t in create_building_tools(gen, config={
+            'enable_logical_relations': True,
+            'enable_semantic_relations': True,
+        })}
+        st = {t.name: t for t in create_state_tools(gen, config={
+            'enable_logical_relations': True,
+            'enable_semantic_relations': True,
+        })}
+
+        _init_story(bt)
+        bt["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        _start_kitchen_scene(bt, ["a0"])
+        _start_round(bt)
+        bt["start_spawnable_chain"].invoke({"actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"})
+        for a in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+            bt["continue_chain"].invoke({"actor_id": "a0", "next_action": a})
+        bt["end_chain"].invoke({"actor_id": "a0"})
+        _end_round(bt)
+        bt["end_scene"].invoke({})
+
+        result = st["finalize_gest"].invoke({})
+        assert result.get("success") is True
+        # Only 1 scene -- no cross-scene relations needed
+        assert "REQUIRED_NEXT" not in result
