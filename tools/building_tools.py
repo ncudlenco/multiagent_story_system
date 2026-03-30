@@ -5,6 +5,17 @@ These tools mutate the GEST state by wrapping the SimpleGESTRandomGenerator's
 internal methods at a semantic level. The LLM agent never sees temporal chains,
 object lifecycle, or structural details -- it just gets success/error responses.
 
+A transaction-based state machine enforces correct ordering:
+    IDLE -> create_story -> STORY_CREATED
+    STORY_CREATED -> create_actor -> STORY_CREATED
+    STORY_CREATED -> start_scene -> IN_SCENE
+    IN_SCENE -> start_round -> IN_ROUND
+    IN_ROUND -> (chains, interactions, ...) -> end_round -> IN_SCENE
+    IN_SCENE -> end_scene -> IDLE
+    IDLE -> move_actors -> IDLE
+    IDLE -> create_actor -> IDLE
+    IDLE -> start_scene -> IN_SCENE
+
 Tools are created via create_building_tools() which takes a generator instance
 and returns tool functions bound to it via closures.
 """
@@ -18,16 +29,56 @@ from simple_gest_random_generator import (
 )
 
 
-def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
+# Valid state machine transitions (enforced by _require_state)
+STATES = {'IDLE', 'STORY_CREATED', 'IN_SCENE', 'IN_ROUND'}
+
+# Objects requiring exclusive per-actor POI access (aligned with POICapacityTracker)
+EXCLUSIVE_POI_OBJECTS = {"Chair", "Sofa", "ArmChair", "Bed", "BenchPress", "GymBike"}
+
+
+def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[str, Any]] = None) -> List:
     """
     Create building tools bound to a specific generator instance.
 
     Args:
         gen: Initialized SimpleGESTRandomGenerator holding GEST state.
+        config: Optional dict with keys:
+            enable_concept_events (bool): Create scene/story parent events. Default True.
+            enable_logical_relations (bool): Enable logical relation tool. Default True.
+            enable_semantic_relations (bool): Enable semantic relation tool. Default True.
 
     Returns:
         List of LangChain tool functions.
     """
+    if config is None:
+        config = {}
+    enable_concept_events = config.get('enable_concept_events', True)
+    enable_logical_relations = config.get('enable_logical_relations', True)
+    enable_semantic_relations = config.get('enable_semantic_relations', True)
+
+    # =========================================================================
+    # STATE MACHINE
+    # =========================================================================
+
+    state = {'current': 'IDLE'}
+
+    # Story tracking
+    story_id: Dict[str, Optional[str]] = {'value': None}
+
+    # Scene tracking
+    current_scene_id: Dict[str, Optional[str]] = {'value': None}
+    current_scene_episode: Dict[str, Optional[str]] = {'value': None}
+    current_scene_region: Dict[str, Optional[str]] = {'value': None}
+    current_scene_events: List[str] = []  # event IDs created in this scene
+    scene_boundaries: List[Dict[str, str]] = []  # per-scene {actor_id: last_event_id}
+    scene_order: List[str] = []  # ordered list of scene IDs
+
+    # Round tracking
+    round_events: List[str] = []  # event IDs created in current round
+    round_first_events: Dict[str, str] = {}  # {actor_id: first_event_id} in current round
+    round_last_events: Dict[str, str] = {}  # {actor_id: last_event_id} in current round
+    previous_round_last_events: Dict[str, str] = {}  # from previous round
+    round_is_setup: Dict[str, bool] = {'value': False}
 
     # Track active chains per actor (temp buffers)
     active_chains: Dict[str, Dict[str, Any]] = {}
@@ -40,8 +91,79 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
     if not hasattr(gen, 'semantic'):
         gen.semantic = {}
 
+    def _require_state(*allowed_states: str) -> Optional[Dict[str, Any]]:
+        """Return error dict if current state is not in allowed_states, else None."""
+        if state['current'] not in allowed_states:
+            return {
+                'error': f'Invalid state: current state is {state["current"]}, '
+                         f'expected one of {list(allowed_states)}'
+            }
+        return None
+
+    def _track_round_event(actor_id: str, event_id: str) -> None:
+        """Track an event in the current round for cross-round ordering."""
+        round_events.append(event_id)
+        if actor_id not in round_first_events:
+            round_first_events[actor_id] = event_id
+        round_last_events[actor_id] = event_id
+
+    def _track_scene_event(event_id: str) -> None:
+        """Track an event as a child of the current scene."""
+        if event_id not in current_scene_events:
+            current_scene_events.append(event_id)
+
+    # =========================================================================
+    # STORY TOOL
+    # =========================================================================
+
     @tool
-    def create_actor(name: str, gender: int, skin_id: int, region: str) -> Dict[str, Any]:
+    def create_story(title: str, narrative: str) -> Dict[str, Any]:
+        """Create the root story event. Must be called first before any other actions.
+
+        Args:
+            title: Story title (used as the Action name of the root event)
+            narrative: Full story narrative text
+
+        Returns:
+            Dict with story_id on success, or error message.
+        """
+        if state['current'] not in ('IDLE', 'STORY_CREATED'):
+            err = _require_state('IDLE', 'STORY_CREATED')
+            if err:
+                return err
+
+        if story_id['value'] is not None:
+            return {'error': 'Story already created. Only one story per generation.'}
+
+        if enable_concept_events:
+            sid = "story_root"
+            gen.events[sid] = {
+                'Action': title,
+                'Entities': [],
+                'Location': [],
+                'Timeframe': None,
+                'Properties': {
+                    'scene_type': 'parent',
+                    'parent_scene': None,
+                    'child_scenes': [],
+                    'narrative': narrative
+                }
+            }
+            story_id['value'] = sid
+        else:
+            # Even without concept events, track the story ID for scene linking
+            story_id['value'] = '__story__'
+
+        state['current'] = 'STORY_CREATED'
+        return {'story_id': story_id['value'], 'title': title}
+
+    # =========================================================================
+    # ACTOR TOOL
+    # =========================================================================
+
+    @tool
+    def create_actor(name: str, gender: int, skin_id: int, region: str,
+                     is_extra: bool = False) -> Dict[str, Any]:
         """Create an actor in the story world.
         Creates the Exists event and initializes actor tracking.
 
@@ -50,10 +172,15 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
             gender: 1 for male, 2 for female
             skin_id: Skin ID from casting (integer 0-310)
             region: Starting region name
+            is_extra: True for background/extra actors (default False)
 
         Returns:
             Dict with actor_id and event_id on success, or error message.
         """
+        err = _require_state('STORY_CREATED', 'IDLE')
+        if err:
+            return err
+
         try:
             actor_id = f"a{len(gen.actors)}"
             actor = Actor(
@@ -66,13 +193,295 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
             event_id = gen._create_actor_exists(actor)
             gen._initialize_actor_spawnables(actor_id)
 
-            # Store name and skin_id in the Exists event properties
+            # Store name, skin_id, and extra flag in the Exists event properties
             gen.events[event_id]['Properties']['Name'] = name
             gen.events[event_id]['Properties']['SkinId'] = skin_id
+            gen.events[event_id]['Properties']['IsBackgroundActor'] = is_extra
 
             return {'actor_id': actor_id, 'event_id': event_id, 'region': region}
         except Exception as e:
             return {'error': str(e)}
+
+    # =========================================================================
+    # SCENE TOOLS
+    # =========================================================================
+
+    @tool
+    def start_scene(scene_id: str, action_name: str, narrative: str,
+                    episode: str, region: str, actor_ids: List[str],
+                    new_actors: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Start a new scene. All actions in this scene happen in the same region.
+
+        Args:
+            scene_id: Unique scene identifier (e.g., 'scene_1')
+            action_name: Scene action name (e.g., 'CoffeePreparation')
+            narrative: Scene description text
+            episode: Episode name containing POIs for this scene
+            region: Region where this scene takes place
+            actor_ids: List of actor IDs participating in this scene
+            new_actors: Optional list of new actors to create, each a dict with
+                        keys: name, gender, skin_id, region, is_extra
+
+        Returns:
+            Dict with scene info, available POIs, and region capacity.
+        """
+        err = _require_state('STORY_CREATED', 'IDLE')
+        if err:
+            return err
+
+        # Validate actors exist
+        for aid in actor_ids:
+            if aid not in gen.actors:
+                return {'error': f'Actor {aid} not found'}
+
+        # Create new actors if requested
+        created_actors = []
+        if new_actors:
+            for actor_def in new_actors:
+                r = create_actor.invoke({
+                    'name': actor_def['name'],
+                    'gender': actor_def['gender'],
+                    'skin_id': actor_def['skin_id'],
+                    'region': actor_def.get('region', region),
+                    'is_extra': actor_def.get('is_extra', True),
+                })
+                if 'error' in r:
+                    return {'error': f'Failed to create actor {actor_def["name"]}: {r["error"]}'}
+                created_actors.append(r['actor_id'])
+                actor_ids = list(actor_ids) + [r['actor_id']]
+
+        # Create leaf scene event if concept events enabled
+        if enable_concept_events:
+            gen.events[scene_id] = {
+                'Action': action_name,
+                'Entities': list(actor_ids),
+                'Location': [region],
+                'Timeframe': None,
+                'Properties': {
+                    'scene_type': 'leaf',
+                    'parent_scene': story_id['value'],
+                    'child_scenes': [],
+                    'narrative': narrative
+                }
+            }
+
+            # Add temporal: previous scene -> this scene
+            if scene_order:
+                prev_scene_id = scene_order[-1]
+                if prev_scene_id in gen.events:
+                    # Ensure temporal entries exist
+                    if prev_scene_id not in gen.temporal:
+                        gen.temporal[prev_scene_id] = {'relations': [], 'next': None}
+                    if scene_id not in gen.temporal:
+                        gen.temporal[scene_id] = {'relations': [], 'next': None}
+                    gen._add_before_relation(prev_scene_id, scene_id)
+
+        # Initialize POI capacity for this episode
+        ep_data = None
+        for ep in gen.capabilities.get('episodes', []):
+            if ep.get('name') == episode:
+                ep_data = ep
+                break
+        if not ep_data:
+            return {'error': f'Episode "{episode}" not found'}
+
+        if episode not in initialized_episodes:
+            if gen.poi_capacity_tracker is None:
+                gen.poi_capacity_tracker = POICapacityTracker()
+            gen.poi_capacity_tracker.init_from_episode(ep_data)
+            gen.current_episode_name = episode
+            initialized_episodes.add(episode)
+
+        # Update state
+        current_scene_id['value'] = scene_id
+        current_scene_episode['value'] = episode
+        current_scene_region['value'] = region
+        current_scene_events.clear()
+        round_events.clear()
+        round_first_events.clear()
+        round_last_events.clear()
+        previous_round_last_events.clear()
+        scene_order.append(scene_id)
+
+        state['current'] = 'IN_SCENE'
+
+        # Gather region info for the response
+        region_info = {}
+        for region_data in ep_data.get('regions', []):
+            if region_data.get('name') == region:
+                obj_counts = {}
+                for obj in region_data.get('objects', []):
+                    # Objects can be strings like "Drinks (glass of beer)" or dicts
+                    if isinstance(obj, dict):
+                        otype = obj.get('type', 'Unknown')
+                    else:
+                        # Extract type from string format "Type (description)"
+                        otype = str(obj).split('(')[0].strip() if '(' in str(obj) else str(obj)
+                    obj_counts[otype] = obj_counts.get(otype, 0) + 1
+                region_info = {
+                    'object_counts': obj_counts,
+                    'total_objects': len(region_data.get('objects', []))
+                }
+                break
+
+        result = {
+            'scene_id': scene_id,
+            'episode': episode,
+            'region': region,
+            'actors': actor_ids,
+            'region_info': region_info
+        }
+        if created_actors:
+            result['created_actors'] = created_actors
+
+        return result
+
+    @tool
+    def end_scene() -> Dict[str, Any]:
+        """End the current scene. All rounds must be ended first.
+        Populates the scene event's child_scenes with all detail event IDs.
+        Stores boundary data for cross-scene temporal linking.
+
+        Returns:
+            Dict with scene summary.
+        """
+        err = _require_state('IN_SCENE')
+        if err:
+            return err
+
+        # Reject if any chains are still active
+        for actor_id in active_chains:
+            return {'error': f'Actor {actor_id} still has an active chain. Call end_chain first.'}
+
+        # Store boundaries: each actor's last event in this scene
+        boundaries = {}
+        for actor_id, actor in gen.actors.items():
+            if actor.last_event_id and actor.last_event_id != actor_id:
+                boundaries[actor_id] = actor.last_event_id
+        scene_boundaries.append(boundaries)
+
+        # Populate child_scenes on the scene event
+        scene_id = current_scene_id['value']
+        if enable_concept_events and scene_id in gen.events:
+            gen.events[scene_id]['Properties']['child_scenes'] = list(current_scene_events)
+
+            # Also add this scene to story's child_scenes
+            sid = story_id['value']
+            if sid and sid in gen.events:
+                if scene_id not in gen.events[sid]['Properties']['child_scenes']:
+                    gen.events[sid]['Properties']['child_scenes'].append(scene_id)
+
+        scene_number = len(scene_boundaries)
+        result = {
+            'success': True,
+            'scene_id': scene_id,
+            'scene_number': scene_number,
+            'events_in_scene': len(current_scene_events),
+            'actor_boundaries': boundaries
+        }
+
+        # Reset scene state
+        current_scene_id['value'] = None
+        current_scene_episode['value'] = None
+        current_scene_region['value'] = None
+
+        state['current'] = 'IDLE'
+        return result
+
+    # =========================================================================
+    # ROUND TOOLS
+    # =========================================================================
+
+    @tool
+    def start_round(setup: bool = False) -> Dict[str, Any]:
+        """Start a new round within the current scene. A round is one parallel moment
+        where all actors do things simultaneously.
+
+        Args:
+            setup: True for an off-camera preparation round (extras sit, props placed).
+                   False for an on-camera round (default).
+
+        Returns:
+            Dict with round info and actors in scene.
+        """
+        err = _require_state('IN_SCENE')
+        if err:
+            return err
+
+        # Link previous round's last events to this round's first events
+        # (will be done when first events are created in _track_round_event)
+        previous_round_last_events.clear()
+        previous_round_last_events.update(round_last_events)
+
+        # Reset round tracking
+        round_events.clear()
+        round_first_events.clear()
+        round_last_events.clear()
+        round_is_setup['value'] = setup
+
+        state['current'] = 'IN_ROUND'
+
+        actors_in_scene = []
+        for aid, actor in gen.actors.items():
+            actors_in_scene.append({
+                'actor_id': aid,
+                'state': actor.state.value,
+                'region': actor.current_location
+            })
+
+        return {
+            'success': True,
+            'setup': setup,
+            'actors': actors_in_scene
+        }
+
+    @tool
+    def end_round() -> Dict[str, Any]:
+        """End the current round. All actor chains must be committed (ended) first.
+        Adds cross-actor BEFORE relations so this round finishes before the next starts.
+
+        Returns:
+            Dict with round summary.
+        """
+        err = _require_state('IN_ROUND')
+        if err:
+            return err
+
+        # Reject if any chains are still active
+        for actor_id in active_chains:
+            return {'error': f'Actor {actor_id} still has an active chain. Call end_chain first.'}
+
+        # Add cross-actor BEFORE relations from previous round to this round
+        # For each actor's last event in previous round, add before relation
+        # to each OTHER actor's first event in this round
+        if previous_round_last_events and round_first_events:
+            for prev_actor, prev_last in previous_round_last_events.items():
+                for curr_actor, curr_first in round_first_events.items():
+                    if prev_actor != curr_actor:
+                        # Ensure temporal entries exist
+                        if prev_last not in gen.temporal:
+                            gen.temporal[prev_last] = {'relations': [], 'next': None}
+                        if curr_first not in gen.temporal:
+                            gen.temporal[curr_first] = {'relations': [], 'next': None}
+
+                        if not _would_create_cycle(prev_last, curr_first):
+                            gen._add_before_relation(prev_last, curr_first)
+
+        # Track all round events as scene events
+        for eid in round_events:
+            _track_scene_event(eid)
+
+        state['current'] = 'IN_SCENE'
+
+        return {
+            'success': True,
+            'events_in_round': len(round_events),
+            'actors_active': list(round_last_events.keys())
+        }
+
+    # =========================================================================
+    # CHAIN TOOLS
+    # =========================================================================
 
     @tool
     def start_chain(actor_id: str, episode: str, poi_index: int) -> Dict[str, Any]:
@@ -88,6 +497,10 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
             Dict with event_id, action performed, object_id if any, and next_actions list.
             Or error dict if the action is invalid.
         """
+        err = _require_state('IN_ROUND')
+        if err:
+            return err
+
         if actor_id not in gen.actors:
             return {'error': f'Actor {actor_id} not found'}
 
@@ -227,6 +640,10 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
         Returns:
             Dict with event_id, action ('TakeOut'), object_id, and next_actions.
         """
+        err = _require_state('IN_ROUND')
+        if err:
+            return err
+
         if actor_id not in gen.actors:
             return {'error': f'Actor {actor_id} not found'}
 
@@ -412,10 +829,8 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
                 obj_type = next_def.get('object_type', '')
 
                 # If the actor is holding an object of the right type, reuse it
-                # (e.g., PickUp Drinks → Drink Drinks → PutDown Drinks should all use the same object)
                 held = chain['temp_actor_state'].get('holding_object')
                 if held:
-                    # Check if held object matches the required type
                     held_event = chain['temp_events'].get(held) or gen.events.get(held, {})
                     held_type = held_event.get('Properties', {}).get('Type', '')
                     if held_type == obj_type:
@@ -478,6 +893,12 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
 
         events_count = len(chain['temp_events'])
 
+        # Refuse to commit if actor is not standing -- chain must be properly finished
+        temp_state = chain['temp_actor_state'].get('state', actor.state)
+        if temp_state != ActorState.STANDING:
+            hint = 'StandUp' if temp_state == ActorState.SITTING else 'GetOff' if temp_state == ActorState.SLEEPING else 'appropriate action'
+            return {'error': f'Cannot end chain: actor {actor_id} is {temp_state.value}. Call continue_chain with {hint} first.'}
+
         gen._commit_temp_chain(
             chain['temp_events'],
             chain['temp_temporal'],
@@ -488,15 +909,18 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
             chain['original_last_event_id']
         )
 
-        # Refuse to commit if actor is not standing -- chain must be properly finished
-        temp_state = chain['temp_actor_state'].get('state', actor.state)
-        if temp_state != ActorState.STANDING:
-            hint = 'StandUp' if temp_state == ActorState.SITTING else 'GetOff' if temp_state == ActorState.SLEEPING else 'appropriate action'
-            return {'error': f'Cannot end chain: actor {actor_id} is {temp_state.value}. Call continue_chain with {hint} first.'}
+        # Track committed events in the round and scene
+        for eid in chain['temp_events']:
+            _track_round_event(actor_id, eid)
+            _track_scene_event(eid)
 
         del active_chains[actor_id]
 
         return {'success': True, 'events_committed': events_count}
+
+    # =========================================================================
+    # INTERACTION TOOL
+    # =========================================================================
 
     @tool
     def do_interaction(actor1_id: str, actor2_id: str, interaction_type: str, region: str) -> Dict[str, Any]:
@@ -513,6 +937,10 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
         Returns:
             Dict with event IDs for both actors and the relation ID.
         """
+        err = _require_state('IN_ROUND')
+        if err:
+            return err
+
         if actor1_id not in gen.actors:
             return {'error': f'Actor {actor1_id} not found'}
         if actor2_id not in gen.actors:
@@ -557,6 +985,12 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
             )
             gen._create_interaction(actor1, actor2, interaction_type, region, dummy_poi)
 
+            # Track interaction events in round/scene
+            _track_round_event(actor1_id, actor1.last_event_id)
+            _track_round_event(actor2_id, actor2.last_event_id)
+            _track_scene_event(actor1.last_event_id)
+            _track_scene_event(actor2.last_event_id)
+
             return {
                 'success': True,
                 'events': [actor1.last_event_id, actor2.last_event_id],
@@ -565,244 +999,133 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
         except Exception as e:
             return {'error': str(e)}
 
-    @tool
-    def give_object(giver_id: str, receiver_id: str, object_type: str, region: str) -> Dict[str, Any]:
-        """Give an object from one actor to another.
-        Giver must be holding the object. Both actors must be standing and in the same region.
-        Handles all synchronization internally.
-
-        Args:
-            giver_id: Actor giving the object
-            receiver_id: Actor receiving the object
-            object_type: Type of object being given (e.g., 'Drinks', 'Food')
-            region: Region where the exchange happens
-
-        Returns:
-            Dict with give_event and receive_event IDs on success.
-        """
-        if giver_id not in gen.actors or receiver_id not in gen.actors:
-            return {'error': 'Actor not found'}
-
-        giver = gen.actors[giver_id]
-        receiver = gen.actors[receiver_id]
-
-        if not giver.holding_object:
-            return {'error': f'{giver_id} is not holding any object'}
-
-        if giver.current_location != region or receiver.current_location != region:
-            return {'error': 'Both actors must be in the same region'}
-
-        try:
-            obj_id = giver.holding_object
-            all_actors = list(gen.actors.values())
-
-            # Use temp buffers for the give operation
-            temp_events = {}
-            temp_temporal = {}
-            temp_actor_state = {
-                'last_event_id': giver.last_event_id,
-                'sitting_on': giver.sitting_on,
-                'holding_object': giver.holding_object,
-                'lying_on': giver.lying_on,
-                'state': giver.state
-            }
-            temp_occupied = {}
-
-            recv, recv_event, give_event = gen._create_give_receive_pair(
-                giver, obj_id, object_type, region, all_actors,
-                temp_events, temp_temporal, temp_actor_state, temp_occupied,
-                giver.last_event_id
-            )
-
-            if recv:
-                # Commit the temp events
-                for eid, edata in temp_events.items():
-                    gen.events[eid] = edata
-                for tid, tdata in temp_temporal.items():
-                    gen.temporal[tid] = tdata
-
-                return {
-                    'success': True,
-                    'give_event': give_event,
-                    'receive_event': recv_event
-                }
-            else:
-                return {'error': 'Give operation failed -- no valid receiver'}
-        except Exception as e:
-            return {'error': str(e)}
+    # =========================================================================
+    # MOVEMENT TOOL
+    # =========================================================================
 
     @tool
-    def move_actor(actor_id: str, to_region: str) -> Dict[str, Any]:
-        """Move actor to another region. Creates Move event with proper temporal ordering.
+    def move_actors(actor_ids: List[str], to_region: str) -> Dict[str, Any]:
+        """Move one or more actors to another region. Creates Move events with proper
+        temporal ordering: non-movers' last events BEFORE movers' Move events,
+        and cross-mover constraints.
 
         Args:
-            actor_id: Actor to move
+            actor_ids: List of actor IDs to move
             to_region: Destination region name
 
         Returns:
-            Dict with event_id, from region, and to region.
+            Dict with move event IDs per actor.
         """
-        if actor_id not in gen.actors:
-            return {'error': f'Actor {actor_id} not found'}
+        err = _require_state('IDLE')
+        if err:
+            return err
 
-        actor = gen.actors[actor_id]
+        for aid in actor_ids:
+            if aid not in gen.actors:
+                return {'error': f'Actor {aid} not found'}
 
-        if actor.state != ActorState.STANDING:
-            return {'error': f'Actor must be standing to move (currently {actor.state.value})'}
+        for aid in actor_ids:
+            actor = gen.actors[aid]
+            if actor.state != ActorState.STANDING:
+                return {'error': f'Actor {aid} must be standing to move (currently {actor.state.value})'}
 
-        from_region = actor.current_location
-        try:
-            event_id = gen._add_move_event(actor, to_region)
-            return {
-                'success': True,
-                'event_id': event_id,
-                'from': from_region,
-                'to': to_region
-            }
-        except Exception as e:
-            return {'error': str(e)}
+        # Collect non-movers' last events (for ordering)
+        non_mover_last_events = {}
+        for aid, actor in gen.actors.items():
+            if aid not in actor_ids and actor.last_event_id and actor.last_event_id != aid:
+                non_mover_last_events[aid] = actor.last_event_id
 
-    @tool
-    def start_recording(event_id: str) -> Dict[str, Any]:
-        """Start camera recording at this event. Recording continues until stop_recording.
-        Idempotent: if already recording (no stop since last start), this is a no-op.
-        Best called AFTER end_chain so the event is committed.
+        # Collect pre-move last events for movers
+        pre_move_events = {}
+        for aid in actor_ids:
+            actor = gen.actors[aid]
+            if actor.last_event_id and actor.last_event_id != aid:
+                pre_move_events[aid] = actor.last_event_id
 
-        Args:
-            event_id: Event ID where recording starts
+        # Create Move events
+        move_events = {}
+        for aid in actor_ids:
+            actor = gen.actors[aid]
+            from_region = actor.current_location
+            try:
+                event_id = gen._add_move_event(actor, to_region)
+                move_events[aid] = {
+                    'event_id': event_id,
+                    'from': from_region,
+                    'to': to_region
+                }
+            except Exception as e:
+                return {'error': f'Failed to move {aid}: {str(e)}'}
 
-        Returns:
-            Success confirmation.
-        """
-        # Check if already recording (last camera command was 'record' with no 'stop' after)
-        already_recording = False
-        if gen.camera:
-            last_cam = list(gen.camera.values())[-1]
-            if last_cam.get('action') == 'record':
-                already_recording = True
+        # Add temporal ordering: non-movers' last events BEFORE movers' Move events
+        for nm_aid, nm_last in non_mover_last_events.items():
+            for m_aid, m_info in move_events.items():
+                move_eid = m_info['event_id']
+                if nm_last not in gen.temporal:
+                    gen.temporal[nm_last] = {'relations': [], 'next': None}
+                if move_eid not in gen.temporal:
+                    gen.temporal[move_eid] = {'relations': [], 'next': None}
+                if not _would_create_cycle(nm_last, move_eid):
+                    gen._add_before_relation(nm_last, move_eid)
 
-        if already_recording:
-            return {'success': True, 'already_recording': True, 'note': 'Camera is already recording.'}
-
-        # Check event exists (committed or in temp buffer)
-        found = event_id in gen.events
-        if not found:
-            for chain in active_chains.values():
-                if event_id in chain.get('temp_events', {}):
-                    found = True
-                    break
-        if not found:
-            return {'error': f'Event {event_id} not found. Call end_chain first to commit events.'}
-
-        gen.camera[event_id] = {'action': 'record'}
-        return {'success': True, 'recording_from': event_id}
-
-    @tool
-    def stop_recording(event_id: str) -> Dict[str, Any]:
-        """Stop camera recording at this event (this event is NOT recorded).
-        If never called, recording continues until the story ends.
-        NOTE: Call this AFTER end_chain, not during an active chain.
-
-        Args:
-            event_id: Event ID where recording stops
-
-        Returns:
-            Success confirmation.
-        """
-        found = event_id in gen.events
-        if not found:
-            for chain in active_chains.values():
-                if event_id in chain.get('temp_events', {}):
-                    found = True
-                    break
-        if not found:
-            return {'error': f'Event {event_id} not found'}
-
-        gen.camera[event_id] = {'action': 'stop'}
-        return {'success': True, 'recording_until': event_id}
-
-    @tool
-    def add_logical_relation(source_event: str, target_event: str, relation_type: str) -> Dict[str, Any]:
-        """Add logical relation between events for narrative structure.
-        Types: causes, caused_by, enables, prevents, blocks, implies, implied_by,
-               requires, depends_on, equivalent_to, contradicts, conflicts_with, and, or, not
-
-        Args:
-            source_event: Source event/scene ID
-            target_event: Target event/scene ID
-            relation_type: Relation type string
-
-        Returns:
-            Dict with relation_id, type, source, and target.
-        """
-        relation_id = gen._get_next_relation_id()
-
-        if source_event not in gen.logical:
-            gen.logical[source_event] = {'relations': []}
-        gen.logical[source_event]['relations'].append(relation_id)
-
-        gen.logical[relation_id] = {
-            'type': relation_type,
-            'source': source_event,
-            'target': target_event
-        }
-
-        return {
-            'relation_id': relation_id,
-            'type': relation_type,
-            'source': source_event,
-            'target': target_event
-        }
-
-    @tool
-    def add_semantic_relation(event_id: str, relation_type: str, target_events: List[str]) -> Dict[str, Any]:
-        """Add semantic relation for narrative coherence (Inception-style complexity).
-        Types are free-text: observes, interrupts, reflects_on, contrasts_with, etc.
-
-        Args:
-            event_id: Source event ID
-            relation_type: Free-text relation type
-            target_events: Target event IDs
-
-        Returns:
-            Success confirmation.
-        """
-        gen.semantic[event_id] = {
-            'type': relation_type,
-            'targets': target_events
-        }
-        return {'success': True}
-
-    @tool
-    def end_scene() -> Dict[str, Any]:
-        """Mark the end of a scene. Ensures all actors' current last events are
-        temporally ordered before any events in the next scene.
-        Call this after finishing all action chains and interactions for a scene,
-        before starting the next scene.
-
-        Returns:
-            Dict with the boundary event IDs per actor.
-        """
-        boundaries = {}
-        for actor_id, actor in gen.actors.items():
-            if actor.last_event_id and actor.last_event_id != actor_id:
-                boundaries[actor_id] = actor.last_event_id
-
-        # Store boundaries so the next scene's first events can be linked
-        if not hasattr(gen, '_scene_boundaries'):
-            gen._scene_boundaries = []
-        gen._scene_boundaries.append(boundaries)
-
-        # If there's a previous scene boundary, add before-relations
-        # from previous scene's last events to this isn't needed here --
-        # the linking happens when the NEXT scene's first events are created.
-        # We need to hook into create_actor/start_chain to add the relations.
-        # For now, store and link at finalize.
+        # Cross-mover constraints: all pre-Move events before any Move event
+        if len(actor_ids) > 1:
+            for pre_aid, pre_eid in pre_move_events.items():
+                for m_aid, m_info in move_events.items():
+                    if pre_aid != m_aid:
+                        move_eid = m_info['event_id']
+                        if pre_eid not in gen.temporal:
+                            gen.temporal[pre_eid] = {'relations': [], 'next': None}
+                        if move_eid not in gen.temporal:
+                            gen.temporal[move_eid] = {'relations': [], 'next': None}
+                        if not _would_create_cycle(pre_eid, move_eid):
+                            gen._add_before_relation(pre_eid, move_eid)
 
         return {
             'success': True,
-            'scene_number': len(gen._scene_boundaries),
-            'actor_boundaries': boundaries
+            'moves': move_events
+        }
+
+    # =========================================================================
+    # TEMPORAL / SYNCHRONIZATION TOOLS
+    # =========================================================================
+
+    @tool
+    def add_starts_with(event1_id: str, event2_id: str) -> Dict[str, Any]:
+        """Synchronize two committed events so they start at the same time.
+        Creates a starts_with temporal relation.
+
+        Args:
+            event1_id: First event ID (must be committed)
+            event2_id: Second event ID (must be committed)
+
+        Returns:
+            Dict with relation_id on success, or error.
+        """
+        if event1_id not in gen.events:
+            return {'error': f'Event {event1_id} not found (must be committed)'}
+        if event2_id not in gen.events:
+            return {'error': f'Event {event2_id} not found (must be committed)'}
+        if event1_id == event2_id:
+            return {'error': 'Cannot synchronize an event with itself'}
+
+        # Ensure temporal entries exist
+        if event1_id not in gen.temporal:
+            gen.temporal[event1_id] = {'relations': [], 'next': None}
+        if event2_id not in gen.temporal:
+            gen.temporal[event2_id] = {'relations': [], 'next': None}
+
+        relation_id = gen._get_next_relation_id()
+        gen.temporal[relation_id] = {
+            'type': 'starts_with'
+        }
+        gen.temporal[event1_id]['relations'].append(relation_id)
+        gen.temporal[event2_id]['relations'].append(relation_id)
+
+        return {
+            'success': True,
+            'relation_id': relation_id,
+            'synchronized': [event1_id, event2_id]
         }
 
     def _would_create_cycle(source: str, target: str) -> bool:
@@ -887,19 +1210,138 @@ def create_building_tools(gen: SimpleGESTRandomGenerator) -> List:
             'ordering': f'{before_event} must complete before {after_event} begins'
         }
 
-    return [
+    # =========================================================================
+    # RELATION TOOLS
+    # =========================================================================
+
+    @tool
+    def add_logical_relation(source_event: str, target_event: str, relation_type: str) -> Dict[str, Any]:
+        """Add logical relation between events for narrative structure.
+        Types: causes, caused_by, enables, prevents, blocks, implies, implied_by,
+               requires, depends_on, equivalent_to, contradicts, conflicts_with, and, or, not
+
+        Args:
+            source_event: Source event/scene ID
+            target_event: Target event/scene ID
+            relation_type: Relation type string
+
+        Returns:
+            Dict with relation_id, type, source, and target.
+        """
+        relation_id = gen._get_next_relation_id()
+
+        if source_event not in gen.logical:
+            gen.logical[source_event] = {'relations': []}
+        gen.logical[source_event]['relations'].append(relation_id)
+
+        gen.logical[relation_id] = {
+            'type': relation_type,
+            'source': source_event,
+            'target': target_event
+        }
+
+        return {
+            'relation_id': relation_id,
+            'type': relation_type,
+            'source': source_event,
+            'target': target_event
+        }
+
+    @tool
+    def add_semantic_relation(event_id: str, relation_type: str, target_events: List[str]) -> Dict[str, Any]:
+        """Add semantic relation for narrative coherence (Inception-style complexity).
+        Types are free-text: observes, interrupts, reflects_on, contrasts_with, etc.
+
+        Args:
+            event_id: Source event ID
+            relation_type: Free-text relation type
+            target_events: Target event IDs
+
+        Returns:
+            Success confirmation.
+        """
+        gen.semantic[event_id] = {
+            'type': relation_type,
+            'targets': target_events
+        }
+        return {'success': True}
+
+    # =========================================================================
+    # CAMERA TOOLS
+    # =========================================================================
+
+    @tool
+    def start_recording(event_id: str) -> Dict[str, Any]:
+        """Start camera recording at this event. Recording continues until stop_recording.
+        Idempotent: if already recording (no stop since last start), this is a no-op.
+        Event must be committed (not in a temp buffer).
+
+        Args:
+            event_id: Event ID where recording starts
+
+        Returns:
+            Success confirmation.
+        """
+        # Check if already recording (last camera command was 'record' with no 'stop' after)
+        already_recording = False
+        if gen.camera:
+            last_cam = list(gen.camera.values())[-1]
+            if last_cam.get('action') == 'record':
+                already_recording = True
+
+        if already_recording:
+            return {'success': True, 'already_recording': True, 'note': 'Camera is already recording.'}
+
+        # Check event exists (committed only)
+        if event_id not in gen.events:
+            return {'error': f'Event {event_id} not found. Call end_chain first to commit events.'}
+
+        gen.camera[event_id] = {'action': 'record'}
+        return {'success': True, 'recording_from': event_id}
+
+    @tool
+    def stop_recording(event_id: str) -> Dict[str, Any]:
+        """Stop camera recording at this event (this event is NOT recorded).
+        If never called, recording continues until the story ends.
+
+        Args:
+            event_id: Event ID where recording stops
+
+        Returns:
+            Success confirmation.
+        """
+        if event_id not in gen.events:
+            return {'error': f'Event {event_id} not found'}
+
+        gen.camera[event_id] = {'action': 'stop'}
+        return {'success': True, 'recording_until': event_id}
+
+    # =========================================================================
+    # BUILD TOOL LIST
+    # =========================================================================
+
+    tools = [
+        create_story,
         create_actor,
+        start_scene,
+        end_scene,
+        start_round,
+        end_round,
         start_chain,
         start_spawnable_chain,
         continue_chain,
         end_chain,
         do_interaction,
-        give_object,
-        move_actor,
+        move_actors,
+        add_starts_with,
+        add_temporal_dependency,
         start_recording,
         stop_recording,
-        end_scene,
-        add_temporal_dependency,
-        add_logical_relation,
-        add_semantic_relation,
     ]
+
+    if enable_logical_relations:
+        tools.append(add_logical_relation)
+    if enable_semantic_relations:
+        tools.append(add_semantic_relation)
+
+    return tools

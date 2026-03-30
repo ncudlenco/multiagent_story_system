@@ -35,14 +35,69 @@ def generator():
 
 @pytest.fixture
 def building_tools(generator):
-    """Create building tools bound to the generator."""
-    return {t.name: t for t in create_building_tools(generator)}
+    """Create building tools bound to the generator with concept events enabled."""
+    return {t.name: t for t in create_building_tools(generator, config={
+        'enable_concept_events': True,
+        'enable_logical_relations': True,
+        'enable_semantic_relations': True,
+    })}
 
 
 @pytest.fixture
 def state_tools(generator):
     """Create state tools bound to the generator."""
     return {t.name: t for t in create_state_tools(generator)}
+
+
+def _init_story(building_tools):
+    """Helper: create story to get to STORY_CREATED state."""
+    r = building_tools["create_story"].invoke({
+        "title": "TestStory", "narrative": "A test story."
+    })
+    assert "story_id" in r, f"create_story failed: {r}"
+    return r["story_id"]
+
+
+def _start_kitchen_scene(building_tools, actor_ids, scene_id="scene_1"):
+    """Helper: start a scene in house9 kitchen."""
+    r = building_tools["start_scene"].invoke({
+        "scene_id": scene_id,
+        "action_name": "KitchenActivity",
+        "narrative": "Activity in the kitchen.",
+        "episode": "house9",
+        "region": "kitchen",
+        "actor_ids": actor_ids,
+    })
+    assert "error" not in r, f"start_scene failed: {r}"
+    return r
+
+
+def _start_round(building_tools, setup=False):
+    """Helper: start a round."""
+    r = building_tools["start_round"].invoke({"setup": setup})
+    assert r.get("success") is True, f"start_round failed: {r}"
+    return r
+
+
+def _end_round(building_tools):
+    """Helper: end a round."""
+    r = building_tools["end_round"].invoke({})
+    assert r.get("success") is True, f"end_round failed: {r}"
+    return r
+
+
+def _end_scene(building_tools):
+    """Helper: end the current scene."""
+    r = building_tools["end_scene"].invoke({})
+    assert r.get("success") is True, f"end_scene failed: {r}"
+    return r
+
+
+def _full_scene_setup(building_tools, actor_ids, scene_id="scene_1"):
+    """Helper: create story, actors, start scene and round in kitchen."""
+    _init_story(building_tools)
+    _start_kitchen_scene(building_tools, actor_ids, scene_id)
+    _start_round(building_tools)
 
 
 # =============================================================================
@@ -281,11 +336,156 @@ class TestGetSkins:
 
 
 # =============================================================================
+# BUILDING TOOLS: STATE MACHINE
+# =============================================================================
+
+class TestStateMachine:
+    """Test state machine transitions and guards."""
+
+    def test_create_story(self, building_tools):
+        r = building_tools["create_story"].invoke({
+            "title": "TestStory", "narrative": "A test."
+        })
+        assert "story_id" in r
+
+    def test_create_story_twice_rejected(self, building_tools):
+        building_tools["create_story"].invoke({
+            "title": "Story1", "narrative": "First."
+        })
+        r = building_tools["create_story"].invoke({
+            "title": "Story2", "narrative": "Second."
+        })
+        assert "error" in r
+
+    def test_start_scene_requires_in_round_not_in_round(self, building_tools):
+        """start_scene is allowed in IDLE and STORY_CREATED, but not IN_ROUND."""
+        _init_story(building_tools)
+        _start_kitchen_scene(building_tools, [], scene_id="s1")
+        _start_round(building_tools)
+        # IN_ROUND -- start_scene should fail
+        r = building_tools["start_scene"].invoke({
+            "scene_id": "s2", "action_name": "Test", "narrative": "x",
+            "episode": "house9", "region": "kitchen", "actor_ids": []
+        })
+        assert "error" in r
+
+    def test_start_round_requires_in_scene(self, building_tools):
+        _init_story(building_tools)
+        r = building_tools["start_round"].invoke({"setup": False})
+        assert "error" in r
+
+    def test_chain_requires_in_round(self, building_tools, generator):
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+        # IN_SCENE but not IN_ROUND
+        r = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": 0
+        })
+        assert "error" in r
+
+    def test_spawnable_requires_in_round(self, building_tools, generator):
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+        r = building_tools["start_spawnable_chain"].invoke({
+            "actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"
+        })
+        assert "error" in r
+
+    def test_interaction_requires_in_round(self, building_tools, generator):
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        building_tools["create_actor"].invoke({
+            "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        r = building_tools["do_interaction"].invoke({
+            "actor1_id": "a0", "actor2_id": "a1",
+            "interaction_type": "Talk", "region": "kitchen"
+        })
+        assert "error" in r
+
+    def test_end_round_requires_in_round(self, building_tools):
+        _init_story(building_tools)
+        r = building_tools["end_round"].invoke({})
+        assert "error" in r
+
+    def test_end_scene_requires_in_scene(self, building_tools):
+        _init_story(building_tools)
+        r = building_tools["end_scene"].invoke({})
+        assert "error" in r
+
+    def test_move_requires_idle(self, building_tools, generator):
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+        # IN_SCENE, not IDLE
+        r = building_tools["move_actors"].invoke({
+            "actor_ids": ["a0"], "to_region": "bedroom"
+        })
+        assert "error" in r
+
+    def test_create_actor_in_story_created(self, building_tools, generator):
+        _init_story(building_tools)
+        r = building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        assert "actor_id" in r
+
+    def test_create_actor_in_idle(self, building_tools, generator):
+        """After end_scene, state is IDLE and create_actor should work."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+        _end_round(building_tools)
+        _end_scene(building_tools)
+        # Now in IDLE
+        r = building_tools["create_actor"].invoke({
+            "name": "Alice", "gender": 2, "skin_id": 100, "region": "bedroom"
+        })
+        assert "actor_id" in r
+
+    def test_full_state_cycle(self, building_tools, generator):
+        """IDLE -> STORY_CREATED -> IN_SCENE -> IN_ROUND -> IN_SCENE -> IDLE."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+        # Do a chain
+        building_tools["start_spawnable_chain"].invoke({
+            "actor_id": "a0", "spawnable_type": "Cigarette", "region": "kitchen"
+        })
+        for action in ["SmokeIn", "Smoke", "SmokeOut", "Stash"]:
+            building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": action})
+        building_tools["end_chain"].invoke({"actor_id": "a0"})
+        _end_round(building_tools)
+        _end_scene(building_tools)
+        # Back to IDLE -- can start another scene
+        r = _start_kitchen_scene(building_tools, ["a0"], scene_id="scene_2")
+        assert "error" not in r
+
+
+# =============================================================================
 # BUILDING TOOLS: ACTOR CREATION
 # =============================================================================
 
 class TestCreateActor:
     def test_create_actor(self, building_tools, generator):
+        _init_story(building_tools)
         result = building_tools["create_actor"].invoke({
             "name": "Bob",
             "gender": 1,
@@ -303,6 +503,7 @@ class TestCreateActor:
         assert generator.events["a0"]["Properties"]["SkinId"] == 45
 
     def test_create_multiple_actors(self, building_tools, generator):
+        _init_story(building_tools)
         r1 = building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
@@ -313,6 +514,15 @@ class TestCreateActor:
         assert r2["actor_id"] == "a1"
         assert len(generator.actors) == 2
 
+    def test_create_actor_is_extra(self, building_tools, generator):
+        _init_story(building_tools)
+        r = building_tools["create_actor"].invoke({
+            "name": "Extra1", "gender": 1, "skin_id": 10, "region": "kitchen",
+            "is_extra": True
+        })
+        assert "actor_id" in r
+        assert generator.events[r["actor_id"]]["Properties"]["IsBackgroundActor"] is True
+
 
 # =============================================================================
 # BUILDING TOOLS: ACTION CHAINS
@@ -320,10 +530,13 @@ class TestCreateActor:
 
 class TestActionChains:
     def _setup_actor_in_kitchen(self, building_tools):
-        """Helper: create an actor in house9 kitchen."""
+        """Helper: create story, actor, scene, and round in kitchen."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
     def test_start_chain(self, building_tools, generator):
         self._setup_actor_in_kitchen(building_tools)
@@ -367,6 +580,12 @@ class TestActionChains:
             assert end_result["events_committed"] >= 1
 
     def test_start_chain_invalid_actor(self, building_tools):
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
         result = building_tools["start_chain"].invoke({
             "actor_id": "a99", "episode": "house9", "poi_index": 0
         })
@@ -401,9 +620,12 @@ class TestActionChains:
 
 class TestSpawnableChains:
     def test_start_spawnable(self, building_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
         result = building_tools["start_spawnable_chain"].invoke({
             "actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"
@@ -413,9 +635,12 @@ class TestSpawnableChains:
         assert "AnswerPhone" in result["next_actions"]
 
     def test_spawnable_full_chain(self, building_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
         building_tools["start_spawnable_chain"].invoke({
             "actor_id": "a0", "spawnable_type": "Cigarette", "region": "kitchen"
@@ -432,9 +657,12 @@ class TestSpawnableChains:
         assert end_result["success"] is True
 
     def test_spawnable_not_standing(self, building_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
         # Manually set actor to sitting
         generator.actors["a0"].state = ActorState.SITTING
 
@@ -449,13 +677,16 @@ class TestSpawnableChains:
 # =============================================================================
 
 class TestObjectConsistency:
-    """Test that PickUp→Use→PutDown always uses the same object ID."""
+    """Test that PickUp->Use->PutDown always uses the same object ID."""
 
     def test_drink_chain_reuses_picked_up_object(self, building_tools, generator):
-        """PickUp Drinks → Drink → PutDown should all reference the same obj_id."""
+        """PickUp Drinks -> Drink -> PutDown should all reference the same obj_id."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
         # Find a Drinks PickUp POI (description contains "drink")
         pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
@@ -504,13 +735,16 @@ class TestObjectConsistency:
                 if len(ents) > 1:
                     obj_ids_used.add(ents[1])
 
-        assert len(obj_ids_used) == 1, f"Expected 1 object across PickUp→Drink→PutDown chain, got {len(obj_ids_used)}: {obj_ids_used}"
+        assert len(obj_ids_used) == 1, f"Expected 1 object across PickUp->Drink->PutDown chain, got {len(obj_ids_used)}: {obj_ids_used}"
 
     def test_start_chain_rejected_while_holding(self, building_tools, generator):
         """Cannot start a new chain while holding an object."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
         # Find a Drinks PickUp POI
         pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
@@ -521,13 +755,7 @@ class TestObjectConsistency:
         building_tools["start_chain"].invoke({
             "actor_id": "a0", "episode": "house9", "poi_index": drink_poi["poi_index"]
         })
-        # End chain without PutDown -- actor is now holding the object
-        # But end_chain should reject because actor state won't be standing...
-        # Actually PickUp leaves actor standing but holding. Let's check.
-
-        # For PickUp, the actor stays standing but is holding. end_chain checks standing state.
-        # HOLDING is a separate state from STANDING in ActorState enum.
-        # If actor.state == HOLDING, end_chain rejects.
+        # End chain without PutDown -- end_chain should reject because actor is holding
         end_result = building_tools["end_chain"].invoke({"actor_id": "a0"})
 
         # If end_chain rejected (holding state), we're still in the chain
@@ -538,7 +766,6 @@ class TestObjectConsistency:
             building_tools["end_chain"].invoke({"actor_id": "a0"})
         else:
             # end_chain succeeded -- actor is now holding object outside a chain
-            # Manually set holding state to test start_chain guard
             generator.actors["a0"].holding_object = "obj_0"
 
         # Now try to start a new chain while holding
@@ -551,9 +778,12 @@ class TestObjectConsistency:
 
     def test_end_chain_rejected_while_holding(self, building_tools, generator):
         """Cannot end chain while actor is in holding state."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
         pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
         drink_poi = next((p for p in pois if p.get("first_action_type") == "PickUp"), None)
@@ -567,20 +797,26 @@ class TestObjectConsistency:
 
         # Try to end chain without PutDown
         end_result = building_tools["end_chain"].invoke({"actor_id": "a0"})
-        # Should reject -- actor is holding an object (state is HOLDING)
+        # Should reject -- actor is holding an object
         assert "error" in end_result
 
-
     def test_object_released_after_standup(self, building_tools, generator):
-        """After SitDown→StandUp→end_chain, the object must not remain occupied.
-        Regression test: temp_occupied was not releasing objects on StandUp,
-        causing later chains to reuse wrong objects (e.g., Sofa used as Drinks)."""
+        """After SitDown->StandUp->end_chain, the object must not remain occupied."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Alice", "gender": 2, "skin_id": 9, "region": "barroom"
         })
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 0, "region": "barroom"
         })
+
+        # Start scene in barroom
+        building_tools["start_scene"].invoke({
+            "scene_id": "scene_bar", "action_name": "BarActivity",
+            "narrative": "Activity in the bar.", "episode": "house9",
+            "region": "barroom", "actor_ids": ["a0", "a1"]
+        })
+        _start_round(building_tools)
 
         # a0 sits on sofa (POI 39), stands up, ends chain
         building_tools["start_chain"].invoke({
@@ -616,10 +852,13 @@ class TestObjectConsistency:
         assert obj_type == "Drinks", f"Expected Drinks object, got {obj_type} for {obj_id}"
 
     def test_object_released_after_putdown(self, building_tools, generator):
-        """After PickUp→Drink→PutDown→end_chain, the object must not remain occupied."""
+        """After PickUp->Drink->PutDown->end_chain, the object must not remain occupied."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 0, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
         pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
         drink_poi = next((p for p in pois if p.get("first_action_type") == "PickUp" and "drink" in p.get("description", "").lower()), None)
@@ -638,9 +877,18 @@ class TestObjectConsistency:
 
     def test_cross_region_creates_separate_objects(self, building_tools, generator):
         """PickUp Drinks in barroom then PickUp Drinks in kitchen should create 2 different objects."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 0, "region": "barroom"
         })
+
+        # Scene 1: barroom
+        building_tools["start_scene"].invoke({
+            "scene_id": "scene_bar", "action_name": "BarDrinking",
+            "narrative": "Drink in bar.", "episode": "house9",
+            "region": "barroom", "actor_ids": ["a0"]
+        })
+        _start_round(building_tools)
 
         # PickUp + Drink + PutDown in barroom
         pois_b = get_pois.invoke({"episode": "house9", "region": "barroom", "from_idx": 0, "to_idx": 100})
@@ -653,8 +901,15 @@ class TestObjectConsistency:
         building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "PutDown"})
         building_tools["end_chain"].invoke({"actor_id": "a0"})
 
+        _end_round(building_tools)
+        _end_scene(building_tools)
+
         # Move to kitchen
-        building_tools["move_actor"].invoke({"actor_id": "a0", "to_region": "kitchen"})
+        building_tools["move_actors"].invoke({"actor_ids": ["a0"], "to_region": "kitchen"})
+
+        # Scene 2: kitchen
+        _start_kitchen_scene(building_tools, ["a0"], scene_id="scene_kitchen")
+        _start_round(building_tools)
 
         # PickUp + Drink + PutDown in kitchen
         pois_k = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
@@ -678,9 +933,12 @@ class TestObjectConsistency:
 
     def test_duplicate_action_rejected(self, building_tools, generator):
         """Cannot do the same action twice in a row (except Move)."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 0, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
         # Find a SitDown POI with TypeOnKeyboard
         pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
@@ -707,19 +965,22 @@ class TestObjectConsistency:
 
 class TestInteractions:
     def _setup_two_actors(self, building_tools, generator):
-        """Create two actors and give them each a started action chain."""
+        """Create two actors and give them each a started action chain in a round."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
         building_tools["create_actor"].invoke({
             "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
         # Use spawnable chains (no POI dependency) to start each actor's chain
         for actor_id in ["a0", "a1"]:
             building_tools["start_spawnable_chain"].invoke({
                 "actor_id": actor_id, "spawnable_type": "MobilePhone", "region": "kitchen"
             })
-            # Complete the phone chain: AnswerPhone → TalkPhone → HangUp → Stash
+            # Complete the phone chain: AnswerPhone -> TalkPhone -> HangUp -> Stash
             for action in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
                 building_tools["continue_chain"].invoke({
                     "actor_id": actor_id, "next_action": action
@@ -746,12 +1007,15 @@ class TestInteractions:
         assert result.get("success") is True
 
     def test_kiss_same_gender_rejected(self, building_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
         building_tools["create_actor"].invoke({
             "name": "Charlie", "gender": 1, "skin_id": 50, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
         # Start chains via spawnables
         for actor_id in ["a0", "a1"]:
             building_tools["start_spawnable_chain"].invoke({
@@ -768,13 +1032,16 @@ class TestInteractions:
         assert "error" in result
 
     def test_interaction_not_started_chain(self, building_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
         building_tools["create_actor"].invoke({
             "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
         })
-        # Don't add idle -- chains not started
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
+        # Don't start chains
 
         result = building_tools["do_interaction"].invoke({
             "actor1_id": "a0", "actor2_id": "a1",
@@ -838,7 +1105,8 @@ class TestInteractions:
         })
         assert r.get("success") is True
 
-        # end_scene should work after interaction
+        # end_round then end_scene should work after interaction
+        _end_round(building_tools)
         r2 = building_tools["end_scene"].invoke({})
         assert r2.get("success") is True
 
@@ -848,36 +1116,73 @@ class TestInteractions:
 # =============================================================================
 
 class TestMovement:
-    def test_move_actor(self, building_tools, generator):
+    def test_move_actors(self, building_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
 
-        result = building_tools["move_actor"].invoke({
-            "actor_id": "a0", "to_region": "bedroom"
+        # Do a chain so actor has events
+        building_tools["start_spawnable_chain"].invoke({
+            "actor_id": "a0", "spawnable_type": "Cigarette", "region": "kitchen"
+        })
+        for action in ["SmokeIn", "Smoke", "SmokeOut", "Stash"]:
+            building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": action})
+        building_tools["end_chain"].invoke({"actor_id": "a0"})
+        _end_round(building_tools)
+        _end_scene(building_tools)
+
+        # Now IDLE -- can move
+        result = building_tools["move_actors"].invoke({
+            "actor_ids": ["a0"], "to_region": "bedroom"
         })
         assert result.get("success") is True
-        assert result["from"] == "kitchen"
-        assert result["to"] == "bedroom"
+        assert result["moves"]["a0"]["from"] == "kitchen"
+        assert result["moves"]["a0"]["to"] == "bedroom"
         assert generator.actors["a0"].current_location == "bedroom"
 
     def test_move_not_standing(self, building_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+        _end_round(building_tools)
+        _end_scene(building_tools)
+
         generator.actors["a0"].state = ActorState.SITTING
 
-        result = building_tools["move_actor"].invoke({
-            "actor_id": "a0", "to_region": "bedroom"
+        result = building_tools["move_actors"].invoke({
+            "actor_ids": ["a0"], "to_region": "bedroom"
+        })
+        assert "error" in result
+
+    def test_move_not_idle_rejected(self, building_tools, generator):
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+
+        # IN_SCENE -- not IDLE
+        result = building_tools["move_actors"].invoke({
+            "actor_ids": ["a0"], "to_region": "bedroom"
         })
         assert "error" in result
 
 
 class TestCamera:
     def test_start_stop_recording(self, building_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+
         # Start a chain so we have an action event
         pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
         wash_poi = next((p for p in pois if p.get("first_action_type") == "WashHands"), None)
@@ -928,20 +1233,24 @@ class TestRelations:
 
 
 # =============================================================================
-# BUILDING TOOLS: TEMPORAL DEPENDENCIES & SCENE BOUNDARIES
+# BUILDING TOOLS: TEMPORAL DEPENDENCIES & STARTS_WITH
 # =============================================================================
 
 class TestTemporalDependency:
     """Test add_temporal_dependency with cycle/deadlock detection."""
 
     def _setup_two_actors_with_events(self, building_tools, generator):
-        """Create two actors each with a spawnable chain (committed events)."""
+        """Create two actors each with a spawnable chain (committed events) in a round."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
         })
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
+
         # Alice: phone chain
         building_tools["start_spawnable_chain"].invoke({
             "actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"
@@ -1044,6 +1353,7 @@ class TestTemporalDependency:
     def test_reject_transitive_deadlock_three_actors(self, building_tools, generator):
         """A waits for B, B waits for C, C waits for A = transitive deadlock."""
         # Create 3 actors with chains
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
         })
@@ -1053,6 +1363,8 @@ class TestTemporalDependency:
         building_tools["create_actor"].invoke({
             "name": "Charlie", "gender": 1, "skin_id": 50, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0", "a1", "a2"])
+        _start_round(building_tools)
 
         # Each actor does a phone chain
         for actor_id in ["a0", "a1", "a2"]:
@@ -1076,7 +1388,6 @@ class TestTemporalDependency:
         assert r2.get("success") is True
 
         # C before A = transitive deadlock through B
-        # Path: a0_2 -> a1_7 -> a1_8 -> a2_12 -> ... so a2 anything before a0_2 is a cycle
         r3 = building_tools["add_temporal_dependency"].invoke({
             "before_event": "a2_13", "after_event": "a0_2"
         })
@@ -1116,14 +1427,52 @@ class TestTemporalDependency:
         assert r2.get("success") is True
 
 
-class TestEndScene:
-    """Test end_scene boundary marking."""
+class TestStartsWith:
+    """Test add_starts_with synchronization tool."""
 
-    def test_end_scene_basic(self, building_tools, generator):
-        """Mark a scene boundary after creating actors and chains."""
+    def test_starts_with_basic(self, building_tools, generator):
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
+        })
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
+
+        # Both do a cigarette chain
+        for actor_id in ["a0", "a1"]:
+            building_tools["start_spawnable_chain"].invoke({
+                "actor_id": actor_id, "spawnable_type": "Cigarette", "region": "kitchen"
+            })
+            for action in ["SmokeIn", "Smoke", "SmokeOut", "Stash"]:
+                building_tools["continue_chain"].invoke({"actor_id": actor_id, "next_action": action})
+            building_tools["end_chain"].invoke({"actor_id": actor_id})
+
+        # Synchronize first events
+        r = building_tools["add_starts_with"].invoke({
+            "event1_id": "a0_1",
+            "event2_id": "a1_6"
+        })
+        assert r.get("success") is True
+        assert "relation_id" in r
+
+    def test_starts_with_nonexistent(self, building_tools):
+        r = building_tools["add_starts_with"].invoke({
+            "event1_id": "nonexistent1",
+            "event2_id": "nonexistent2"
+        })
+        assert "error" in r
+
+    def test_starts_with_self(self, building_tools, generator):
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+
         building_tools["start_spawnable_chain"].invoke({
             "actor_id": "a0", "spawnable_type": "Cigarette", "region": "kitchen"
         })
@@ -1131,6 +1480,33 @@ class TestEndScene:
             building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": action})
         building_tools["end_chain"].invoke({"actor_id": "a0"})
 
+        r = building_tools["add_starts_with"].invoke({
+            "event1_id": "a0_1",
+            "event2_id": "a0_1"
+        })
+        assert "error" in r
+
+
+class TestEndScene:
+    """Test end_scene boundary marking."""
+
+    def test_end_scene_basic(self, building_tools, generator):
+        """Mark a scene boundary after creating actors and chains."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+
+        building_tools["start_spawnable_chain"].invoke({
+            "actor_id": "a0", "spawnable_type": "Cigarette", "region": "kitchen"
+        })
+        for action in ["SmokeIn", "Smoke", "SmokeOut", "Stash"]:
+            building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": action})
+        building_tools["end_chain"].invoke({"actor_id": "a0"})
+
+        _end_round(building_tools)
         result = building_tools["end_scene"].invoke({})
         assert result.get("success") is True
         assert result["scene_number"] == 1
@@ -1138,28 +1514,35 @@ class TestEndScene:
 
     def test_multiple_scene_boundaries(self, building_tools, generator):
         """Multiple end_scene calls track separate boundaries."""
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
 
         # Scene 1
+        _start_kitchen_scene(building_tools, ["a0"], scene_id="scene_1")
+        _start_round(building_tools)
         building_tools["start_spawnable_chain"].invoke({
             "actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"
         })
         for action in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
             building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": action})
         building_tools["end_chain"].invoke({"actor_id": "a0"})
+        _end_round(building_tools)
 
         r1 = building_tools["end_scene"].invoke({})
         assert r1["scene_number"] == 1
 
         # Scene 2
+        _start_kitchen_scene(building_tools, ["a0"], scene_id="scene_2")
+        _start_round(building_tools)
         building_tools["start_spawnable_chain"].invoke({
             "actor_id": "a0", "spawnable_type": "Cigarette", "region": "kitchen"
         })
         for action in ["SmokeIn", "Smoke", "SmokeOut", "Stash"]:
             building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": action})
         building_tools["end_chain"].invoke({"actor_id": "a0"})
+        _end_round(building_tools)
 
         r2 = building_tools["end_scene"].invoke({})
         assert r2["scene_number"] == 2
@@ -1169,11 +1552,73 @@ class TestEndScene:
 
 
 # =============================================================================
+# BUILDING TOOLS: ROUND ORDERING
+# =============================================================================
+
+class TestRoundOrdering:
+    """Test that end_round creates cross-actor BEFORE relations."""
+
+    def test_cross_round_ordering(self, building_tools, generator):
+        """Events in round N should be ordered before events in round N+1 (cross-actor)."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
+        })
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+
+        # Round 1: Both actors do cigarette chains
+        _start_round(building_tools)
+        for actor_id in ["a0", "a1"]:
+            building_tools["start_spawnable_chain"].invoke({
+                "actor_id": actor_id, "spawnable_type": "Cigarette", "region": "kitchen"
+            })
+            for action in ["SmokeIn", "Smoke", "SmokeOut", "Stash"]:
+                building_tools["continue_chain"].invoke({"actor_id": actor_id, "next_action": action})
+            building_tools["end_chain"].invoke({"actor_id": actor_id})
+
+        # Save round 1 last events
+        round1_a0_last = generator.actors["a0"].last_event_id
+        round1_a1_last = generator.actors["a1"].last_event_id
+
+        _end_round(building_tools)
+
+        # Round 2: Both actors do phone chains
+        _start_round(building_tools)
+        for actor_id in ["a0", "a1"]:
+            building_tools["start_spawnable_chain"].invoke({
+                "actor_id": actor_id, "spawnable_type": "MobilePhone", "region": "kitchen"
+            })
+            for action in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+                building_tools["continue_chain"].invoke({"actor_id": actor_id, "next_action": action})
+            building_tools["end_chain"].invoke({"actor_id": actor_id})
+
+        _end_round(building_tools)
+
+        # Check that cross-actor BEFORE relations exist:
+        # round1_a0_last should have a BEFORE relation to a1's first event in round 2
+        # round1_a1_last should have a BEFORE relation to a0's first event in round 2
+        before_relations_found = 0
+        for rel_id, rel_data in generator.temporal.items():
+            if isinstance(rel_data, dict) and rel_data.get('type') == 'before':
+                src = rel_data.get('source', '')
+                tgt = rel_data.get('target', '')
+                if src in (round1_a0_last, round1_a1_last):
+                    before_relations_found += 1
+
+        assert before_relations_found > 0, \
+            "Expected cross-actor BEFORE relations between rounds"
+
+
+# =============================================================================
 # STATE TOOLS
 # =============================================================================
 
 class TestStateTool:
     def test_get_actor_state(self, building_tools, state_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
@@ -1190,6 +1635,7 @@ class TestStateTool:
         assert "error" in result
 
     def test_get_current_actors(self, building_tools, state_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
@@ -1201,6 +1647,7 @@ class TestStateTool:
         assert len(result) == 2
 
     def test_get_gest_summary(self, building_tools, state_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
@@ -1215,9 +1662,13 @@ class TestStateTool:
         assert "valid" in result
 
     def test_finalize_gest(self, building_tools, state_tools, generator):
+        _init_story(building_tools)
         building_tools["create_actor"].invoke({
             "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
         })
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+
         # Start a chain so there's something to finalize
         pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
         wash_poi = next((p for p in pois if p.get("first_action_type") == "WashHands"), None)
@@ -1226,6 +1677,9 @@ class TestStateTool:
                 "actor_id": "a0", "episode": "house9", "poi_index": wash_poi["poi_index"]
             })
             building_tools["end_chain"].invoke({"actor_id": "a0"})
+
+        _end_round(building_tools)
+        _end_scene(building_tools)
 
         result = state_tools["finalize_gest"].invoke({})
         assert result.get("success") is True
