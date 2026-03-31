@@ -94,15 +94,16 @@ def get_regions(episode: str, from_idx: int = 0, to_idx: int = 5) -> List[Dict[s
             obj_type = obj_str.split('(')[0].strip()
             obj_counts[obj_type] = obj_counts.get(obj_type, 0) + 1
 
-        poi_count = sum(
-            1 for poi in ep_data.get('pois', [])
-            if poi.get('region') == region.get('name')
-        )
+        region_name = region.get('name', '')
+        region_pois = [p for p in ep_data.get('pois', []) if p.get('region') == region_name]
+        poi_count = len(region_pois)
+        supports_interactions = any(p.get('interactions_only') for p in region_pois)
 
         results.append({
-            'name': region.get('name', ''),
+            'name': region_name,
             'object_types': obj_counts,
             'poi_count': poi_count,
+            'supports_interactions': supports_interactions,
             'description': region.get('description', '')
         })
 
