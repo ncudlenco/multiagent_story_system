@@ -93,9 +93,14 @@ class POICapacityTracker:
         """
         Initialize capacity from episode's regions.
 
+        For exclusive/seat types (Chair, Sofa, etc.), capacity is based on POI count
+        (number of seat positions), not object count. E.g., 1 Sofa with 3 POIs = 3 seats.
+        For all other types, capacity comes from the region's objects list.
+
         Args:
-            episode_data: Episode dict with 'regions' containing object lists
+            episode_data: Episode dict with 'regions' and 'pois'
         """
+        # First pass: count objects from region lists (for non-exclusive types)
         for region in episode_data.get("regions", []):
             region_name = region.get("name")
             if not region_name:
@@ -106,11 +111,25 @@ class POICapacityTracker:
             self.seat_usage[region_name] = {}
 
             for obj_str in region.get("objects", []):
-                # Parse "Type (description)" format
                 obj_type = obj_str.split(" (")[0].strip()
+                if obj_type not in self.EXCLUSIVE_POI_TYPES:
+                    self.capacity[region_name][obj_type] = \
+                        self.capacity[region_name].get(obj_type, 0) + 1
+
+                if obj_type not in self.allocated[region_name]:
+                    self.allocated[region_name][obj_type] = set()
+                if obj_type not in self.seat_usage[region_name]:
+                    self.seat_usage[region_name][obj_type] = []
+
+        # Second pass: count POIs for exclusive types (POI = seat position)
+        for poi in episode_data.get("pois", []):
+            region_name = poi.get("region")
+            if not region_name or not poi.get("actions"):
+                continue
+            obj_type = poi["actions"][0].get("object_type", "")
+            if obj_type in self.EXCLUSIVE_POI_TYPES and region_name in self.capacity:
                 self.capacity[region_name][obj_type] = \
                     self.capacity[region_name].get(obj_type, 0) + 1
-
                 if obj_type not in self.allocated[region_name]:
                     self.allocated[region_name][obj_type] = set()
                 if obj_type not in self.seat_usage[region_name]:
@@ -265,6 +284,9 @@ class GESTBuilder:
         self.object_chain_ids: Dict[str, int] = {}
         self.occupied_objects: Dict[str, str] = {}  # Maps obj_id -> actor_id currently using it
         self.first_actions: Dict[str, str] = {}  # Maps actor_id -> first_action_event_id
+
+        # Monotonic counter for globally unique object IDs
+        self._next_obj_id: int = 0
 
         # NEW: POI object instance mapping for reuse
         # Maps (poi_description, region, object_type) -> object_id
@@ -782,6 +804,14 @@ class GESTBuilder:
         elif action_type == "PutDown":
             temp_actor_state['holding_object'] = None
             temp_actor_state['state'] = ActorState.STANDING
+        elif action_type == "Eat":
+            # Food is consumed — actor no longer holds anything
+            temp_actor_state['holding_object'] = None
+            # Return to sitting if actor was seated before PickUp, otherwise standing
+            if temp_actor_state.get('sitting_on'):
+                temp_actor_state['state'] = ActorState.SITTING
+            else:
+                temp_actor_state['state'] = ActorState.STANDING
         elif action_type == "Give":
             # Giver no longer holds object (3 entities: [giver, receiver, object])
             temp_actor_state['holding_object'] = None
@@ -828,147 +858,68 @@ class GESTBuilder:
                                         poi_object_instance: Optional[int] = None) -> Optional[str]:
         """Get or create object in temporary buffer.
 
+        Uses POI-to-object instance mapping to determine which physical object a POI
+        refers to. Multiple POIs can map to the same instance (N:1, e.g., 3 Sofa POIs
+        → 1 sofa) or each POI maps to a unique instance (1:1, e.g., 6 Chair POIs → 6
+        chairs). Objects are registered in poi_object_instances immediately so parallel
+        chains see each other's allocations.
+
         Args:
-            poi_object_instance: If provided, maps this POI to a specific physical object
-                instance (0-indexed). Multiple POIs can map to the same instance (e.g., 2 Sofa
-                POIs → instance 0 means same physical sofa). If None, uses legacy behavior.
-
-        Object key strategy:
-        - Exclusive POI objects (Chair, Sofa, ArmChair, Bed, BenchPress, GymBike):
-          - Capacity-checked creation
-          - First checks if this actor already has one allocated
-          - Then checks region capacity before creating new
-          - Returns None if at capacity (caller should skip this action)
-        - Static region objects: Region-level with instance tracking
-          - First checks for released/available instance to reuse
-          - Creates new instance if none available (up to region's max count)
+            poi_object_instance: Physical object instance (0-indexed) from POI mapping.
+                If None, falls back to legacy assignment.
         """
-        # Seats require per-actor exclusive access (capacity-tracked)
-        EXCLUSIVE_POI_OBJECTS = {"Chair", "Sofa", "ArmChair", "Bed", "BenchPress", "GymBike"}
+        matching = [obj for obj in poi.objects if obj.split("(")[0].strip() == obj_type]
+        if not matching:
+            return None
 
-        if obj_type in EXCLUSIVE_POI_OBJECTS:
-            if poi_object_instance is not None:
-                # POI-mapped: use instance-based key (shared across actors for same physical object)
-                # e.g., two Sofa POIs mapping to instance 0 = same physical sofa
-                key = (poi.region, obj_type, poi_object_instance)
+        if poi_object_instance is not None:
+            key = (poi.region, obj_type, poi_object_instance)
 
-                # Check if this physical instance already exists
-                if key in temp_objects:
-                    return temp_objects[key][0]
-                if key in self.poi_object_instances:
-                    return self.poi_object_instances[key]
-            else:
-                # Legacy: per-actor key
-                key = (poi.description, poi.region, obj_type, actor_id)
+            # Reuse existing physical object (shared across actors for N:1 cases)
+            if key in self.poi_object_instances:
+                return self.poi_object_instances[key]
+            if key in temp_objects:
+                return temp_objects[key][0]
 
-                if key in temp_objects:
-                    return temp_objects[key][0]
-                if key in self.poi_object_instances:
-                    return self.poi_object_instances[key]
-
-            # NEW: Check region capacity before creating new sittable object
-            if self.poi_capacity_tracker:
-                capacity = self.poi_capacity_tracker.get_capacity(poi.region, obj_type)
-                allocated = self.poi_capacity_tracker.get_allocated_count(poi.region, obj_type)
-
-                # Also count objects in temp_objects for this region+type
-                temp_count = 0
-                for k in temp_objects:
-                    if isinstance(k, tuple) and len(k) >= 4:
-                        # Sittable key format: (poi_desc, region, obj_type, actor_id)
-                        if k[1] == poi.region and k[2] == obj_type:
-                            temp_count += 1
-
-                total_allocated = allocated + temp_count
-
-                if total_allocated >= capacity:
-                    # At capacity! Cannot create more of this type
-                    print(f"    [POI CAPACITY] Cannot allocate {obj_type} in {poi.region}: "
-                          f"{total_allocated}/{capacity} allocated")
-                    return None
-
-            # Create new sittable object (capacity check passed)
-            matching = [obj for obj in poi.objects if obj.split("(")[0].strip() == obj_type]
-            if not matching:
+            # Capacity: can't create more instances than physical objects
+            if poi_object_instance >= len(matching):
                 return None
 
-            obj_name = random.choice(matching)
-            existing_obj_count = len([e for e in self.events if 'obj_' in e])
-            temp_obj_count = len(temp_objects)
-            obj_id = f"obj_{existing_obj_count + temp_obj_count}"
+            # Create new physical object
+            obj_name = matching[poi_object_instance % len(matching)]
+            obj_id = f"obj_{self._next_obj_id}"
+            self._next_obj_id += 1
             temp_objects[key] = (obj_id, obj_name)
-
-            # Register allocation with tracker
-            if self.poi_capacity_tracker:
-                self.poi_capacity_tracker.allocate(poi.region, obj_type, obj_id)
-
+            self.poi_object_instances[key] = obj_id
             return obj_id
 
         else:
-            # For non-sittable objects: use POI-based instance mapping if available
-            matching = [obj for obj in poi.objects if obj.split("(")[0].strip() == obj_type]
-            max_instances = len(matching)
+            # Legacy path (no POI mapping): find unoccupied or create new
+            existing_instances = []
+            for k, v in self.poi_object_instances.items():
+                if isinstance(k, tuple) and len(k) >= 3 and k[0] == poi.region and k[1] == obj_type:
+                    existing_instances.append((k, v))
+            for k, v in temp_objects.items():
+                if isinstance(k, tuple) and len(k) >= 3 and k[0] == poi.region and k[1] == obj_type:
+                    existing_instances.append((k, v[0]))
 
-            if max_instances == 0:
+            for k, obj_id in existing_instances:
+                if obj_id not in self.occupied_objects:
+                    return obj_id
+
+            instance_num = len(existing_instances)
+            if instance_num >= len(matching):
+                if existing_instances:
+                    return existing_instances[0][1]
                 return None
 
-            # Determine instance number from POI mapping or legacy behavior
-            if poi_object_instance is not None:
-                # POI-based mapping: this POI maps to a specific physical object instance
-                instance_num = poi_object_instance
-            else:
-                # Legacy: count existing and assign next available
-                instance_num = None
-
-            if instance_num is not None:
-                # POI-mapped: use (region, obj_type, instance_num) key
-                key = (poi.region, obj_type, instance_num)
-
-                # Check if this instance already exists
-                if key in self.poi_object_instances:
-                    return self.poi_object_instances[key]
-                if key in temp_objects:
-                    return temp_objects[key][0]
-
-                # Check capacity
-                if instance_num >= max_instances:
-                    return None
-
-                # Create new instance for this POI mapping
-                obj_name = matching[instance_num % len(matching)]
-                existing_obj_count = len([e for e in self.events if 'obj_' in e])
-                temp_obj_count = len(temp_objects)
-                obj_id = f"obj_{existing_obj_count + temp_obj_count}"
-                temp_objects[key] = (obj_id, obj_name)
-                return obj_id
-
-            else:
-                # Legacy path: find unoccupied or create new
-                existing_instances = []
-                for k, v in self.poi_object_instances.items():
-                    if isinstance(k, tuple) and len(k) >= 3 and k[0] == poi.region and k[1] == obj_type:
-                        existing_instances.append((k, v))
-                for k, v in temp_objects.items():
-                    if isinstance(k, tuple) and len(k) >= 3 and k[0] == poi.region and k[1] == obj_type:
-                        existing_instances.append((k, v[0]))
-
-                for k, obj_id in existing_instances:
-                    if obj_id not in self.occupied_objects:
-                        return obj_id
-
-                instance_num_legacy = len(existing_instances)
-                if instance_num_legacy >= max_instances:
-                    if existing_instances:
-                        return existing_instances[0][1]
-                    return None
-
-                key = (poi.region, obj_type, instance_num_legacy)
-                obj_name = matching[instance_num_legacy % len(matching)]
-                existing_obj_count = len([e for e in self.events if 'obj_' in e])
-                temp_obj_count = len(temp_objects)
-                obj_id = f"obj_{existing_obj_count + temp_obj_count}"
-                temp_objects[key] = (obj_id, obj_name)
-                return obj_id
+            key = (poi.region, obj_type, instance_num)
+            obj_name = matching[instance_num % len(matching)]
+            obj_id = f"obj_{self._next_obj_id}"
+            self._next_obj_id += 1
+            temp_objects[key] = (obj_id, obj_name)
+            self.poi_object_instances[key] = obj_id
+            return obj_id
 
     def _is_object_available_temp(self, obj_id: str, actor_id: str,
                                    temp_actor_state: Dict,
@@ -1461,10 +1412,10 @@ class GESTBuilder:
             sofa_id = self.poi_object_instances[sofa_key]
         else:
             # Create new sofa
-            existing_obj_count = len([e for e in self.events if 'obj_' in e])
-            temp_obj_count = len(temp_objects)
-            sofa_id = f"obj_{existing_obj_count + temp_obj_count}"
+            sofa_id = f"obj_{self._next_obj_id}"
+            self._next_obj_id += 1
             temp_objects[sofa_key] = (sofa_id, "Sofa (sofa)")
+            self.poi_object_instances[sofa_key] = sofa_id
 
         # Receiver puts down Remote first
         putdown_event_id = self._create_temp_event(

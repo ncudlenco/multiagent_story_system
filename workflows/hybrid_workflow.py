@@ -70,6 +70,12 @@ CRITICAL -- NO HALLUCINATIONS:
 - Each region has specific POIs with specific action chains -- check before planning
 - The scene_builder will explore POIs independently, but your plan must be grounded in what actually exists
 
+VARIETY:
+- Don't always default to the same locations -- explore what's available and vary your choices
+- Stories can span multiple episodes (e.g. a few scenes in one place, then a few in another)
+- Be creative with the setting -- the world has many different environments to discover
+- When multiple regions fit the narrative equally, prefer common ones that appear across many episodes
+
 RULES (call get_simulation_rules for full list):
 - Interactions only while both actors standing
 - Hug/Kiss only between opposite genders
@@ -114,6 +120,7 @@ MANDATORY FLOW:
 3. Return a summary of what was built. DO NOT call any more tools after end_scene.
 
 RULES:
+- Every actor must complete at least one chain action before any interaction in a scene
 - All chains in a round must be committed (end_chain) before end_round
 - Camera (start_recording/stop_recording) only on committed events (after end_chain)
 - No consecutive interactions (must have a chain between them)

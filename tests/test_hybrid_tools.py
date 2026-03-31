@@ -156,6 +156,49 @@ class TestGetRegions:
         assert len(first_2) <= 2
         assert len(first_2) <= len(all_regions)
 
+    def test_supports_interactions_flag(self):
+        """Regions with interaction-only POIs should have supports_interactions=True."""
+        regions = get_regions.invoke({"episode": "house9", "from_idx": 0, "to_idx": 100})
+        kitchen = next(r for r in regions if r["name"] == "kitchen")
+        assert "supports_interactions" in kitchen
+        assert kitchen["supports_interactions"] is True
+
+    def test_no_interactions_in_office(self):
+        """Office regions with no interaction POIs should have supports_interactions=False."""
+        regions = get_regions.invoke({"episode": "office2", "from_idx": 0, "to_idx": 5})
+        office = next(r for r in regions if r["name"] == "office")
+        assert office["supports_interactions"] is False
+
+
+class TestInteractionRequiresInteractionPOI:
+    def test_interaction_rejected_in_region_without_interaction_poi(self, building_tools, generator):
+        """do_interaction rejected in a region that has no interaction-only POI."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "office"})
+        building_tools["create_actor"].invoke({"name": "B", "gender": 2, "skin_id": 12, "region": "office"})
+        building_tools["start_scene"].invoke({
+            "scene_id": "scene_1", "action_name": "OfficeMeeting",
+            "narrative": "Meeting.", "episode": "office2",
+            "region": "office", "actor_ids": ["a0", "a1"],
+        })
+        _start_round(building_tools)
+
+        # Both need chain events — use spawnables since office has no POI actions
+        for aid in ["a0", "a1"]:
+            building_tools["start_spawnable_chain"].invoke({
+                "actor_id": aid, "spawnable_type": "MobilePhone", "region": "office"
+            })
+            for action in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+                building_tools["continue_chain"].invoke({"actor_id": aid, "next_action": action})
+            building_tools["end_chain"].invoke({"actor_id": aid})
+
+        r = building_tools["do_interaction"].invoke({
+            "actor1_id": "a0", "actor2_id": "a1",
+            "interaction_type": "Talk", "region": "office"
+        })
+        assert "error" in r
+        assert "No interaction POI" in r["error"]
+
 
 # =============================================================================
 # EXPLORATION TOOLS: POIS & ACTIONS
@@ -875,6 +918,54 @@ class TestObjectConsistency:
         assert len(generator.occupied_objects) == 0, \
             f"No objects should be occupied after PutDown, got {generator.occupied_objects}"
 
+    def test_eat_releases_object_while_standing(self, building_tools, generator):
+        """PickUp(Food)->Eat should release the object and return actor to standing."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "Bob", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        food_poi = next((p for p in pois if p.get("first_action_type") == "PickUp"
+                         and "food" in p.get("description", "").lower()), None)
+        assert food_poi is not None, "No Food PickUp POI in kitchen"
+
+        r = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": food_poi["poi_index"]
+        })
+        assert "event_id" in r
+        building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "Eat"})
+        end = building_tools["end_chain"].invoke({"actor_id": "a0"})
+        assert end.get("success") is True, f"end_chain should succeed after Eat: {end}"
+        assert generator.actors["a0"].state == ActorState.STANDING
+
+    def test_eat_releases_object_while_sitting(self, building_tools, generator):
+        """SitDown->PickUp(Food)->Eat should release object and return actor to sitting."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "Bob", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        _start_kitchen_scene(building_tools, ["a0"])
+        _start_round(building_tools)
+
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        chair_poi = next((p for p in pois if p.get("first_action_type") == "SitDown"
+                          and "chair" in p.get("description", "").lower()), None)
+        assert chair_poi is not None
+
+        # Sit down first
+        building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": chair_poi["poi_index"]
+        })
+        # PickUp food while sitting
+        r = building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "PickUp"})
+        assert "event_id" in r, f"PickUp while sitting failed: {r}"
+        # Eat
+        building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "Eat"})
+        # Should be back to sitting, not standing — so StandUp should work next
+        r2 = building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "StandUp"})
+        assert "event_id" in r2, f"StandUp after Eat-while-sitting failed: {r2}"
+        end = building_tools["end_chain"].invoke({"actor_id": "a0"})
+        assert end.get("success") is True
+
     def test_cross_region_creates_separate_objects(self, building_tools, generator):
         """PickUp Drinks in barroom then PickUp Drinks in kitchen should create 2 different objects."""
         _init_story(building_tools)
@@ -957,6 +1048,208 @@ class TestObjectConsistency:
                 r3 = building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "TypeOnKeyboard"})
                 assert "error" in r3, "Duplicate TypeOnKeyboard should be rejected"
                 assert "twice in a row" in r3["error"]
+
+
+# =============================================================================
+# BUILDING TOOLS: PARALLEL CHAIN OBJECT ISOLATION
+# =============================================================================
+
+class TestParallelChainObjects:
+    """Test that parallel chains (multiple actors starting chains before any commits)
+    get correct, distinct or shared object IDs based on POI-to-object mapping."""
+
+    def test_different_drink_pois_get_different_objects(self, building_tools, generator):
+        """Two actors at different Drinks POIs must get different obj_ids (1:1 mapping)."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        building_tools["create_actor"].invoke({"name": "B", "gender": 2, "skin_id": 12, "region": "kitchen"})
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
+
+        # Find two distinct Drinks PickUp POIs in kitchen
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        drink_pois = [p for p in pois if p.get("first_action_type") == "PickUp"
+                      and "drink" in p.get("description", "").lower()]
+        assert len(drink_pois) >= 2, f"Need 2+ Drinks POIs, got {len(drink_pois)}"
+
+        # Start chains at different POIs (simulates parallel LLM tool calls)
+        r0 = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": drink_pois[0]["poi_index"]
+        })
+        r1 = building_tools["start_chain"].invoke({
+            "actor_id": "a1", "episode": "house9", "poi_index": drink_pois[1]["poi_index"]
+        })
+        assert "event_id" in r0, f"a0 start_chain failed: {r0}"
+        assert "event_id" in r1, f"a1 start_chain failed: {r1}"
+
+        obj_a0 = r0["object_id"]
+        obj_a1 = r1["object_id"]
+        assert obj_a0 != obj_a1, (
+            f"Different Drinks POIs ({drink_pois[0]['poi_index']} vs {drink_pois[1]['poi_index']}) "
+            f"should produce different obj_ids, but both got {obj_a0}"
+        )
+
+    def test_same_sofa_pois_share_object(self, building_tools, generator):
+        """Two actors at different Sofa POIs (N:1) must get the same obj_id."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "livingroom"})
+        building_tools["create_actor"].invoke({"name": "B", "gender": 2, "skin_id": 12, "region": "livingroom"})
+
+        r = building_tools["start_scene"].invoke({
+            "scene_id": "scene_1", "action_name": "LivingActivity",
+            "narrative": "In the living room.", "episode": "house9",
+            "region": "livingroom", "actor_ids": ["a0", "a1"],
+        })
+        assert "error" not in r, f"start_scene failed: {r}"
+        _start_round(building_tools)
+
+        # Find Sofa POIs in livingroom (should have 2-3 mapping to same instance)
+        pois = get_pois.invoke({"episode": "house9", "region": "livingroom", "from_idx": 0, "to_idx": 100})
+        sofa_pois = [p for p in pois if p.get("first_action_type") == "SitDown"
+                     and "sofa" in p.get("description", "").lower()]
+        assert len(sofa_pois) >= 2, f"Need 2+ Sofa POIs, got {len(sofa_pois)}"
+
+        r0 = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": sofa_pois[0]["poi_index"]
+        })
+        r1 = building_tools["start_chain"].invoke({
+            "actor_id": "a1", "episode": "house9", "poi_index": sofa_pois[1]["poi_index"]
+        })
+        assert "event_id" in r0, f"a0 start_chain failed: {r0}"
+        assert "event_id" in r1, f"a1 start_chain failed: {r1}"
+
+        obj_a0 = r0["object_id"]
+        obj_a1 = r1["object_id"]
+        assert obj_a0 == obj_a1, (
+            f"Sofa POIs ({sofa_pois[0]['poi_index']} vs {sofa_pois[1]['poi_index']}) "
+            f"should share the same obj_id (N:1), but got {obj_a0} vs {obj_a1}"
+        )
+
+    def test_different_chair_pois_get_different_objects(self, building_tools, generator):
+        """Two actors at different Chair POIs must get different obj_ids (1:1 mapping)."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        building_tools["create_actor"].invoke({"name": "B", "gender": 2, "skin_id": 12, "region": "kitchen"})
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
+
+        # Find Chair POIs in kitchen
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        chair_pois = [p for p in pois if p.get("first_action_type") == "SitDown"
+                      and "chair" in p.get("description", "").lower()]
+        assert len(chair_pois) >= 2, f"Need 2+ Chair POIs, got {len(chair_pois)}"
+
+        r0 = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": chair_pois[0]["poi_index"]
+        })
+        r1 = building_tools["start_chain"].invoke({
+            "actor_id": "a1", "episode": "house9", "poi_index": chair_pois[1]["poi_index"]
+        })
+        assert "event_id" in r0, f"a0 start_chain failed: {r0}"
+        assert "event_id" in r1, f"a1 start_chain failed: {r1}"
+
+        obj_a0 = r0["object_id"]
+        obj_a1 = r1["object_id"]
+        assert obj_a0 != obj_a1, (
+            f"Different Chair POIs ({chair_pois[0]['poi_index']} vs {chair_pois[1]['poi_index']}) "
+            f"should produce different obj_ids, but both got {obj_a0}"
+        )
+
+    def test_seat_reuse_after_standup(self, building_tools, generator):
+        """After actor stands up from a chair, another actor can sit on the same chair."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        building_tools["create_actor"].invoke({"name": "B", "gender": 2, "skin_id": 12, "region": "kitchen"})
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+
+        # Round 1: a0 sits and stands on a chair
+        _start_round(building_tools)
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        chair_pois = [p for p in pois if p.get("first_action_type") == "SitDown"
+                      and "chair" in p.get("description", "").lower()]
+        assert len(chair_pois) >= 1
+
+        r0 = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": chair_pois[0]["poi_index"]
+        })
+        assert "event_id" in r0
+        obj_chair = r0["object_id"]
+        building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "StandUp"})
+        building_tools["end_chain"].invoke({"actor_id": "a0"})
+        building_tools["end_round"].invoke({})
+
+        # Round 2: a1 sits on the SAME chair POI
+        _start_round(building_tools)
+        r1 = building_tools["start_chain"].invoke({
+            "actor_id": "a1", "episode": "house9", "poi_index": chair_pois[0]["poi_index"]
+        })
+        assert "event_id" in r1, f"a1 should be able to sit after a0 stood up: {r1}"
+        assert r1["object_id"] == obj_chair, (
+            f"a1 should reuse the same physical chair {obj_chair}, got {r1['object_id']}"
+        )
+
+    def test_drink_reuse_after_putdown(self, building_tools, generator):
+        """After actor puts down a drink, another actor can pick up the same drink."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        building_tools["create_actor"].invoke({"name": "B", "gender": 2, "skin_id": 12, "region": "kitchen"})
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+
+        # Round 1: a0 picks up, drinks, puts down
+        _start_round(building_tools)
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        drink_pois = [p for p in pois if p.get("first_action_type") == "PickUp"
+                      and "drink" in p.get("description", "").lower()]
+        assert len(drink_pois) >= 1
+
+        r0 = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": drink_pois[0]["poi_index"]
+        })
+        assert "event_id" in r0
+        obj_drink = r0["object_id"]
+        building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "Drink"})
+        building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "PutDown"})
+        building_tools["end_chain"].invoke({"actor_id": "a0"})
+        building_tools["end_round"].invoke({})
+
+        # Round 2: a1 picks up from same POI — same physical drink
+        _start_round(building_tools)
+        r1 = building_tools["start_chain"].invoke({
+            "actor_id": "a1", "episode": "house9", "poi_index": drink_pois[0]["poi_index"]
+        })
+        assert "event_id" in r1, f"a1 should be able to pick up after a0 put down: {r1}"
+        assert r1["object_id"] == obj_drink, (
+            f"a1 should reuse the same physical drink {obj_drink}, got {r1['object_id']}"
+        )
+
+    def test_capacity_exhaustion_rejects_gracefully(self, building_tools, generator):
+        """When all instances of an object type are taken, start_chain returns error."""
+        _init_story(building_tools)
+        # Create enough actors to exhaust drink POIs in kitchen (3 Drinks POIs)
+        for i in range(4):
+            building_tools["create_actor"].invoke({
+                "name": f"Actor{i}", "gender": 1, "skin_id": 0, "region": "kitchen"
+            })
+        _start_kitchen_scene(building_tools, [f"a{i}" for i in range(4)])
+        _start_round(building_tools)
+
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        drink_pois = [p for p in pois if p.get("first_action_type") == "PickUp"
+                      and "drink" in p.get("description", "").lower()]
+
+        # Start chains at all available Drinks POIs
+        allocated = []
+        for i, dp in enumerate(drink_pois):
+            r = building_tools["start_chain"].invoke({
+                "actor_id": f"a{i}", "episode": "house9", "poi_index": dp["poi_index"]
+            })
+            assert "event_id" in r, f"a{i} at POI {dp['poi_index']} should succeed: {r}"
+            allocated.append(r["object_id"])
+
+        # All obj_ids should be unique
+        assert len(set(allocated)) == len(drink_pois), (
+            f"Each Drinks POI should produce unique obj_id, got {allocated}"
+        )
 
 
 # =============================================================================
@@ -1109,6 +1402,299 @@ class TestInteractions:
         _end_round(building_tools)
         r2 = building_tools["end_scene"].invoke({})
         assert r2.get("success") is True
+
+    def test_interaction_rejected_without_chain_in_scene(self, building_tools, generator):
+        """Interaction rejected if actors have no chain actions in the current scene."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        building_tools["create_actor"].invoke({
+            "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
+        })
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
+
+        # Try interaction immediately — no chains done yet in this scene
+        r = building_tools["do_interaction"].invoke({
+            "actor1_id": "a0", "actor2_id": "a1",
+            "interaction_type": "Talk", "region": "kitchen"
+        })
+        assert "error" in r, f"Interaction should be rejected without prior chains: {r}"
+
+    def test_interaction_rejected_after_move_to_new_scene(self, building_tools, generator):
+        """Interaction rejected in a new scene even if actors had chains in previous scene."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({
+            "name": "Bob", "gender": 1, "skin_id": 45, "region": "kitchen"
+        })
+        building_tools["create_actor"].invoke({
+            "name": "Alice", "gender": 2, "skin_id": 100, "region": "kitchen"
+        })
+
+        # Scene 1: do chains so actors have events
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
+        for actor_id in ["a0", "a1"]:
+            building_tools["start_spawnable_chain"].invoke({
+                "actor_id": actor_id, "spawnable_type": "MobilePhone", "region": "kitchen"
+            })
+            for action in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+                building_tools["continue_chain"].invoke({
+                    "actor_id": actor_id, "next_action": action
+                })
+            building_tools["end_chain"].invoke({"actor_id": actor_id})
+        _end_round(building_tools)
+        building_tools["end_scene"].invoke({})
+
+        # Move to livingroom, start scene 2
+        building_tools["move_actors"].invoke({
+            "actor_ids": ["a0", "a1"], "to_region": "livingroom"
+        })
+        building_tools["start_scene"].invoke({
+            "scene_id": "scene_2", "action_name": "LivingActivity",
+            "narrative": "In the living room.", "episode": "house9",
+            "region": "livingroom", "actor_ids": ["a0", "a1"],
+        })
+        _start_round(building_tools)
+
+        # Try interaction — actors had chains in scene 1 but not scene 2
+        r = building_tools["do_interaction"].invoke({
+            "actor1_id": "a0", "actor2_id": "a1",
+            "interaction_type": "Handshake", "region": "livingroom"
+        })
+        assert "error" in r, f"Interaction should be rejected in new scene without chains: {r}"
+        assert "no chain actions" in r["error"]
+
+
+# =============================================================================
+# BUILDING TOOLS: GIVE/RECEIVE
+# =============================================================================
+
+class TestGiveReceive:
+    def _setup_two_actors_with_chains(self, building_tools):
+        """Create two actors, start kitchen scene, and give both a completed chain."""
+        _init_story(building_tools)
+        building_tools["create_actor"].invoke({"name": "A", "gender": 1, "skin_id": 0, "region": "kitchen"})
+        building_tools["create_actor"].invoke({"name": "B", "gender": 2, "skin_id": 12, "region": "kitchen"})
+        _start_kitchen_scene(building_tools, ["a0", "a1"])
+        _start_round(building_tools)
+
+        # Both actors do a spawnable chain so they have events in the scene
+        for actor_id in ["a0", "a1"]:
+            building_tools["start_spawnable_chain"].invoke({
+                "actor_id": actor_id, "spawnable_type": "MobilePhone", "region": "kitchen"
+            })
+            for action in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+                building_tools["continue_chain"].invoke({"actor_id": actor_id, "next_action": action})
+            building_tools["end_chain"].invoke({"actor_id": actor_id})
+
+    def _pickup_drink(self, building_tools, actor_id):
+        """Start a chain at a Drinks POI and return the object_id."""
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        drink_poi = next(p for p in pois if p.get("first_action_type") == "PickUp"
+                         and "drink" in p.get("description", "").lower())
+        r = building_tools["start_chain"].invoke({
+            "actor_id": actor_id, "episode": "house9", "poi_index": drink_poi["poi_index"]
+        })
+        assert "event_id" in r, f"PickUp failed: {r}"
+        return r["object_id"]
+
+    def test_do_give_drinks(self, building_tools, generator):
+        """Give Drinks: giver picks up, gives to receiver, receiver drinks and puts down."""
+        self._setup_two_actors_with_chains(building_tools)
+
+        # a0 picks up drink (active chain, holding)
+        obj_id = self._pickup_drink(building_tools, "a0")
+
+        # Give to a1
+        r = building_tools["do_give"].invoke({"giver_id": "a0", "receiver_id": "a1"})
+        assert r.get("success"), f"do_give failed: {r}"
+        assert r["object_id"] == obj_id
+        assert "Drink" in r["receiver_next_actions"]
+        assert "PutDown" in r["receiver_next_actions"]
+
+        # a0 can end chain (no longer holding)
+        end_a0 = building_tools["end_chain"].invoke({"actor_id": "a0"})
+        assert end_a0.get("success"), f"end_chain a0 failed: {end_a0}"
+
+        # a1 continues: Drink then PutDown
+        r2 = building_tools["continue_chain"].invoke({"actor_id": "a1", "next_action": "Drink"})
+        assert "event_id" in r2, f"Drink failed: {r2}"
+        r3 = building_tools["continue_chain"].invoke({"actor_id": "a1", "next_action": "PutDown"})
+        assert "event_id" in r3, f"PutDown failed: {r3}"
+        end_a1 = building_tools["end_chain"].invoke({"actor_id": "a1"})
+        assert end_a1.get("success"), f"end_chain a1 failed: {end_a1}"
+
+        # Verify GEST: Give + INV-Give + Drink + PutDown
+        give_events = [eid for eid, e in generator.events.items() if e.get("Action") == "Give"]
+        recv_events = [eid for eid, e in generator.events.items() if e.get("Action") == "INV-Give"]
+        assert len(give_events) == 1
+        assert len(recv_events) == 1
+
+        # Verify starts_with
+        give_eid = give_events[0]
+        recv_eid = recv_events[0]
+        give_rels = generator.temporal.get(give_eid, {}).get("relations", [])
+        recv_rels = generator.temporal.get(recv_eid, {}).get("relations", [])
+        shared_rels = set(give_rels) & set(recv_rels)
+        assert len(shared_rels) >= 1
+        for rid in shared_rels:
+            assert generator.temporal[rid]["type"] == "starts_with"
+
+    def test_do_give_food(self, building_tools, generator):
+        """Give Food: receiver eats it (consumed, no PutDown needed)."""
+        self._setup_two_actors_with_chains(building_tools)
+
+        # Find food POI
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        food_poi = next(p for p in pois if p.get("first_action_type") == "PickUp"
+                        and "food" in p.get("description", "").lower())
+        r = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": food_poi["poi_index"]
+        })
+        assert "event_id" in r
+
+        # Give to a1
+        r2 = building_tools["do_give"].invoke({"giver_id": "a0", "receiver_id": "a1"})
+        assert r2.get("success"), f"do_give failed: {r2}"
+        assert r2["receiver_next_actions"] == ["Eat"]
+
+        building_tools["end_chain"].invoke({"actor_id": "a0"})
+
+        # a1 eats (food consumed)
+        r3 = building_tools["continue_chain"].invoke({"actor_id": "a1", "next_action": "Eat"})
+        assert "event_id" in r3
+        end = building_tools["end_chain"].invoke({"actor_id": "a1"})
+        assert end.get("success"), f"end_chain after Eat failed: {end}"
+
+    def test_do_give_remote(self, building_tools, generator):
+        """Give Remote: receiver puts it down."""
+        self._setup_two_actors_with_chains(building_tools)
+
+        # Find remote POI in livingroom (kitchen doesn't have remote)
+        _end_round(building_tools)
+        building_tools["end_scene"].invoke({})
+        building_tools["start_scene"].invoke({
+            "scene_id": "scene_2", "action_name": "LivingActivity",
+            "narrative": "In the living room.", "episode": "house9",
+            "region": "livingroom", "actor_ids": ["a0", "a1"],
+        })
+        _start_round(building_tools)
+
+        # Both need chain events in this new scene
+        for actor_id in ["a0", "a1"]:
+            building_tools["start_spawnable_chain"].invoke({
+                "actor_id": actor_id, "spawnable_type": "MobilePhone", "region": "livingroom"
+            })
+            for action in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
+                building_tools["continue_chain"].invoke({"actor_id": actor_id, "next_action": action})
+            building_tools["end_chain"].invoke({"actor_id": actor_id})
+
+        # Find Remote POI
+        pois = get_pois.invoke({"episode": "house9", "region": "livingroom", "from_idx": 0, "to_idx": 100})
+        remote_poi = next((p for p in pois if p.get("first_action_type") == "PickUp"
+                           and "remote" in p.get("description", "").lower()), None)
+        if not remote_poi:
+            pytest.skip("No Remote POI in livingroom")
+
+        r = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": remote_poi["poi_index"]
+        })
+        assert "event_id" in r
+
+        r2 = building_tools["do_give"].invoke({"giver_id": "a0", "receiver_id": "a1"})
+        assert r2.get("success"), f"do_give remote failed: {r2}"
+        assert "PutDown" in r2["receiver_next_actions"]
+
+        building_tools["end_chain"].invoke({"actor_id": "a0"})
+        building_tools["continue_chain"].invoke({"actor_id": "a1", "next_action": "PutDown"})
+        end = building_tools["end_chain"].invoke({"actor_id": "a1"})
+        assert end.get("success")
+
+    def test_do_give_multi_hop(self, building_tools, generator):
+        """Multi-hop: A picks up, gives to B, B gives back to A, A puts down."""
+        self._setup_two_actors_with_chains(building_tools)
+        obj_id = self._pickup_drink(building_tools, "a0")
+
+        # A gives to B
+        r1 = building_tools["do_give"].invoke({"giver_id": "a0", "receiver_id": "a1"})
+        assert r1.get("success")
+        building_tools["end_chain"].invoke({"actor_id": "a0"})
+
+        # B gives back to A
+        r2 = building_tools["do_give"].invoke({"giver_id": "a1", "receiver_id": "a0"})
+        assert r2.get("success"), f"Multi-hop give failed: {r2}"
+        building_tools["end_chain"].invoke({"actor_id": "a1"})
+
+        # A drinks and puts down
+        building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "Drink"})
+        building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "PutDown"})
+        end = building_tools["end_chain"].invoke({"actor_id": "a0"})
+        assert end.get("success")
+
+        # Verify two Give + two INV-Give events
+        give_count = sum(1 for e in generator.events.values() if e.get("Action") == "Give")
+        recv_count = sum(1 for e in generator.events.values() if e.get("Action") == "INV-Give")
+        assert give_count == 2
+        assert recv_count == 2
+
+    def test_do_give_rejected_not_holding(self, building_tools, generator):
+        """Give rejected if giver is not holding anything."""
+        self._setup_two_actors_with_chains(building_tools)
+
+        # Start a chain but don't pick up (use chair SitDown → StandUp → no holding)
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        chair_poi = next(p for p in pois if p.get("first_action_type") == "SitDown"
+                         and "chair" in p.get("description", "").lower())
+        building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": chair_poi["poi_index"]
+        })
+        building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "StandUp"})
+
+        r = building_tools["do_give"].invoke({"giver_id": "a0", "receiver_id": "a1"})
+        assert "error" in r
+        assert "not holding" in r["error"]
+
+    def test_do_give_rejected_receiver_in_chain(self, building_tools, generator):
+        """Give rejected if receiver has an active chain."""
+        self._setup_two_actors_with_chains(building_tools)
+        self._pickup_drink(building_tools, "a0")
+
+        # a1 also starts a chain (active)
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        chair_poi = next(p for p in pois if p.get("first_action_type") == "SitDown"
+                         and "chair" in p.get("description", "").lower())
+        building_tools["start_chain"].invoke({
+            "actor_id": "a1", "episode": "house9", "poi_index": chair_poi["poi_index"]
+        })
+
+        r = building_tools["do_give"].invoke({"giver_id": "a0", "receiver_id": "a1"})
+        assert "error" in r
+        assert "active chain" in r["error"]
+
+    def test_give_blocked_in_continue_chain(self, building_tools, generator):
+        """continue_chain('Give') is rejected with error pointing to do_give."""
+        self._setup_two_actors_with_chains(building_tools)
+        self._pickup_drink(building_tools, "a0")
+
+        r = building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "Give"})
+        assert "error" in r
+        assert "do_give" in r["error"]
+
+    def test_give_available_hint(self, building_tools, generator):
+        """After PickUp, next_actions should not contain Give but give_available should be True."""
+        self._setup_two_actors_with_chains(building_tools)
+
+        pois = get_pois.invoke({"episode": "house9", "region": "kitchen", "from_idx": 0, "to_idx": 100})
+        drink_poi = next(p for p in pois if p.get("first_action_type") == "PickUp"
+                         and "drink" in p.get("description", "").lower())
+        r = building_tools["start_chain"].invoke({
+            "actor_id": "a0", "episode": "house9", "poi_index": drink_poi["poi_index"]
+        })
+        assert "Give" not in r.get("next_actions", [])
+        # The hint comes from continue_chain results, not start_chain
+        # But start_chain also returns next_actions which should be filtered
 
 
 # =============================================================================

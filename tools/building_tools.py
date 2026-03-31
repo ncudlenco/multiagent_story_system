@@ -683,6 +683,8 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         }
 
         next_actions = first_action.get('possible_next_actions', [])
+        had_give = 'Give' in next_actions
+        next_actions = [a for a in next_actions if a not in ('Give', 'INV-Give')]
 
         result = {
             'event_id': event_id,
@@ -691,6 +693,8 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         }
         if obj_id:
             result['object_id'] = obj_id
+        if had_give:
+            result['give_available'] = True
         return result
 
     @tool
@@ -860,6 +864,51 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
                 'action': next_action,
                 'next_actions': next_possible
             }
+        elif chain.get('is_give_receiver'):
+            # Receiver chain from do_give: use give_next_actions
+            valid_next = chain.get('give_next_actions', [])
+            current = chain['current_action']
+
+            if next_action not in valid_next:
+                return {
+                    'error': f'"{next_action}" not valid after receiving. Valid: {valid_next}'
+                }
+
+            # Create event with the received object
+            held_obj = chain['temp_actor_state'].get('holding_object')
+            entities = [actor_id]
+            if held_obj:
+                entities.append(held_obj)
+
+            # Capture release before creating event
+            release_obj = None
+            if next_action in ('PutDown', 'Eat'):
+                release_obj = held_obj
+
+            event_id = gen._create_temp_event(
+                actor, next_action, entities, chain['poi'].region, chain['poi'],
+                chain['temp_actor_state']['last_event_id'],
+                chain['temp_events'], chain['temp_temporal'], chain['temp_actor_state']
+            )
+
+            if release_obj and release_obj in chain['temp_occupied']:
+                del chain['temp_occupied'][release_obj]
+
+            chain['current_action'] = next_action
+            chain['is_give_receiver'] = False
+
+            # Determine follow-up actions
+            next_possible = []
+            if next_action == 'Drink':
+                next_possible = ['PutDown']
+
+            result = {'event_id': event_id, 'action': next_action, 'next_actions': next_possible}
+            if held_obj:
+                result['object_id'] = held_obj
+            if chain['temp_actor_state'].get('holding_object'):
+                result['give_available'] = True
+            return result
+
         else:
             # Regular POI chain: validate against possible_next_actions
             poi = chain['poi']
@@ -875,6 +924,12 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             if next_action not in valid_next:
                 return {
                     'error': f'"{next_action}" not valid after "{current}". Valid: {valid_next}'
+                }
+
+            # Give/INV-Give require paired events — use do_give tool instead
+            if next_action in ('Give', 'INV-Give'):
+                return {
+                    'error': f'"{next_action}" requires a paired Give/Receive. Use the do_give tool instead.'
                 }
 
             # No duplicate actions in a row (except Move)
@@ -936,12 +991,24 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
 
             # Get next possible actions for this new action
             next_possible = []
-            if next_def:
+            if chain.get('is_give_receiver') is False and chain.get('give_next_actions'):
+                # Just completed a give-receiver action — determine follow-up
+                if next_action == 'Drink':
+                    next_possible = ['PutDown']
+                # Eat, PutDown: terminal — next_possible stays empty
+            elif next_def:
                 next_possible = next_def.get('possible_next_actions', [])
+
+            # Filter Give/INV-Give from next_actions (must use do_give)
+            had_give = 'Give' in next_possible
+            next_possible = [a for a in next_possible if a not in ('Give', 'INV-Give')]
 
             result = {'event_id': event_id, 'action': next_action, 'next_actions': next_possible}
             if obj_id:
                 result['object_id'] = obj_id
+            # Signal give is available whenever actor is still holding
+            if had_give or chain['temp_actor_state'].get('holding_object'):
+                result['give_available'] = True
             return result
 
     @tool
@@ -1037,6 +1104,31 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         if interaction_type in ('Hug', 'Kiss') and actor1.gender == actor2.gender:
             return {'error': f'{interaction_type} requires opposite genders'}
 
+        # Check that the region has an interaction POI in the current episode
+        ep_name = current_scene_episode.get('value')
+        if ep_name:
+            ep_data = None
+            for ep in gen.capabilities.get('episodes', []):
+                if ep.get('name') == ep_name:
+                    ep_data = ep
+                    break
+            if ep_data:
+                has_interaction_poi = any(
+                    p.get('region') == region and p.get('interactions_only')
+                    for p in ep_data.get('pois', [])
+                )
+                if not has_interaction_poi:
+                    return {'error': f'No interaction POI in region "{region}" of episode "{ep_name}". Interactions cannot happen here.'}
+
+        # Require at least one chain action in the current scene before interacting.
+        # MTA needs actors settled at a POI before starts_with sync works.
+        for aid in [actor1_id, actor2_id]:
+            has_chain_in_scene = any(
+                eid.startswith(aid + '_') for eid in current_scene_events
+            )
+            if not has_chain_in_scene:
+                return {'error': f'{aid} has no chain actions in this scene yet. Complete a chain before interacting.'}
+
         # No consecutive interactions -- MTA can't handle two starts_with events in a row
         interactions = {'Talk', 'Handshake', 'Hug', 'Kiss', 'Laugh'}
         if actor1.last_event_id in gen.events:
@@ -1068,6 +1160,173 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             }
         except Exception as e:
             return {'error': str(e)}
+
+    # =========================================================================
+    # GIVE TOOL
+    # =========================================================================
+
+    # Valid next actions for receiver by object type (matching random generator)
+    GIVE_RECEIVER_ACTIONS: Dict[str, List[str]] = {
+        'Drinks': ['Drink', 'PutDown'],
+        'Food': ['Eat'],
+        'Remote': ['PutDown'],
+    }
+
+    @tool
+    def do_give(giver_id: str, receiver_id: str) -> Dict[str, Any]:
+        """Give the held object from giver to receiver. Creates paired Give + INV-Give
+        events with starts_with synchronization. Giver must have active chain and be
+        holding an object. Receiver must be standing with no active chain.
+
+        After giving, the giver can end_chain (no longer holding). The receiver gets
+        a new active chain and can continue_chain with actions for the received object.
+
+        Args:
+            giver_id: Actor giving the object (must have active chain, be holding)
+            receiver_id: Actor receiving the object (must be standing, no active chain)
+
+        Returns:
+            Dict with give/receive event IDs and receiver's next actions.
+        """
+        err = _require_state('IN_ROUND')
+        if err:
+            return err
+
+        # Validate giver
+        if giver_id not in active_chains:
+            return {'error': f'{giver_id} must have an active chain to give'}
+
+        giver_chain = active_chains[giver_id]
+        giver = gen.actors[giver_id]
+        held_obj = giver_chain['temp_actor_state'].get('holding_object')
+        if not held_obj:
+            return {'error': f'{giver_id} is not holding any object'}
+
+        # Get object type — check temp_objects (uncommitted) and committed events
+        obj_type = None
+        for key, (oid, oname) in giver_chain['temp_objects'].items():
+            if oid == held_obj:
+                obj_type = oname.split('(')[0].strip()  # "Drinks (bottle)" -> "Drinks"
+                break
+        if not obj_type:
+            obj_type = gen._get_obj_type_from_id(held_obj, giver_chain['temp_events'])
+        if not obj_type:
+            return {'error': f'Cannot determine type of held object {held_obj}'}
+
+        if obj_type not in GIVE_RECEIVER_ACTIONS:
+            return {'error': f'{obj_type} cannot be given. Only Drinks, Food, Remote can be given.'}
+
+        # Validate receiver
+        if receiver_id not in gen.actors:
+            return {'error': f'Actor {receiver_id} not found'}
+        if receiver_id in active_chains:
+            return {'error': f'{receiver_id} has an active chain. End it before receiving.'}
+
+        receiver = gen.actors[receiver_id]
+        if receiver.state != ActorState.STANDING:
+            return {'error': f'{receiver_id} must be standing (currently {receiver.state.value})'}
+        if receiver.current_location != giver.current_location:
+            return {'error': f'Both actors must be in the same region'}
+
+        # Receiver must have chain events in this scene
+        has_chain_in_scene = any(
+            eid.startswith(receiver_id + '_') for eid in current_scene_events
+        )
+        if not has_chain_in_scene:
+            return {'error': f'{receiver_id} has no chain actions in this scene yet.'}
+
+        region = giver.current_location
+
+        # --- Create Give event in giver's temp buffer ---
+        give_event_id = gen._get_next_event_id(giver_id)
+        giver_chain['temp_events'][give_event_id] = {
+            "Action": "Give",
+            "Entities": [giver_id, receiver_id, held_obj],
+            "Location": [region],
+            "Timeframe": None,
+            "Properties": {}
+        }
+        giver_chain['temp_temporal'][give_event_id] = {"relations": [], "next": None}
+
+        # Link to giver's last event
+        prev_eid = giver_chain['temp_actor_state']['last_event_id']
+        if prev_eid in giver_chain['temp_temporal']:
+            giver_chain['temp_temporal'][prev_eid]["next"] = give_event_id
+
+        # Update giver state
+        giver_chain['temp_actor_state']['last_event_id'] = give_event_id
+        giver_chain['temp_actor_state']['holding_object'] = None
+        giver_chain['temp_actor_state']['state'] = ActorState.STANDING
+        giver_chain['current_action'] = 'Give'
+
+        # --- Create INV-Give event in receiver's own temp buffer ---
+        receive_event_id = gen._get_next_event_id(receiver_id)
+        recv_temp_events = {}
+        recv_temp_temporal = {}
+        recv_temp_objects = {}
+        recv_temp_occupied = {}
+
+        recv_temp_events[receive_event_id] = {
+            "Action": "INV-Give",
+            "Entities": [receiver_id, giver_id, held_obj],
+            "Location": [region],
+            "Timeframe": None,
+            "Properties": {}
+        }
+        recv_temp_temporal[receive_event_id] = {"relations": [], "next": None}
+        recv_temp_occupied[held_obj] = receiver_id
+
+        # --- Add starts_with between Give and INV-Give ---
+        relation_id = gen._get_next_relation_id()
+        sw_relation = {"type": "starts_with"}
+
+        # Put the relation in giver's temp (it will be committed with the giver)
+        giver_chain['temp_temporal'][relation_id] = sw_relation
+        giver_chain['temp_temporal'][give_event_id]["relations"].append(relation_id)
+        # Reference same relation ID in receiver's temp
+        recv_temp_temporal[relation_id] = sw_relation
+        recv_temp_temporal[receive_event_id]["relations"].append(relation_id)
+
+        # --- Create receiver's active chain ---
+        receiver_next_actions = GIVE_RECEIVER_ACTIONS.get(obj_type, [])
+
+        active_chains[receiver_id] = {
+            'poi': giver_chain['poi'],
+            'poi_index': giver_chain.get('poi_index', -1),
+            'episode': giver_chain.get('episode', ''),
+            'current_action': 'INV-Give',
+            'temp_events': recv_temp_events,
+            'temp_temporal': recv_temp_temporal,
+            'temp_objects': recv_temp_objects,
+            'temp_occupied': recv_temp_occupied,
+            'temp_actor_state': {
+                'last_event_id': receive_event_id,
+                'sitting_on': receiver.sitting_on,
+                'holding_object': held_obj,
+                'lying_on': receiver.lying_on,
+                'state': ActorState.HOLDING,
+            },
+            'original_last_event_id': receiver.last_event_id,
+            'is_spawnable': False,
+            'is_give_receiver': True,
+            'give_next_actions': receiver_next_actions,
+        }
+
+        # Track events
+        _track_round_event(giver_id, give_event_id)
+        _track_round_event(receiver_id, receive_event_id)
+        _track_scene_event(give_event_id)
+        _track_scene_event(receive_event_id)
+
+        return {
+            'success': True,
+            'give_event_id': give_event_id,
+            'receive_event_id': receive_event_id,
+            'object_id': held_obj,
+            'object_type': obj_type,
+            'receiver_next_actions': receiver_next_actions,
+            'give_available': True,
+        }
 
     # =========================================================================
     # MOVEMENT TOOL
@@ -1402,6 +1661,7 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         continue_chain,
         end_chain,
         do_interaction,
+        do_give,
         move_actors,
         add_starts_with,
         add_temporal_dependency,
