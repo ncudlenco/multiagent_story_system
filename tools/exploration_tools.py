@@ -189,14 +189,27 @@ def get_poi_first_actions(episode: str, poi_index: int) -> List[Dict[str, Any]]:
     if not actions:
         return [{'info': 'This POI has no actions (interaction-only or empty)'}]
 
-    # Return the first action (entry point of the chain)
+    # Filter out spawnable POIs (handled via get_spawnable_types, not POI chains)
+    SPAWNABLE_TYPES = {'MobilePhone', 'Cigarette'}
+    FILTERED_ACTIONS = {'Give', 'INV-Give', 'TakeOut', 'Stash',
+                        'AnswerPhone', 'TalkPhone', 'HangUp',
+                        'SmokeIn', 'Smoke', 'SmokeOut'}
+
     first_action = actions[0]
+    obj_type = first_action.get('object_type', '')
+    if obj_type in SPAWNABLE_TYPES:
+        return [{'info': 'This POI is for spawnable objects. Use get_spawnable_types instead.'}]
+
+    # Filter Give/INV-Give/spawnable steps from possible_next_actions
+    next_actions = [a for a in first_action.get('possible_next_actions', [])
+                    if a not in FILTERED_ACTIONS]
+
     return [{
         'type': first_action.get('type', ''),
         'requires_object': first_action.get('requires_object', False),
         'object_type': first_action.get('object_type', ''),
         'entities': first_action.get('entities', []),
-        'possible_next_actions': first_action.get('possible_next_actions', [])
+        'possible_next_actions': next_actions
     }]
 
 
@@ -225,10 +238,15 @@ def get_next_actions(episode: str, poi_index: int, current_action: str) -> List[
     if poi_index < 0 or poi_index >= len(all_pois):
         return []
 
+    FILTERED_ACTIONS = {'Give', 'INV-Give', 'TakeOut', 'Stash',
+                        'AnswerPhone', 'TalkPhone', 'HangUp',
+                        'SmokeIn', 'Smoke', 'SmokeOut'}
+
     poi = all_pois[poi_index]
     for action in poi.get('actions', []):
         if action.get('type') == current_action:
-            return action.get('possible_next_actions', [])
+            return [a for a in action.get('possible_next_actions', [])
+                    if a not in FILTERED_ACTIONS]
 
     return []
 
@@ -281,37 +299,30 @@ def get_region_capacity(episode: str, region: str) -> Dict[str, Any]:
 @tool
 def get_spawnable_types() -> List[Dict[str, Any]]:
     """Get spawnable object types. These don't need to exist in a region -- actors carry them.
-    Spawnable chains work like regular chains: start with TakeOut, continue step by step.
-    The full sequence must be completed in order, but can be interleaved with other actors' actions.
+
+    Each spawnable has two actions:
+    - start action: begins the spawnable (creates multiple MTA events atomically)
+    - end action: finishes the spawnable (creates remaining MTA events atomically)
+
+    Between start and end, the actor is locked -- no other actions except ending the spawnable.
+    Other actors can do things between an actor's start and end (cross-actor interleaving).
+    The spawnable must be completed within the same scene.
 
     Returns:
-        List of spawnable types with their action sequences.
+        List of spawnable types with start/end actions.
     """
-    capabilities = _load_capabilities()
-    spawnable_data = capabilities.get('action_chains', {}).get('spawnable_objects', {})
-
-    # Build from action_chains if available, otherwise use hardcoded defaults
-    if spawnable_data:
-        results = []
-        for obj_type, sequence_data in spawnable_data.items():
-            results.append({
-                'type': obj_type,
-                'first_action': 'TakeOut',
-                'full_sequence': sequence_data if isinstance(sequence_data, list) else []
-            })
-        return results
-
-    # Fallback to known spawnable types
     return [
         {
             'type': 'MobilePhone',
-            'first_action': 'TakeOut',
-            'full_sequence': ['TakeOut', 'AnswerPhone', 'TalkPhone', 'HangUp', 'Stash']
+            'start_action': 'AnswerPhone',
+            'end_action': 'HangUp',
+            'description': 'Actor takes out phone, answers, and talks. Later, hangs up and stashes.'
         },
         {
             'type': 'Cigarette',
-            'first_action': 'TakeOut',
-            'full_sequence': ['TakeOut', 'SmokeIn', 'Smoke', 'SmokeOut', 'Stash']
+            'start_action': 'StartSmoking',
+            'end_action': 'StopSmoking',
+            'description': 'Actor takes out cigarette, lights up, and smokes. Later, finishes and stashes.'
         }
     ]
 

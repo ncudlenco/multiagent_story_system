@@ -79,8 +79,9 @@ VARIETY:
 RULES (call get_simulation_rules for full list):
 - Interactions only while both actors standing
 - Hug/Kiss only between opposite genders
-- Spawnable objects (phone, cigarette) can't be given or put down
-- No spawnable actions while sitting or on equipment
+- Actors can carry held objects across scenes. start_round shows what each actor holds.
+- Objects can only be put down in their original region.
+- Give requires receiver_id parameter in continue_chain.
 
 SEQUENTIAL SCENES:
 - Use write_todos to plan your scenes before delegating
@@ -110,7 +111,7 @@ MANDATORY FLOW:
    b. For each actor: build ONE chain (can interleave across actors):
       - start_chain → continue_chain (step by step) → end_chain
       - OR do_interaction for synchronized actions
-      - OR start_spawnable_chain → continue_chain → end_chain
+      - OR start_chain (without POI) for spawnable/held object actions → continue_chain → end_chain
       Multiple actors CAN have active chains at the same time.
    c. After ALL chains are committed (end_chain), set camera on committed events
    d. Optionally: add_temporal_dependency to order cross-actor events,
@@ -126,6 +127,7 @@ RULES:
 - No consecutive interactions (must have a chain between them)
 - No duplicate actions in a row (except Move)
 - Actors must be standing to start chains or interactions
+- Give requires receiver_id parameter in continue_chain
 - Do NOT call finalize_gest or move_actors -- the main agent handles those
 - Do NOT move actors to other regions unless told to"""
 
