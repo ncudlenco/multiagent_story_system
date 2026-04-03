@@ -1056,6 +1056,19 @@ Examples:
     )
 
     parser.add_argument(
+        '--logical-relations',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Enable logical relations subagent (default: enabled, use --no-logical-relations)'
+    )
+    parser.add_argument(
+        '--semantic-relations',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Enable semantic relations subagent (default: enabled, use --no-semantic-relations)'
+    )
+
+    parser.add_argument(
         '--save-prompts',
         action='store_true',
         help='Save all LLM prompts and responses during story generation'
@@ -1152,6 +1165,8 @@ Examples:
                 num_scenes=getattr(args, 'scene_number', 3) or 3,
                 num_protagonists=getattr(args, 'max_num_protagonists', 2) or 2,
                 include_extras=getattr(args, 'max_num_extras', 0) > 0,
+                enable_logical_relations=getattr(args, 'logical_relations', True),
+                enable_semantic_relations=getattr(args, 'semantic_relations', True),
             ).model_dump()
 
             try:

@@ -393,6 +393,12 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         for actor_id in active_chains:
             return {'error': f'Actor {actor_id} still has an active chain. Call end_chain first.'}
 
+        # Reject if any actor is holding a spawnable (must complete sequence in this scene)
+        for actor_id, actor in gen.actors.items():
+            if actor.holding_is_spawnable:
+                end_action = 'HangUp' if actor.holding_type == 'MobilePhone' else 'StopSmoking'
+                return {'error': f'Actor {actor_id} is in a spawnable sequence. Call {end_action} before ending scene.'}
+
         # Store boundaries: each actor's last event in this scene
         boundaries = {}
         for actor_id, actor in gen.actors.items():
@@ -481,11 +487,17 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
 
         actors_in_scene = []
         for aid, actor in gen.actors.items():
-            actors_in_scene.append({
+            actor_info = {
                 'actor_id': aid,
                 'state': actor.state.value,
                 'region': actor.current_location
-            })
+            }
+            if actor.holding_object:
+                actor_info['holding'] = actor.holding_object
+                actor_info['holding_type'] = actor.holding_type
+                if actor.holding_origin_region:
+                    actor_info['holding_origin_region'] = actor.holding_origin_region
+            actors_in_scene.append(actor_info)
 
         return {
             'success': True,
@@ -542,19 +554,81 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
     # CHAIN TOOLS
     # =========================================================================
 
+    def _get_held_object_actions(actor: Actor) -> List[str]:
+        """Compute available actions for the held object based on type and last action.
+        Only returns actions when actor is standing. PutDown conditioned on region.
+        Spawnables use semantic names: AnswerPhone/HangUp for phone, StartSmoking/StopSmoking for cigarette."""
+        if not actor.holding_object or actor.state != ActorState.STANDING:
+            return []
+
+        obj_type = actor.holding_type
+        last_action = actor.holding_last_action
+        is_spawnable = actor.holding_is_spawnable
+        actions = []
+
+        if is_spawnable:
+            # Spawnable: only the end action is available (actor is locked)
+            if obj_type == 'MobilePhone':
+                actions.append('HangUp')
+            elif obj_type == 'Cigarette':
+                actions.append('StopSmoking')
+        else:
+            # Pickupable action tree
+            if obj_type == 'Drinks':
+                if last_action in ('PickUp', 'INV-Give'):
+                    actions.extend(['Drink', 'Give (requires receiver_id)'])
+                elif last_action == 'Drink':
+                    actions.append('Give (requires receiver_id)')
+                # PutDown at any point if same region
+            elif obj_type == 'Food':
+                if last_action in ('PickUp', 'INV-Give'):
+                    actions.extend(['Eat', 'Give (requires receiver_id)'])
+            elif obj_type == 'Remote':
+                if last_action in ('PickUp', 'INV-Give'):
+                    actions.append('Give (requires receiver_id)')
+
+            # PutDown only if in origin region
+            if actor.holding_origin_region and actor.current_location == actor.holding_origin_region:
+                if last_action not in ('Eat',):  # Can't put down consumed food
+                    actions.append('PutDown')
+
+        return actions
+
+    def _get_spawnable_takeout_options(actor: Actor) -> List[str]:
+        """Return available spawnable start actions when not holding anything.
+        Uses semantic names: AnswerPhone (starts phone call), StartSmoking (starts smoking)."""
+        if actor.holding_object or actor.state != ActorState.STANDING:
+            return []
+        return ['AnswerPhone', 'StartSmoking']
+
+    def _build_actor_state(actor: Actor) -> Dict[str, Any]:
+        """Build actor state dict for tool responses."""
+        state = {'posture': actor.state.value}
+        if actor.holding_object:
+            state['holding'] = actor.holding_object
+            state['holding_type'] = actor.holding_type
+            if actor.holding_origin_region:
+                state['holding_origin_region'] = actor.holding_origin_region
+        return state
+
     @tool
-    def start_chain(actor_id: str, episode: str, poi_index: int) -> Dict[str, Any]:
-        """Start an action chain at a POI. Performs the first action in the chain.
-        Allocates objects and creates temp buffers internally.
+    def start_chain(actor_id: str, episode: str = "", poi_index: int = -1) -> Dict[str, Any]:
+        """Open a chain context for an actor and return available actions. No event is created.
+        The first event is created by continue_chain.
+
+        Can be called with or without a POI:
+        - With POI (episode + poi_index): returns POI actions + held object actions if standing
+        - Without POI: returns held object actions (if holding) or spawnable TakeOut options
+
+        If called again, replaces the previous chain context (safe — no events created).
 
         Args:
             actor_id: Actor ID (e.g., 'a0')
-            episode: Episode name containing the POI
-            poi_index: Index of the POI in the episode's POI array
+            episode: Episode name (optional — omit for non-POI chain)
+            poi_index: POI index (optional — omit or -1 for non-POI chain)
 
         Returns:
-            Dict with event_id, action performed, object_id if any, and next_actions list.
-            Or error dict if the action is invalid.
+            Dict with next_actions and actor_state. No event_id (no event created yet).
         """
         err = _require_state('IN_ROUND')
         if err:
@@ -563,74 +637,100 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         if actor_id not in gen.actors:
             return {'error': f'Actor {actor_id} not found'}
 
-        if actor_id in active_chains:
-            return {'error': f'Actor {actor_id} already has an active chain. Call end_chain first.'}
-
         actor = gen.actors[actor_id]
 
-        # Validate actor state -- must be standing to start a chain
+        # If actor already has an active chain: reject if it has events (must end_chain first),
+        # otherwise replace (start_chain creates no events, safe to re-call)
+        if actor_id in active_chains:
+            existing_chain = active_chains[actor_id]
+            if existing_chain['temp_events']:
+                return {'error': f'Actor {actor_id} has an active chain with uncommitted events. Call end_chain first.'}
+            del active_chains[actor_id]
+
+        # Validate posture — must be standing to start a chain
         if actor.state != ActorState.STANDING:
-            return {'error': f'Actor {actor_id} is {actor.state.value}. Actor must be standing to start a new chain.'}
+            return {'error': f'Actor {actor_id} is {actor.state.value}. Must be standing to start a chain.'}
 
-        # Cannot start a new chain while holding an object -- must PutDown first
-        if actor.holding_object:
-            return {'error': f'Actor {actor_id} is holding {actor.holding_object}. Must PutDown or use the object before starting a new chain.'}
+        poi = None
+        poi_data = None
+        next_actions = []
 
-        # Find the episode and POI
-        ep_data = None
-        for ep in gen.capabilities.get('episodes', []):
-            if ep.get('name') == episode:
-                ep_data = ep
-                break
-        if not ep_data:
-            return {'error': f'Episode "{episode}" not found'}
+        if episode and poi_index >= 0:
+            # --- WITH POI ---
+            ep_data = None
+            for ep in gen.capabilities.get('episodes', []):
+                if ep.get('name') == episode:
+                    ep_data = ep
+                    break
+            if not ep_data:
+                return {'error': f'Episode "{episode}" not found'}
 
-        # Initialize POI capacity tracker for this episode if not done
-        if episode not in initialized_episodes:
-            if gen.poi_capacity_tracker is None:
-                gen.poi_capacity_tracker = POICapacityTracker()
-            gen.poi_capacity_tracker.init_from_episode(ep_data)
-            gen.current_episode_name = episode
-            initialized_episodes.add(episode)
+            # Initialize POI capacity tracker
+            if episode not in initialized_episodes:
+                if gen.poi_capacity_tracker is None:
+                    gen.poi_capacity_tracker = POICapacityTracker()
+                gen.poi_capacity_tracker.init_from_episode(ep_data)
+                gen.current_episode_name = episode
+                initialized_episodes.add(episode)
 
-        all_pois = ep_data.get('pois', [])
-        if poi_index < 0 or poi_index >= len(all_pois):
-            return {'error': f'POI index {poi_index} out of range'}
+            all_pois = ep_data.get('pois', [])
+            if poi_index >= len(all_pois):
+                return {'error': f'POI index {poi_index} out of range'}
 
-        poi_data = all_pois[poi_index]
-        if not poi_data.get('actions'):
-            return {'error': 'This POI has no actions'}
+            poi_data = all_pois[poi_index]
+            if not poi_data.get('actions'):
+                return {'error': 'This POI has no actions'}
 
-        # Block spawnable-only POIs (MobilePhone, Cigarette)
-        first_obj_type = poi_data['actions'][0].get('object_type', '')
-        SPAWNABLE_ONLY = {'MobilePhone', 'Cigarette'}
-        if first_obj_type in SPAWNABLE_ONLY:
-            return {'error': f'{first_obj_type} can only be used as spawnable objects. '
-                    f'Use start_spawnable_chain instead of start_chain at this POI.'}
+            region_name = poi_data.get('region', '')
+            region_objects = []
+            for region_d in ep_data.get('regions', []):
+                if region_d.get('name') == region_name:
+                    region_objects = region_d.get('objects', [])
+                    break
 
-        # Get region objects for POI capacity/allocation
-        region_name = poi_data.get('region', '')
-        region_objects = []
-        for region_data in ep_data.get('regions', []):
-            if region_data.get('name') == region_name:
-                region_objects = region_data.get('objects', [])
-                break
+            poi = POIInfo(
+                description=poi_data.get('description', '').strip(),
+                region=region_name,
+                actions=poi_data.get('actions', []),
+                objects=region_objects,
+                interactions_only=poi_data.get('interactions_only', False)
+            )
 
-        # Build POIInfo
-        poi = POIInfo(
-            description=poi_data.get('description', '').strip(),
-            region=region_name,
-            actions=poi_data.get('actions', []),
-            objects=region_objects,
-            interactions_only=poi_data.get('interactions_only', False)
-        )
+            # Build POI first actions — filter based on holding state
+            # If holding spawnable, actor is locked — no POI actions at all
+            if not actor.holding_is_spawnable:
+                for action_def in poi.actions:
+                    action_type = action_def.get('type', '')
+                    obj_type = action_def.get('object_type', '')
+                    SPAWNABLE_ONLY = {'MobilePhone', 'Cigarette'}
 
-        first_action = poi.actions[0]
-        action_type = first_action.get('type', '')
-        entities = [actor_id]
-        obj_id = None
+                    # PickUp not shown if holding
+                    if action_type == 'PickUp' and actor.holding_object:
+                        continue
+                    # Spawnable POIs not shown
+                    if obj_type in SPAWNABLE_ONLY:
+                        continue
+                    # TakeOut not shown if holding
+                    if action_type == 'TakeOut' and actor.holding_object:
+                        continue
 
-        # Initialize temp buffers
+                    next_actions.append(action_type)
+
+            # Merge held object actions if standing (deduplicate)
+            existing = {a.split(' (')[0] for a in next_actions}
+            for ha in _get_held_object_actions(actor):
+                if ha.split(' (')[0] not in existing:
+                    next_actions.append(ha)
+                    existing.add(ha.split(' (')[0])
+
+        else:
+            # --- WITHOUT POI ---
+            if actor.holding_object:
+                next_actions.extend(_get_held_object_actions(actor))
+            else:
+                next_actions.extend(_get_spawnable_takeout_options(actor))
+
+        # Initialize temp buffers (empty — no event created yet)
         temp_events = {}
         temp_temporal = {}
         temp_objects = {}
@@ -642,106 +742,36 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             'lying_on': actor.lying_on,
             'state': actor.state
         }
-
-        # Handle object requirement
-        if first_action.get('requires_object'):
-            obj_type = first_action.get('object_type', '')
-            # Get POI-to-object instance mapping
-            poi_inst = poi_object_map.get(poi_index, (None, None))[1] if poi_index in poi_object_map else None
-            obj_id = gen._get_or_create_poi_object_temp(
-                poi, obj_type, actor_id, temp_objects, poi_object_instance=poi_inst
-            )
-            if not obj_id:
-                return {'error': f'Cannot allocate {obj_type} in {poi.region} (capacity full)'}
-
-            if not gen._is_object_available_temp(obj_id, actor_id, temp_actor_state, temp_occupied):
-                return {'error': f'Object {obj_id} not available'}
-
-            entities.append(obj_id)
-            temp_occupied[obj_id] = actor_id
-
-        # Create the event in temp buffer
-        event_id = gen._create_temp_event(
-            actor, action_type, entities, poi.region, poi,
-            temp_actor_state['last_event_id'],
-            temp_events, temp_temporal, temp_actor_state
-        )
 
         # Store chain context
         active_chains[actor_id] = {
             'poi': poi,
             'poi_index': poi_index,
             'episode': episode,
-            'current_action': action_type,
+            'current_action': None,  # No event yet
             'temp_events': temp_events,
             'temp_temporal': temp_temporal,
             'temp_objects': temp_objects,
             'temp_occupied': temp_occupied,
             'temp_actor_state': temp_actor_state,
             'original_last_event_id': actor.last_event_id,
-            'is_spawnable': False
+            'is_spawnable': False,
         }
 
-        next_actions = first_action.get('possible_next_actions', [])
-        had_give = 'Give' in next_actions
+        # Filter Give/INV-Give from next_actions (use continue_chain with receiver_id)
         next_actions = [a for a in next_actions if a not in ('Give', 'INV-Give')]
 
-        result = {
-            'event_id': event_id,
-            'action': action_type,
-            'next_actions': next_actions
+        return {
+            'next_actions': next_actions,
+            'actor_state': _build_actor_state(actor),
         }
-        if obj_id:
-            result['object_id'] = obj_id
-        if had_give:
-            result['give_available'] = True
-        return result
 
-    @tool
-    def start_spawnable_chain(actor_id: str, spawnable_type: str, region: str) -> Dict[str, Any]:
-        """Start a spawnable object chain (phone call, cigarette, etc.).
-        Works like regular chains: returns next possible actions to continue step by step.
-        The full sequence must be completed in order but can be interleaved with other actors.
-        Actor must be standing.
-
-        Args:
-            actor_id: Actor ID
-            spawnable_type: 'MobilePhone' or 'Cigarette'
-            region: Current region
-
-        Returns:
-            Dict with event_id, action ('TakeOut'), object_id, and next_actions.
-        """
-        err = _require_state('IN_ROUND')
-        if err:
-            return err
-
-        if actor_id not in gen.actors:
-            return {'error': f'Actor {actor_id} not found'}
-
-        actor = gen.actors[actor_id]
-        if actor.state != ActorState.STANDING:
-            return {'error': f'Actor must be standing for spawnable chain (currently {actor.state.value})'}
-
+    def _create_spawnable_object(actor_id: str, spawnable_type: str) -> Optional[str]:
+        """Create or get the spawnable object for an actor. Returns object ID.
+        Internal helper — called by continue_chain for TakeOut actions."""
         if spawnable_type not in gen.SPAWNABLE_SEQUENCES:
-            return {'error': f'Unknown spawnable type: {spawnable_type}. Use MobilePhone or Cigarette'}
+            return None
 
-        sequence = gen.SPAWNABLE_SEQUENCES[spawnable_type]
-
-        # Initialize temp buffers
-        temp_events = {}
-        temp_temporal = {}
-        temp_objects = {}
-        temp_occupied = {}
-        temp_actor_state = {
-            'last_event_id': actor.last_event_id,
-            'sitting_on': actor.sitting_on,
-            'holding_object': actor.holding_object,
-            'lying_on': actor.lying_on,
-            'state': actor.state
-        }
-
-        # Create spawnable object if needed
         spawn_key = (actor_id, spawnable_type)
         if spawn_key not in gen.spawnable_objects_created:
             obj_id = f"spawnable_{spawnable_type}_{actor_id}"
@@ -749,7 +779,6 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             gen.actor_spawnables[actor_id][spawnable_type] = obj_id
             gen.spawnable_objects_created.add(spawn_key)
 
-            # Create Exists event for spawnable (Location: null)
             spawn_event = {
                 'Action': 'Exists',
                 'Entities': [obj_id],
@@ -762,64 +791,23 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             }
             gen.events[obj_id] = spawn_event
 
-        obj_id = gen.actor_spawnables.get(actor_id, {}).get(spawnable_type)
-        if not obj_id:
-            return {'error': f'Failed to create spawnable {spawnable_type}'}
-
-        # Create TakeOut event
-        dummy_poi = POIInfo(
-            description=f'spawnable_{spawnable_type}',
-            region=region,
-            actions=[],
-            objects=[],
-            interactions_only=False
-        )
-
-        event_id = gen._create_temp_event(
-            actor, 'TakeOut', [actor_id, obj_id], region, dummy_poi,
-            temp_actor_state['last_event_id'],
-            temp_events, temp_temporal, temp_actor_state
-        )
-
-        # Next action in spawnable sequence (after TakeOut)
-        next_action = sequence[1] if len(sequence) > 1 else None
-
-        active_chains[actor_id] = {
-            'poi': dummy_poi,
-            'poi_index': -1,
-            'episode': '',
-            'current_action': 'TakeOut',
-            'temp_events': temp_events,
-            'temp_temporal': temp_temporal,
-            'temp_objects': temp_objects,
-            'temp_occupied': temp_occupied,
-            'temp_actor_state': temp_actor_state,
-            'original_last_event_id': actor.last_event_id,
-            'is_spawnable': True,
-            'spawnable_type': spawnable_type,
-            'spawnable_obj_id': obj_id,
-            'spawnable_sequence': sequence,
-            'spawnable_step': 1  # Next step index
-        }
-
-        return {
-            'event_id': event_id,
-            'action': 'TakeOut',
-            'object_id': obj_id,
-            'next_actions': [next_action] if next_action else []
-        }
+        return gen.actor_spawnables.get(actor_id, {}).get(spawnable_type)
 
     @tool
-    def continue_chain(actor_id: str, next_action: str) -> Dict[str, Any]:
+    def continue_chain(actor_id: str, next_action: str, receiver_id: str = "") -> Dict[str, Any]:
         """Continue the current action chain with the chosen next action.
-        Validates against possible next actions, creates the event, and updates temporal relations.
+        Creates the event and returns next possible actions + actor state.
+
+        Special parameters:
+        - receiver_id: Required when next_action is 'Give'. The actor receiving the held object.
 
         Args:
             actor_id: Actor ID with an active chain
-            next_action: The action to perform next
+            next_action: The action to perform next (from next_actions list)
+            receiver_id: Actor ID to receive object (only for Give action)
 
         Returns:
-            Dict with event_id, action, and next_actions for further continuation.
+            Dict with event_id, action, next_actions, actor_state.
             Empty next_actions means chain can be ended.
         """
         if actor_id not in active_chains:
@@ -827,189 +815,462 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
 
         chain = active_chains[actor_id]
         actor = gen.actors[actor_id]
+        temp_state = chain['temp_actor_state']
+        poi = chain.get('poi')
+        region = poi.region if poi else actor.current_location
 
-        if chain.get('is_spawnable'):
-            # Spawnable chain: validate against sequence
-            sequence = chain['spawnable_sequence']
-            step = chain['spawnable_step']
+        # Build valid_next: POI actions + held object actions (when standing)
+        valid_next = []
+        current = chain.get('current_action')
 
-            if step >= len(sequence):
-                return {'error': 'Spawnable chain already complete. Call end_chain.'}
-
-            expected = sequence[step]
-            if next_action != expected:
-                return {'error': f'Spawnable chain requires "{expected}" at this step, got "{next_action}"'}
-
-            obj_id = chain['spawnable_obj_id']
-            region = chain['poi'].region
-
-            event_id = gen._create_temp_event(
-                actor, next_action, [actor_id, obj_id], region, chain['poi'],
-                chain['temp_actor_state']['last_event_id'],
-                chain['temp_events'], chain['temp_temporal'], chain['temp_actor_state']
-            )
-
-            chain['spawnable_step'] = step + 1
-            chain['current_action'] = next_action
-
-            # Next step in sequence
-            next_step = step + 1
-            next_possible = [sequence[next_step]] if next_step < len(sequence) - 1 else []
-            # If we're at the last action (Stash), next_actions is empty
-            if next_step >= len(sequence):
-                next_possible = []
-
-            return {
-                'event_id': event_id,
-                'action': next_action,
-                'next_actions': next_possible
-            }
-        elif chain.get('is_give_receiver'):
-            # Receiver chain from do_give: use give_next_actions
-            valid_next = chain.get('give_next_actions', [])
-            current = chain['current_action']
-
-            if next_action not in valid_next:
-                return {
-                    'error': f'"{next_action}" not valid after receiving. Valid: {valid_next}'
-                }
-
-            # Create event with the received object
-            held_obj = chain['temp_actor_state'].get('holding_object')
-            entities = [actor_id]
-            if held_obj:
-                entities.append(held_obj)
-
-            # Capture release before creating event
-            release_obj = None
-            if next_action in ('PutDown', 'Eat'):
-                release_obj = held_obj
-
-            event_id = gen._create_temp_event(
-                actor, next_action, entities, chain['poi'].region, chain['poi'],
-                chain['temp_actor_state']['last_event_id'],
-                chain['temp_events'], chain['temp_temporal'], chain['temp_actor_state']
-            )
-
-            if release_obj and release_obj in chain['temp_occupied']:
-                del chain['temp_occupied'][release_obj]
-
-            chain['current_action'] = next_action
-            chain['is_give_receiver'] = False
-
-            # Determine follow-up actions
-            next_possible = []
-            if next_action == 'Drink':
-                next_possible = ['PutDown']
-
-            result = {'event_id': event_id, 'action': next_action, 'next_actions': next_possible}
-            if held_obj:
-                result['object_id'] = held_obj
-            if chain['temp_actor_state'].get('holding_object'):
-                result['give_available'] = True
-            return result
-
-        else:
-            # Regular POI chain: validate against possible_next_actions
-            poi = chain['poi']
-            current = chain['current_action']
-
-            # Find current action in POI to get its possible_next_actions
-            valid_next = []
+        # POI actions (if chain has a POI and we have a current action)
+        if poi and current:
             for action_def in poi.actions:
                 if action_def.get('type') == current:
-                    valid_next = action_def.get('possible_next_actions', [])
+                    poi_next = action_def.get('possible_next_actions', [])
+                    # Filter: no PickUp if holding, no spawnable POIs
+                    for a in poi_next:
+                        if a == 'PickUp' and temp_state.get('holding_object'):
+                            continue
+                        if a in ('Give', 'INV-Give'):
+                            continue  # Give handled separately below
+                        valid_next.append(a)
                     break
-
-            if next_action not in valid_next:
-                return {
-                    'error': f'"{next_action}" not valid after "{current}". Valid: {valid_next}'
-                }
-
-            # Give/INV-Give require paired events — use do_give tool instead
-            if next_action in ('Give', 'INV-Give'):
-                return {
-                    'error': f'"{next_action}" requires a paired Give/Receive. Use the do_give tool instead.'
-                }
-
-            # No duplicate actions in a row (except Move)
-            if next_action == current and next_action != 'Move':
-                return {
-                    'error': f'Cannot do "{next_action}" twice in a row. Choose a different action. Valid: {valid_next}'
-                }
-
-            # Find the action definition for the next action
-            next_def = None
+        elif poi and not current:
+            # First action in chain — POI first actions
             for action_def in poi.actions:
-                if action_def.get('type') == next_action:
-                    next_def = action_def
-                    break
+                action_type = action_def.get('type', '')
+                obj_type = action_def.get('object_type', '')
+                if action_type == 'PickUp' and temp_state.get('holding_object'):
+                    continue
+                if obj_type in ('MobilePhone', 'Cigarette'):
+                    continue
+                if action_type == 'TakeOut' and temp_state.get('holding_object'):
+                    continue
+                if action_type in ('Give', 'INV-Give'):
+                    continue
+                valid_next.append(action_type)
 
-            entities = [actor_id]
-            obj_id = None
+        # Held object actions (only if standing)
+        held_actions = _get_held_object_actions(actor) if not current else []
+        if current and temp_state.get('state') == ActorState.STANDING:
+            # Recompute held actions based on temp state
+            if temp_state.get('holding_object'):
+                # Build a temporary actor-like check for held actions
+                held_actions = []
+                holding_type = actor.holding_type
+                holding_is_spawnable = actor.holding_is_spawnable
+                last_held_action = actor.holding_last_action
+
+                if holding_is_spawnable:
+                    # Spawnable: only the end action
+                    if holding_type == 'MobilePhone':
+                        held_actions.append('HangUp')
+                    elif holding_type == 'Cigarette':
+                        held_actions.append('StopSmoking')
+                else:
+                    if holding_type == 'Drinks':
+                        if last_held_action in ('PickUp', 'INV-Give'):
+                            held_actions.extend(['Drink', 'Give (requires receiver_id)'])
+                        elif last_held_action == 'Drink':
+                            held_actions.append('Give (requires receiver_id)')
+                    elif holding_type == 'Food':
+                        if last_held_action in ('PickUp', 'INV-Give'):
+                            held_actions.extend(['Eat', 'Give (requires receiver_id)'])
+                    elif holding_type == 'Remote':
+                        if last_held_action in ('PickUp', 'INV-Give'):
+                            held_actions.append('Give (requires receiver_id)')
+                    # PutDown
+                    if actor.holding_origin_region and actor.current_location == actor.holding_origin_region:
+                        held_actions.append('PutDown')
+
+        # Merge: no PickUp/TakeOut if holding
+        if not current:
+            # First action: also include spawnable TakeOut
+            if not temp_state.get('holding_object') and temp_state.get('state') == ActorState.STANDING:
+                valid_next.extend(_get_spawnable_takeout_options(actor))
+            valid_next.extend(held_actions)
+        else:
+            valid_next.extend(held_actions)
+
+        # Normalize: strip "(requires receiver_id)" for matching, keep for display
+        valid_next_normalized = []
+        for a in valid_next:
+            norm = a.split(' (')[0]  # "Give (requires receiver_id)" → "Give"
+            valid_next_normalized.append(norm)
+
+
+        # Validate next_action
+        if next_action not in valid_next_normalized:
+            return {
+                'error': f'"{next_action}" not valid. Valid actions: {valid_next}'
+            }
+
+        # No duplicate actions in a row (except Move)
+        if next_action == current and next_action != 'Move':
+            return {
+                'error': f'Cannot do "{next_action}" twice in a row. Valid: {valid_next}'
+            }
+
+        # =====================================================================
+        # HANDLE SPECIAL ACTIONS
+        # =====================================================================
+
+        # --- Spawnable atomic actions ---
+        # AnswerPhone: creates TakeOut + AnswerPhone + TalkPhone (3 events)
+        # StartSmoking: creates TakeOut + SmokeIn + Smoke (3 events)
+        # HangUp: creates HangUp + Stash (2 events)
+        # StopSmoking: creates SmokeOut + Stash (2 events)
+
+        SPAWNABLE_START = {
+            'AnswerPhone': ('MobilePhone', ['TakeOut', 'AnswerPhone', 'TalkPhone']),
+            'StartSmoking': ('Cigarette', ['TakeOut', 'SmokeIn', 'Smoke']),
+        }
+        SPAWNABLE_END = {
+            'HangUp': ('MobilePhone', ['HangUp', 'Stash']),
+            'StopSmoking': ('Cigarette', ['SmokeOut', 'Stash']),
+        }
+
+        if next_action in SPAWNABLE_START:
+            if temp_state.get('holding_object'):
+                return {'error': 'Cannot start spawnable while already holding an object'}
+
+            s_type, s_actions = SPAWNABLE_START[next_action]
+            obj_id = _create_spawnable_object(actor_id, s_type)
+            if not obj_id:
+                return {'error': f'Failed to create spawnable {s_type}'}
+
+            dummy_poi = POIInfo(description=f'spawnable_{s_type}', region=region,
+                               actions=[], objects=[], interactions_only=False)
+            if not chain.get('poi'):
+                chain['poi'] = dummy_poi
+
+            # Create all events in sequence
+            last_event_id = None
+            for mta_action in s_actions:
+                event_id = gen._create_temp_event(
+                    actor, mta_action, [actor_id, obj_id], region, chain['poi'],
+                    temp_state['last_event_id'],
+                    chain['temp_events'], chain['temp_temporal'], temp_state
+                )
+                last_event_id = event_id
+
+            # Update actor holding context
+            actor.holding_object = obj_id
+            actor.holding_type = s_type
+            actor.holding_is_spawnable = True
+            actor.holding_origin_region = None
+            actor.holding_last_action = s_actions[-1]  # TalkPhone or Smoke
+            actor.state = temp_state.get('state', actor.state)
+
+            chain['current_action'] = next_action
+
+            # Next actions: only the end action
+            next_possible = _get_held_object_actions(actor)
+            result = {'event_id': last_event_id, 'action': next_action, 'object_id': obj_id,
+                      'next_actions': next_possible, 'actor_state': _build_actor_state(actor)}
+            return result
+
+        if next_action in SPAWNABLE_END:
+            s_type, s_actions = SPAWNABLE_END[next_action]
+            held_obj = temp_state.get('holding_object')
+            if not held_obj or not actor.holding_is_spawnable:
+                return {'error': f'{next_action} requires holding a spawnable object'}
+            if actor.holding_type != s_type:
+                return {'error': f'{next_action} requires holding {s_type}, not {actor.holding_type}'}
+
+            # Create all events in sequence
+            last_event_id = None
+            for mta_action in s_actions:
+                event_id = gen._create_temp_event(
+                    actor, mta_action, [actor_id, held_obj], region, chain['poi'] or
+                    POIInfo(description=f'spawnable_{s_type}', region=region, actions=[], objects=[], interactions_only=False),
+                    temp_state['last_event_id'],
+                    chain['temp_events'], chain['temp_temporal'], temp_state
+                )
+                last_event_id = event_id
+
+            # Clear holding
+            actor.holding_object = None
+            actor.holding_type = None
+            actor.holding_is_spawnable = False
+            actor.holding_origin_region = None
+            actor.holding_last_action = None
+            actor.state = temp_state.get('state', actor.state)
+
+            chain['current_action'] = next_action
+
+            result = {'event_id': last_event_id, 'action': next_action,
+                      'next_actions': [], 'actor_state': _build_actor_state(actor)}
+            return result
+
+        # --- Give (paired Give + INV-Give) ---
+        if next_action == 'Give':
+            if not receiver_id:
+                return {'error': 'Give requires receiver_id parameter'}
+            if actor.holding_is_spawnable:
+                return {'error': 'Spawnable objects cannot be given'}
+
+            held_obj = temp_state.get('holding_object')
+            if not held_obj:
+                return {'error': f'{actor_id} is not holding any object'}
+
+            if receiver_id not in gen.actors:
+                return {'error': f'Receiver {receiver_id} not found'}
+            receiver = gen.actors[receiver_id]
+
+            if receiver.state != ActorState.STANDING:
+                return {'error': f'{receiver_id} must be standing to receive (currently {receiver.state.value})'}
+            if receiver.holding_object:
+                return {'error': f'{receiver_id} is already holding something'}
+            if receiver.current_location != actor.current_location:
+                return {'error': f'Both actors must be in the same region'}
+
+            # Auto-commit receiver's active chain if they have one
+            if receiver_id in active_chains:
+                recv_chain = active_chains[receiver_id]
+                recv_temp_state = recv_chain['temp_actor_state']
+                if recv_temp_state.get('state') != ActorState.STANDING:
+                    return {'error': f'{receiver_id} must finish their chain first (currently {recv_temp_state["state"].value})'}
+                # Auto-commit
+                gen._commit_temp_chain(
+                    recv_chain['temp_events'], recv_chain['temp_temporal'],
+                    recv_chain['temp_objects'], recv_chain['temp_occupied'],
+                    recv_chain['temp_actor_state'], receiver, recv_chain['original_last_event_id']
+                )
+                for eid in recv_chain['temp_events']:
+                    _track_round_event(receiver_id, eid)
+                    _track_scene_event(eid)
+                del active_chains[receiver_id]
+
+            # Create Give event in giver's temp buffer
+            give_event_id = gen._get_next_event_id(actor_id)
+            chain['temp_events'][give_event_id] = {
+                "Action": "Give", "Entities": [actor_id, receiver_id, held_obj],
+                "Location": [region], "Timeframe": None, "Properties": {}
+            }
+            chain['temp_temporal'][give_event_id] = {"relations": [], "next": None}
+            prev_eid = temp_state['last_event_id']
+            if prev_eid in chain['temp_temporal']:
+                chain['temp_temporal'][prev_eid]["next"] = give_event_id
+            temp_state['last_event_id'] = give_event_id
+            temp_state['holding_object'] = None
+
+            # Save giver's holding context for receiver BEFORE clearing
+            giver_holding_type = actor.holding_type
+            giver_origin_region = actor.holding_origin_region
+
+            # Update giver's actor holding context
+            actor.holding_object = None
+            actor.holding_type = None
+            actor.holding_is_spawnable = False
+            actor.holding_origin_region = None
+            actor.holding_last_action = None
+
+            chain['current_action'] = 'Give'
+
+            # Create INV-Give in receiver's own temp buffer
+            receive_event_id = gen._get_next_event_id(receiver_id)
+            recv_temp_events = {receive_event_id: {
+                "Action": "INV-Give", "Entities": [receiver_id, actor_id, held_obj],
+                "Location": [region], "Timeframe": None, "Properties": {}
+            }}
+            recv_temp_temporal = {receive_event_id: {"relations": [], "next": None}}
+
+            # starts_with
+            relation_id = gen._get_next_relation_id()
+            sw = {"type": "starts_with"}
+            chain['temp_temporal'][relation_id] = sw
+            chain['temp_temporal'][give_event_id]["relations"].append(relation_id)
+            recv_temp_temporal[relation_id] = sw
+            recv_temp_temporal[receive_event_id]["relations"].append(relation_id)
+
+            # Determine receiver's holding context
+            obj_type = giver_holding_type
+            if not obj_type:
+                for key, (oid, oname) in chain['temp_objects'].items():
+                    if oid == held_obj:
+                        obj_type = oname.split('(')[0].strip()
+                        break
+            if not obj_type:
+                obj_type = gen._get_obj_type_from_id(held_obj, chain['temp_events'])
+
+            # Update receiver holding context
+            receiver.holding_object = held_obj
+            receiver.holding_type = obj_type
+            receiver.holding_is_spawnable = False
+            receiver.holding_origin_region = giver_origin_region
+            receiver.holding_last_action = 'INV-Give'
+
+            # Create receiver chain
+            active_chains[receiver_id] = {
+                'poi': chain['poi'],
+                'poi_index': chain.get('poi_index', -1),
+                'episode': chain.get('episode', ''),
+                'current_action': 'INV-Give',
+                'temp_events': recv_temp_events,
+                'temp_temporal': recv_temp_temporal,
+                'temp_objects': {},
+                'temp_occupied': {held_obj: receiver_id},
+                'temp_actor_state': {
+                    'last_event_id': receive_event_id,
+                    'sitting_on': receiver.sitting_on,
+                    'holding_object': held_obj,
+                    'lying_on': receiver.lying_on,
+                    'state': receiver.state,
+                },
+                'original_last_event_id': receiver.last_event_id,
+                'is_spawnable': False,
+            }
+
+            _track_round_event(actor_id, give_event_id)
+            _track_round_event(receiver_id, receive_event_id)
+            _track_scene_event(give_event_id)
+            _track_scene_event(receive_event_id)
+
+            # Return receiver's chain info (LLM continues with receiver)
+            recv_next = _get_held_object_actions(receiver)
+            return {
+                'event_id': receive_event_id,
+                'action': 'INV-Give',
+                'object_id': held_obj,
+                'next_actions': recv_next,
+                'actor_state': _build_actor_state(receiver),
+                'receiver_id': receiver_id,
+            }
+
+        # =====================================================================
+        # STANDARD ACTION (POI action or held object action)
+        # =====================================================================
+
+        entities = [actor_id]
+        obj_id = None
+
+        # Determine if this is a held object action or POI action
+        is_held_action = next_action in ('Drink', 'Eat', 'PutDown', 'Stash',
+                                          'AnswerPhone', 'TalkPhone', 'HangUp',
+                                          'SmokeIn', 'Smoke', 'SmokeOut')
+        held_obj = temp_state.get('holding_object')
+
+        if is_held_action and held_obj:
+            # Held object action — use held obj_id directly (no new allocation)
+            obj_id = held_obj
+            entities.append(obj_id)
+        else:
+            # POI action — may need object allocation
+            next_def = None
+            if poi:
+                for action_def in poi.actions:
+                    if action_def.get('type') == next_action:
+                        next_def = action_def
+                        break
 
             if next_def and next_def.get('requires_object'):
-                obj_type = next_def.get('object_type', '')
+                obj_type_needed = next_def.get('object_type', '')
+                # Reuse held object if matching type
+                if held_obj:
+                    for key, (oid, oname) in chain['temp_objects'].items():
+                        if oid == held_obj and oname.split('(')[0].strip() == obj_type_needed:
+                            obj_id = held_obj
+                            break
+                    if not obj_id and held_obj in gen.events:
+                        if gen.events[held_obj].get('Properties', {}).get('Type') == obj_type_needed:
+                            obj_id = held_obj
 
-                # If the actor is holding an object of the right type, reuse it
-                held = chain['temp_actor_state'].get('holding_object')
-                if held:
-                    held_event = chain['temp_events'].get(held) or gen.events.get(held, {})
-                    held_type = held_event.get('Properties', {}).get('Type', '')
-                    if held_type == obj_type:
-                        obj_id = held
-
-                # If not holding a matching object, get or create from POI
                 if not obj_id:
                     poi_idx = chain.get('poi_index', -1)
                     poi_inst = poi_object_map.get(poi_idx, (None, None))[1] if poi_idx in poi_object_map else None
                     obj_id = gen._get_or_create_poi_object_temp(
-                        poi, obj_type, actor_id, chain['temp_objects'], poi_object_instance=poi_inst
+                        poi, obj_type_needed, actor_id, chain['temp_objects'], poi_object_instance=poi_inst
                     )
                 if obj_id:
                     entities.append(obj_id)
                     chain['temp_occupied'][obj_id] = actor_id
 
-            # Capture objects to release BEFORE _create_temp_event clears them
-            release_obj = None
-            if next_action in ('StandUp', 'GetOff'):
-                release_obj = chain['temp_actor_state'].get('sitting_on') or chain['temp_actor_state'].get('lying_on')
-            elif next_action == 'PutDown':
-                release_obj = chain['temp_actor_state'].get('holding_object')
+        # Capture objects to release BEFORE _create_temp_event
+        release_obj = None
+        if next_action in ('StandUp', 'GetOff'):
+            release_obj = temp_state.get('sitting_on') or temp_state.get('lying_on')
+        elif next_action in ('PutDown', 'Give', 'Eat', 'Stash'):
+            release_obj = temp_state.get('holding_object')
 
-            event_id = gen._create_temp_event(
-                actor, next_action, entities, poi.region, poi,
-                chain['temp_actor_state']['last_event_id'],
-                chain['temp_events'], chain['temp_temporal'], chain['temp_actor_state']
-            )
+        # Create event
+        event_poi = poi if poi else POIInfo(description='no_poi', region=region,
+                                             actions=[], objects=[], interactions_only=False)
+        event_id = gen._create_temp_event(
+            actor, next_action, entities, region, event_poi,
+            temp_state['last_event_id'],
+            chain['temp_events'], chain['temp_temporal'], temp_state
+        )
 
-            # Release object from temp_occupied
-            if release_obj and release_obj in chain['temp_occupied']:
-                del chain['temp_occupied'][release_obj]
+        # Release object from temp_occupied
+        if release_obj and release_obj in chain['temp_occupied']:
+            del chain['temp_occupied'][release_obj]
 
-            chain['current_action'] = next_action
+        chain['current_action'] = next_action
 
-            # Get next possible actions for this new action
-            next_possible = []
-            if chain.get('is_give_receiver') is False and chain.get('give_next_actions'):
-                # Just completed a give-receiver action — determine follow-up
-                if next_action == 'Drink':
-                    next_possible = ['PutDown']
-                # Eat, PutDown: terminal — next_possible stays empty
-            elif next_def:
-                next_possible = next_def.get('possible_next_actions', [])
+        # Update actor holding context based on action
+        if next_action == 'PickUp' and obj_id:
+            actor.holding_object = obj_id
+            # Determine type from temp_objects or events
+            for key, (oid, oname) in chain['temp_objects'].items():
+                if oid == obj_id:
+                    actor.holding_type = oname.split('(')[0].strip()
+                    break
+            actor.holding_is_spawnable = False
+            actor.holding_origin_region = region
+            actor.holding_last_action = 'PickUp'
+        elif next_action in ('PutDown', 'Eat', 'Stash'):
+            actor.holding_object = None
+            actor.holding_type = None
+            actor.holding_is_spawnable = False
+            actor.holding_origin_region = None
+            actor.holding_last_action = None
+        elif next_action == 'Drink':
+            actor.holding_last_action = 'Drink'
+        elif next_action in ('AnswerPhone', 'TalkPhone', 'HangUp', 'SmokeIn', 'Smoke', 'SmokeOut'):
+            actor.holding_last_action = next_action
 
-            # Filter Give/INV-Give from next_actions (must use do_give)
-            had_give = 'Give' in next_possible
-            next_possible = [a for a in next_possible if a not in ('Give', 'INV-Give')]
+        # Sync posture from temp state to actor (for _build_actor_state and _get_held_object_actions)
+        actor.state = temp_state.get('state', actor.state)
 
-            result = {'event_id': event_id, 'action': next_action, 'next_actions': next_possible}
-            if obj_id:
-                result['object_id'] = obj_id
-            # Signal give is available whenever actor is still holding
-            if had_give or chain['temp_actor_state'].get('holding_object'):
-                result['give_available'] = True
-            return result
+        # Build next_actions
+        next_possible = []
+
+        # POI next actions (if we have a POI, not a held action, and not locked to spawnable)
+        if poi and not is_held_action and not actor.holding_is_spawnable:
+            next_def = None
+            for action_def in poi.actions:
+                if action_def.get('type') == next_action:
+                    next_def = action_def
+                    break
+            if next_def:
+                poi_next = next_def.get('possible_next_actions', [])
+                for a in poi_next:
+                    if a == 'PickUp' and actor.holding_object:
+                        continue
+                    if a in ('Give', 'INV-Give'):
+                        continue
+                    next_possible.append(a)
+
+        # Merge held object actions (if standing), deduplicate
+        if temp_state.get('state') == ActorState.STANDING:
+            held_actions = _get_held_object_actions(actor)
+            existing_normalized = {a.split(' (')[0] for a in next_possible}
+            for ha in held_actions:
+                if ha.split(' (')[0] not in existing_normalized:
+                    next_possible.append(ha)
+                    existing_normalized.add(ha.split(' (')[0])
+
+        result = {
+            'event_id': event_id,
+            'action': next_action,
+            'next_actions': next_possible,
+            'actor_state': _build_actor_state(actor),
+        }
+        if obj_id:
+            result['object_id'] = obj_id
+        return result
 
     @tool
     def end_chain(actor_id: str) -> Dict[str, Any]:
@@ -1094,6 +1355,12 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         if actor1.current_location != region or actor2.current_location != region:
             return {'error': f'Both actors must be in region "{region}"'}
 
+        # Cannot interact while holding spawnable
+        if actor1.holding_is_spawnable:
+            return {'error': f'{actor1_id} is in a spawnable sequence. Complete it first.'}
+        if actor2.holding_is_spawnable:
+            return {'error': f'{actor2_id} is in a spawnable sequence. Complete it first.'}
+
         # Check chain started
         if actor1.last_event_id == actor1_id:
             return {'error': f'{actor1_id} has not started any action chain yet'}
@@ -1162,19 +1429,19 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             return {'error': str(e)}
 
     # =========================================================================
-    # GIVE TOOL
+    # (do_give removed — Give is handled via continue_chain with receiver_id)
     # =========================================================================
 
-    # Valid next actions for receiver by object type (matching random generator)
-    GIVE_RECEIVER_ACTIONS: Dict[str, List[str]] = {
-        'Drinks': ['Drink', 'PutDown'],
-        'Food': ['Eat'],
-        'Remote': ['PutDown'],
-    }
+    # do_give removed — Give is now handled through continue_chain with receiver_id param.
+    # The logic for creating Give + INV-Give pairs has been moved into continue_chain.
+
+    # PLACEHOLDER: The do_give function body will be removed once continue_chain handles Give.
+    # For now, keeping a stub to avoid breaking the tool list during refactor.
 
     @tool
     def do_give(giver_id: str, receiver_id: str) -> Dict[str, Any]:
-        """Give the held object from giver to receiver. Creates paired Give + INV-Give
+        """DEPRECATED: Use continue_chain with next_action='Give' and receiver_id instead.
+        This tool will be removed.
         events with starts_with synchronization. Giver must have active chain and be
         holding an object. Receiver must be standing with no active chain.
 
@@ -1357,6 +1624,8 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             actor = gen.actors[aid]
             if actor.state != ActorState.STANDING:
                 return {'error': f'Actor {aid} must be standing to move (currently {actor.state.value})'}
+            if actor.holding_is_spawnable:
+                return {'error': f'Actor {aid} is in a spawnable sequence. Complete it before moving.'}
 
         # Collect non-movers' last events (for ordering)
         non_mover_last_events = {}
@@ -1657,11 +1926,9 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         start_round,
         end_round,
         start_chain,
-        start_spawnable_chain,
         continue_chain,
         end_chain,
         do_interaction,
-        do_give,
         move_actors,
         add_starts_with,
         add_temporal_dependency,

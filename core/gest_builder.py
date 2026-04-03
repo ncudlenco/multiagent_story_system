@@ -25,11 +25,13 @@ from enum import Enum
 
 
 class ActorState(Enum):
-    """Actor physical state"""
+    """Actor posture state (independent of holding)"""
     STANDING = "standing"
     SITTING = "sitting"
     SLEEPING = "sleeping"
-    HOLDING = "holding"
+    # HOLDING removed — holding is a modifier, not a posture.
+    # For backwards compat, treat HOLDING as STANDING in any checks.
+    HOLDING = "standing"
 
 
 @dataclass
@@ -40,6 +42,10 @@ class Actor:
     state: ActorState
     gender: int = 1  # 1=male, 2=female
     holding_object: Optional[str] = None
+    holding_type: Optional[str] = None          # e.g. "Drinks", "MobilePhone"
+    holding_is_spawnable: bool = False           # True for MobilePhone/Cigarette
+    holding_origin_region: Optional[str] = None  # where picked up (None for spawnables)
+    holding_last_action: Optional[str] = None    # last action on held object (determines next valid actions)
     sitting_on: Optional[str] = None  # Chair/object actor is sitting on
     lying_on: Optional[str] = None  # Bed/surface actor is lying on
     current_poi: Optional[str] = None
@@ -798,29 +804,25 @@ class GESTBuilder:
             temp_actor_state['sitting_on'] = None
             temp_actor_state['state'] = ActorState.STANDING
         elif action_type == "PickUp":
+            # Set holding, preserve posture
             obj_id = entities[1] if len(entities) > 1 else None
             temp_actor_state['holding_object'] = obj_id
-            temp_actor_state['state'] = ActorState.HOLDING
         elif action_type == "PutDown":
+            # Clear holding, preserve posture
             temp_actor_state['holding_object'] = None
-            temp_actor_state['state'] = ActorState.STANDING
         elif action_type == "Eat":
-            # Food is consumed — actor no longer holds anything
+            # Food consumed — clear holding, preserve posture
             temp_actor_state['holding_object'] = None
-            # Return to sitting if actor was seated before PickUp, otherwise standing
-            if temp_actor_state.get('sitting_on'):
-                temp_actor_state['state'] = ActorState.SITTING
-            else:
-                temp_actor_state['state'] = ActorState.STANDING
+        elif action_type == "Drink":
+            # Drink does NOT clear holding — still holding the cup
+            pass
         elif action_type == "Give":
-            # Giver no longer holds object (3 entities: [giver, receiver, object])
+            # Giver no longer holds object, preserve posture
             temp_actor_state['holding_object'] = None
-            temp_actor_state['state'] = ActorState.STANDING
         elif action_type == "INV-Give":
-            # Receiver now holds object (3 entities: [receiver, giver, object])
+            # Receiver now holds object, preserve posture
             obj_id = entities[2] if len(entities) > 2 else None
             temp_actor_state['holding_object'] = obj_id
-            temp_actor_state['state'] = ActorState.HOLDING
         elif action_type == "GetOn":
             obj_id = entities[1] if len(entities) > 1 else None
             temp_actor_state['lying_on'] = obj_id
@@ -841,14 +843,12 @@ class GESTBuilder:
             temp_actor_state['lying_on'] = None
             temp_actor_state['state'] = ActorState.STANDING
         elif action_type == "TakeOut":
-            # Actor takes out spawnable object
+            # Set holding (spawnable), preserve posture
             obj_id = entities[1] if len(entities) > 1 else None
             temp_actor_state['holding_object'] = obj_id
-            temp_actor_state['state'] = ActorState.HOLDING
         elif action_type == "Stash":
-            # Actor stashes spawnable object
+            # Clear holding (spawnable stashed), preserve posture
             temp_actor_state['holding_object'] = None
-            temp_actor_state['state'] = ActorState.STANDING
 
         return event_id
 
@@ -1041,12 +1041,15 @@ class GESTBuilder:
         # Merge occupied objects
         self.occupied_objects.update(temp_occupied)
 
-        # Update actor state for the PRIMARY actor (the one who initiated the chain)
-        actor.last_event_id = temp_actor_state['last_event_id']
-        actor.sitting_on = temp_actor_state.get('sitting_on')
-        actor.holding_object = temp_actor_state.get('holding_object')
-        actor.lying_on = temp_actor_state.get('lying_on')
-        actor.state = temp_actor_state['state']
+        # Update actor state for the PRIMARY actor — only if chain had events
+        # (empty chains from start_chain-without-continue should NOT overwrite
+        # actor state that may have been updated by do_interaction)
+        if temp_events:
+            actor.last_event_id = temp_actor_state['last_event_id']
+            actor.sitting_on = temp_actor_state.get('sitting_on')
+            actor.holding_object = temp_actor_state.get('holding_object')
+            actor.lying_on = temp_actor_state.get('lying_on')
+            actor.state = temp_actor_state['state']
 
         # Record seat usage for temporal ordering (if actor sat down in this chain)
         if self.poi_capacity_tracker and temp_actor_state.get('sitdown_event_id'):
