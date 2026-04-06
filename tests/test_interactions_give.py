@@ -129,7 +129,8 @@ class TestInteractions:
         assert "error" in result
 
     def test_consecutive_interactions_rejected(self, building_tools, generator):
-        """Two interactions in a row must be rejected -- MTA can't handle consecutive starts_with."""
+        """Two interactions in a row must be rejected -- either by consecutive-interaction
+        guard or by interaction POI capacity (only 1 POI in kitchen)."""
         self._setup_two_actors(building_tools, generator)
 
         # First interaction: Talk
@@ -145,10 +146,10 @@ class TestInteractions:
             "interaction_type": "Handshake", "region": "kitchen"
         })
         assert "error" in r2
-        assert "just did" in r2["error"].lower()
 
-    def test_interaction_after_chain_ok(self, building_tools, generator):
-        """Interaction after a regular chain (not another interaction) should work."""
+    def test_interaction_after_chain_in_new_round_ok(self, building_tools, generator):
+        """Interaction after a chain break works, but requires a new round
+        since the interaction POI is exhausted for the current round."""
         self._setup_two_actors(building_tools, generator)
 
         # First interaction: Talk
@@ -158,12 +159,16 @@ class TestInteractions:
         })
         assert r1.get("success") is True
 
+        # End round and start a new one (resets interaction POI capacity)
+        _end_round(building_tools)
+        _start_round(building_tools)
+
         # Do a spawnable chain for both actors (break between interactions)
         for actor_id in ["a0", "a1"]:
             _start_spawnable(building_tools, actor_id, "Cigarette")
             _complete_spawnable(building_tools, actor_id, "Cigarette")
 
-        # Second interaction after chain: should work
+        # Second interaction in new round: should work
         r2 = building_tools["do_interaction"].invoke({
             "actor1_id": "a0", "actor2_id": "a1",
             "interaction_type": "Handshake", "region": "kitchen"

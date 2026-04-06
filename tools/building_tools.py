@@ -55,6 +55,7 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
     enable_concept_events = config.get('enable_concept_events', True)
     enable_logical_relations = config.get('enable_logical_relations', True)
     enable_semantic_relations = config.get('enable_semantic_relations', True)
+    max_chains_per_actor_per_scene = config.get('max_chains_per_actor_per_scene', 0)  # 0 = no limit
 
     # =========================================================================
     # STATE MACHINE
@@ -83,6 +84,11 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
     round_last_events: Dict[str, str] = {}  # {actor_id: last_event_id} in current round
     previous_round_last_events: Dict[str, str] = {}  # from previous round
     round_is_setup: Dict[str, bool] = {'value': False}
+    # Interaction POI capacity: {region: total_count} and per-round usage counter
+    interaction_poi_capacity: Dict[str, int] = {}  # set at start_scene
+    round_interaction_count: Dict[str, int] = {}  # {region: used_this_round}
+    # Chain count per actor per scene (for max_chains_per_actor_per_scene enforcement)
+    scene_chain_count: Dict[str, int] = {}  # {actor_id: committed_chains_in_scene}
 
     # Track active chains per actor (temp buffers)
     active_chains: Dict[str, Dict[str, Any]] = {}
@@ -332,11 +338,19 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
                 instance = j % obj_count
                 poi_object_map[pi] = (ot, instance)
 
+        # Count interaction POIs per region for this episode
+        interaction_poi_capacity.clear()
+        for poi_data in ep_data.get('pois', []):
+            if poi_data.get('interactions_only'):
+                r_name = poi_data.get('region', '')
+                interaction_poi_capacity[r_name] = interaction_poi_capacity.get(r_name, 0) + 1
+
         # Update state
         current_scene_id['value'] = scene_id
         current_scene_episode['value'] = episode
         current_scene_region['value'] = region
         current_scene_events.clear()
+        scene_chain_count.clear()
         round_events.clear()
         round_first_events.clear()
         round_last_events.clear()
@@ -481,6 +495,7 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         round_events.clear()
         round_first_events.clear()
         round_last_events.clear()
+        round_interaction_count.clear()
         round_is_setup['value'] = setup
 
         state['current'] = 'IN_ROUND'
@@ -637,6 +652,14 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
         if actor_id not in gen.actors:
             return {'error': f'Actor {actor_id} not found'}
 
+        # Enforce max chains per actor per scene
+        if max_chains_per_actor_per_scene > 0:
+            used = scene_chain_count.get(actor_id, 0)
+            if used >= max_chains_per_actor_per_scene:
+                return {'error': f'Actor {actor_id} has reached the maximum of {max_chains_per_actor_per_scene} '
+                        f'chains in this scene ({used}/{max_chains_per_actor_per_scene}). '
+                        f'End the round/scene or use a different actor.'}
+
         actor = gen.actors[actor_id]
 
         # If actor already has an active chain: reject if it has events (must end_chain first),
@@ -696,24 +719,27 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
                 interactions_only=poi_data.get('interactions_only', False)
             )
 
-            # Build POI first actions — filter based on holding state
+            # Build POI first actions — only actions[0] is a valid entry point.
+            # Subsequent actions are only reachable via possible_next_actions.
             # If holding spawnable, actor is locked — no POI actions at all
-            if not actor.holding_is_spawnable:
-                for action_def in poi.actions:
-                    action_type = action_def.get('type', '')
-                    obj_type = action_def.get('object_type', '')
-                    SPAWNABLE_ONLY = {'MobilePhone', 'Cigarette'}
+            if not actor.holding_is_spawnable and poi.actions:
+                first_action_def = poi.actions[0]
+                action_type = first_action_def.get('type', '')
+                obj_type = first_action_def.get('object_type', '')
+                SPAWNABLE_ONLY = {'MobilePhone', 'Cigarette'}
 
-                    # PickUp not shown if holding
-                    if action_type == 'PickUp' and actor.holding_object:
-                        continue
-                    # Spawnable POIs not shown
-                    if obj_type in SPAWNABLE_ONLY:
-                        continue
-                    # TakeOut not shown if holding
-                    if action_type == 'TakeOut' and actor.holding_object:
-                        continue
+                skip = False
+                # PickUp not shown if holding
+                if action_type == 'PickUp' and actor.holding_object:
+                    skip = True
+                # Spawnable POIs not shown
+                if obj_type in SPAWNABLE_ONLY:
+                    skip = True
+                # TakeOut not shown if holding
+                if action_type == 'TakeOut' and actor.holding_object:
+                    skip = True
 
+                if not skip:
                     next_actions.append(action_type)
 
             # Merge held object actions if standing (deduplicate)
@@ -837,19 +863,22 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
                         valid_next.append(a)
                     break
         elif poi and not current:
-            # First action in chain — POI first actions
-            for action_def in poi.actions:
-                action_type = action_def.get('type', '')
-                obj_type = action_def.get('object_type', '')
+            # First action in chain — only actions[0] is a valid entry point
+            if poi.actions:
+                first_action_def = poi.actions[0]
+                action_type = first_action_def.get('type', '')
+                obj_type = first_action_def.get('object_type', '')
+                skip = False
                 if action_type == 'PickUp' and temp_state.get('holding_object'):
-                    continue
+                    skip = True
                 if obj_type in ('MobilePhone', 'Cigarette'):
-                    continue
+                    skip = True
                 if action_type == 'TakeOut' and temp_state.get('holding_object'):
-                    continue
+                    skip = True
                 if action_type in ('Give', 'INV-Give'):
-                    continue
-                valid_next.append(action_type)
+                    skip = True
+                if not skip:
+                    valid_next.append(action_type)
 
         # Held object actions (only if standing)
         held_actions = _get_held_object_actions(actor) if not current else []
@@ -1314,6 +1343,10 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
 
         del active_chains[actor_id]
 
+        # Track chain count for max_chains_per_actor_per_scene enforcement
+        if events_count > 0:
+            scene_chain_count[actor_id] = scene_chain_count.get(actor_id, 0) + 1
+
         return {'success': True, 'events_committed': events_count}
 
     # =========================================================================
@@ -1387,6 +1420,13 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
                 if not has_interaction_poi:
                     return {'error': f'No interaction POI in region "{region}" of episode "{ep_name}". Interactions cannot happen here.'}
 
+        # Check interaction POI capacity for this round
+        capacity = interaction_poi_capacity.get(region, 0)
+        used = round_interaction_count.get(region, 0)
+        if used >= capacity:
+            return {'error': f'All interaction POIs in "{region}" are in use this round ({used}/{capacity}). '
+                    f'Wait for the next round to do more interactions.'}
+
         # Require at least one chain action in the current scene before interacting.
         # MTA needs actors settled at a POI before starts_with sync works.
         for aid in [actor1_id, actor2_id]:
@@ -1419,6 +1459,9 @@ def create_building_tools(gen: SimpleGESTRandomGenerator, config: Optional[Dict[
             _track_round_event(actor2_id, actor2.last_event_id)
             _track_scene_event(actor1.last_event_id)
             _track_scene_event(actor2.last_event_id)
+
+            # Consume one interaction POI for this round
+            round_interaction_count[region] = round_interaction_count.get(region, 0) + 1
 
             return {
                 'success': True,

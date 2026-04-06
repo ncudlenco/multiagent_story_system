@@ -126,11 +126,16 @@ class TestDryRunPipeline:
         # Bob: SitDown -> OpenLaptop -> TypeOnKeyboard -> CloseLaptop -> StandUp
         assert len(sit_pois) >= 2, f"Need at least 2 SitDown POIs, found {len(sit_pois)}"
 
-        # Bob's chain
+        # Bob's chain — start_chain returns next_actions, then continue_chain creates events
         r = building["start_chain"].invoke({
             "actor_id": bob_id, "episode": "house9", "poi_index": sit_pois[0]["poi_index"]
         })
-        assert "event_id" in r, f"start_chain failed: {r}"
+        assert "next_actions" in r, f"start_chain failed: {r}"
+        assert "SitDown" in r["next_actions"], f"SitDown should be first action: {r}"
+
+        # SitDown (entry point for chair POI)
+        r = building["continue_chain"].invoke({"actor_id": bob_id, "next_action": "SitDown"})
+        assert "event_id" in r, f"SitDown failed: {r}"
         bob_sit_event = r["event_id"]
 
         # Continue Bob's chain if OpenLaptop is available
@@ -151,14 +156,17 @@ class TestDryRunPipeline:
         building["start_recording"].invoke({"event_id": bob_sit_event})
 
         # Alice: spawnable phone call chain
-        r = building["start_spawnable_chain"].invoke({
-            "actor_id": alice_id, "spawnable_type": "MobilePhone", "region": "kitchen"
-        })
-        assert "event_id" in r, f"start_spawnable_chain failed: {r}"
+        # start_chain (no POI) offers AnswerPhone/StartSmoking for spawnables
+        r = building["start_chain"].invoke({"actor_id": alice_id})
+        assert "next_actions" in r, f"start_chain failed: {r}"
 
-        for action in ["AnswerPhone", "TalkPhone", "HangUp", "Stash"]:
-            r = building["continue_chain"].invoke({"actor_id": alice_id, "next_action": action})
-            assert "event_id" in r, f"continue_chain {action} failed: {r}"
+        # AnswerPhone is atomic: creates TakeOut+AnswerPhone+TalkPhone
+        r = building["continue_chain"].invoke({"actor_id": alice_id, "next_action": "AnswerPhone"})
+        assert "event_id" in r, f"AnswerPhone failed: {r}"
+
+        # HangUp is atomic: creates HangUp+Stash
+        r = building["continue_chain"].invoke({"actor_id": alice_id, "next_action": "HangUp"})
+        assert "event_id" in r, f"HangUp failed: {r}"
 
         building["end_chain"].invoke({"actor_id": alice_id})
 
@@ -270,12 +278,12 @@ class TestDryRunPipeline:
         })
         building["start_round"].invoke({"setup": False})
 
-        # Bob does spawnable chain in kitchen
-        building["start_spawnable_chain"].invoke({
-            "actor_id": bob_id, "spawnable_type": "Cigarette", "region": "kitchen"
-        })
-        for action in ["SmokeIn", "Smoke", "SmokeOut", "Stash"]:
-            building["continue_chain"].invoke({"actor_id": bob_id, "next_action": action})
+        # Bob does spawnable cigarette chain in kitchen
+        building["start_chain"].invoke({"actor_id": bob_id})
+        # StartSmoking is atomic: creates TakeOut+SmokeIn+Smoke
+        building["continue_chain"].invoke({"actor_id": bob_id, "next_action": "StartSmoking"})
+        # StopSmoking is atomic: creates SmokeOut+Stash
+        building["continue_chain"].invoke({"actor_id": bob_id, "next_action": "StopSmoking"})
         building["end_chain"].invoke({"actor_id": bob_id})
 
         building["end_round"].invoke({})
@@ -320,31 +328,20 @@ class TestDryRunPipeline:
         })
         building["start_round"].invoke({"setup": False})
 
-        # Start phone chain for A
-        building["start_spawnable_chain"].invoke({
-            "actor_id": "a0", "spawnable_type": "MobilePhone", "region": "kitchen"
-        })
+        # Start phone chain for A (atomic: TakeOut+AnswerPhone+TalkPhone)
+        building["start_chain"].invoke({"actor_id": "a0"})
         building["continue_chain"].invoke({"actor_id": "a0", "next_action": "AnswerPhone"})
 
-        # Start cigarette chain for B (while A is on the phone)
-        building["start_spawnable_chain"].invoke({
-            "actor_id": "a1", "spawnable_type": "Cigarette", "region": "kitchen"
-        })
-        building["continue_chain"].invoke({"actor_id": "a1", "next_action": "SmokeIn"})
+        # Start cigarette chain for B while A is on the phone (atomic: TakeOut+SmokeIn+Smoke)
+        building["start_chain"].invoke({"actor_id": "a1"})
+        building["continue_chain"].invoke({"actor_id": "a1", "next_action": "StartSmoking"})
 
-        # Continue A's phone chain
-        building["continue_chain"].invoke({"actor_id": "a0", "next_action": "TalkPhone"})
-
-        # Continue B's cigarette
-        building["continue_chain"].invoke({"actor_id": "a1", "next_action": "Smoke"})
-
-        # Finish both
+        # Finish A's phone (atomic: HangUp+Stash)
         building["continue_chain"].invoke({"actor_id": "a0", "next_action": "HangUp"})
-        building["continue_chain"].invoke({"actor_id": "a0", "next_action": "Stash"})
         building["end_chain"].invoke({"actor_id": "a0"})
 
-        building["continue_chain"].invoke({"actor_id": "a1", "next_action": "SmokeOut"})
-        building["continue_chain"].invoke({"actor_id": "a1", "next_action": "Stash"})
+        # Finish B's cigarette (atomic: SmokeOut+Stash)
+        building["continue_chain"].invoke({"actor_id": "a1", "next_action": "StopSmoking"})
         building["end_chain"].invoke({"actor_id": "a1"})
 
         # End round and scene

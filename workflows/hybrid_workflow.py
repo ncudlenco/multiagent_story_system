@@ -70,6 +70,13 @@ CRITICAL -- NO HALLUCINATIONS:
 - Each region has specific POIs with specific action chains -- check before planning
 - The scene_builder will explore POIs independently, but your plan must be grounded in what actually exists
 
+ONE REGION PER SCENE:
+- Each scene takes place in exactly ONE region. All actors in a scene must be in that region.
+- Before choosing a region for a scene, call get_pois to verify it has enough POIs/actions for your planned activities
+- Create ALL actors in the FIRST scene's region. Use move_actors between scenes to relocate them.
+- Do NOT create actors in a region different from the current scene's region
+- FYI: moving between regions within the same episode or linked episode shows actors moving. Unlinked regions teleport them.
+
 VARIETY:
 - Don't always default to the same locations -- explore what's available and vary your choices
 - Stories can span multiple episodes (e.g. a few scenes in one place, then a few in another)
@@ -102,6 +109,7 @@ CRITICAL:
 - Do NOT create extra scenes, retry scenes, or test scenes. Build it right the first time.
 
 You receive a scene description with scene_id, episode, region, characters, and what should happen.
+The director will also tell you the max chains per actor for this scene -- respect this limit.
 
 The scene has already been started by the director. You build the content.
 
@@ -121,6 +129,10 @@ MANDATORY FLOW:
 3. Return a summary of what was built. DO NOT call any more tools after end_scene.
 
 RULES:
+- ONE REGION: all actions in a scene happen in the scene's region. Do NOT use POIs from other regions.
+- Only use POIs and actions that exist in THIS region -- call get_pois to verify before building chains.
+- Each actor can do at most N chains per scene (told by director). The tool will reject if exceeded.
+- Only 1 interaction per round per region (limited by interaction POI capacity)
 - Every actor must complete at least one chain action before any interaction in a scene
 - All chains in a round must be committed (end_chain) before end_round
 - Camera (start_recording/stop_recording) only on committed events (after end_chain)
@@ -205,6 +217,7 @@ def _build_constraints_text(gen_config: Dict[str, Any]) -> str:
         parts.append(f"MUST use these regions: {config.seed_regions}")
 
     parts.append(f"Max events per scene: {config.max_events_per_scene}")
+    parts.append(f"Max action chains (POI visits) per actor per scene: {config.max_chains_per_actor}")
 
     if config.seed_text:
         parts.append(f"\nStory seed (adapt to what's simulatable): {config.seed_text}")
@@ -242,6 +255,7 @@ def deep_agent_node(state: HybridState) -> Dict[str, Any]:
         'enable_concept_events': gen_cfg.enable_concept_events,
         'enable_logical_relations': gen_cfg.enable_logical_relations,
         'enable_semantic_relations': gen_cfg.enable_semantic_relations,
+        'max_chains_per_actor_per_scene': gen_cfg.max_chains_per_actor,
     }
 
     # Create tools bound to this generator with config

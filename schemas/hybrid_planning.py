@@ -45,6 +45,11 @@ class GenerationConfig(BaseModel):
         ge=5, le=100,
         description="Maximum events per scene"
     )
+    max_chains_per_actor: int = Field(
+        default=3,
+        ge=1, le=20,
+        description="Maximum action chains (POI visits) per actor per scene"
+    )
     enable_concept_events: bool = Field(
         default=True,
         description="Create scene/story parent events in GEST (disable to save budget when debugging)"
