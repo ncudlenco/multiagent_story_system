@@ -608,10 +608,13 @@ class TestObjectConsistency:
                           and "chair" in p.get("description", "").lower()), None)
         assert chair_poi is not None
 
-        # Sit down first
+        # Start chain at chair POI — SitDown is the only valid first action
         building_tools["start_chain"].invoke({
             "actor_id": "a0", "episode": "house9", "poi_index": chair_poi["poi_index"]
         })
+        # SitDown first (entry point for chair POI)
+        r0 = building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "SitDown"})
+        assert "event_id" in r0, f"SitDown failed: {r0}"
         # PickUp food while sitting
         r = building_tools["continue_chain"].invoke({"actor_id": "a0", "next_action": "PickUp"})
         assert "event_id" in r, f"PickUp while sitting failed: {r}"

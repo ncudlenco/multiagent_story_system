@@ -104,7 +104,7 @@ class BatchConfig:
     ensure_target: bool = False  # Keep generating until num_stories successes achieved
 
     # Generator selection
-    generator_type: str = "llm"  # "llm" or "simple_random"
+    generator_type: str = "llm"  # "llm", "simple_random", or "hybrid"
 
     # Simple random generator parameters
     random_chains_per_actor: int = 3  # Only used when generator_type="simple_random"
