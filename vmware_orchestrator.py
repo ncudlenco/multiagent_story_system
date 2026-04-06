@@ -1566,15 +1566,17 @@ class VMWareOrchestrator:
             return False
 
     def _generate_worker_job_yaml(self, worker_id: int, job_dir: Path,
-                                  stories_per_vm: int, batch_params: Dict) -> bool:
+                                  stories_per_vm: int, batch_params: Dict,
+                                  from_existing_stories_path: str = None) -> bool:
         """
         Generate worker_job.yaml configuration file for autonomous worker.
 
         Args:
             worker_id: Worker identifier (0-indexed)
             job_dir: Directory to write worker_job.yaml
-            stories_per_vm: Number of stories to generate
+            stories_per_vm: Number of stories to generate (ignored in from-existing mode)
             batch_params: Additional batch parameters
+            from_existing_stories_path: Path to existing stories folder on VM (simulation-only mode)
 
         Returns:
             True if successful, False otherwise
@@ -1586,8 +1588,15 @@ class VMWareOrchestrator:
                 # Use local temp folder on VM to avoid UNC path escaping issues
                 # Results are uploaded to Google Drive, completion marker goes to shared folder
                 "output_folder": r"C:\temp\batches",
-                "story_number": stories_per_vm,
+            }
 
+            # Mode: from-existing-stories (simulation-only) or story-number (generate + simulate)
+            if from_existing_stories_path:
+                job_config["from_existing_stories_path"] = from_existing_stories_path
+            else:
+                job_config["story_number"] = stories_per_vm
+
+            job_config.update({
                 # Actor configuration
                 "num_actors": batch_params.get("num_actors", 2),
                 "num_extras": batch_params.get("num_extras", 1),
@@ -1621,7 +1630,7 @@ class VMWareOrchestrator:
                 # Copy batch_state.json to shared folder for host monitoring
                 # Disabled when orchestrator runs in --no-monitor mode
                 "copy_state_to_shared": not batch_params.get("no_monitor", False),
-            }
+            })
 
             # Generate description mode
             if batch_params.get("generate_description"):
@@ -1738,15 +1747,55 @@ class VMWareOrchestrator:
             0 on success, 1 on failure
         """
         num_workers = args.num_vms
-        stories_per_vm = args.stories_per_vm
+        stories_per_vm = args.stories_per_vm or 0
+        from_existing = getattr(args, 'from_existing_stories', None)
         self.no_restart = getattr(args, 'no_restart', False)
+
+        # Scan and distribute existing GESTs across workers
+        gest_assignments: Dict[int, List[Path]] = {}  # worker_id -> [gest_paths]
+        if from_existing:
+            source_path = Path(from_existing)
+            # Find GESTs: prefer top-level detail_gest.json per story dir, deduplicate
+            all_gests = sorted(source_path.glob("**/detail_gest.json"))
+            seen_stories = set()
+            gest_files = []
+            for gf in all_gests:
+                # Find the story dir (parent named story_*)
+                story_dir = gf.parent
+                while story_dir != source_path and not story_dir.name.startswith('story_'):
+                    story_dir = story_dir.parent
+                story_name = story_dir.name
+                if story_name not in seen_stories:
+                    seen_stories.add(story_name)
+                    gest_files.append(gf)
+            if not gest_files:
+                print(f"[ERROR] No detail_gest.json files found in {from_existing}")
+                return 1
+
+            # Distribute GESTs across VMs, balancing the load
+            # Each GEST needs N simulation variations, so total work = len(gest_files) * sim_variations
+            sim_variations = getattr(args, 'same_story_simulation_variations', 1) or 1
+            # Round-robin: spread GESTs evenly across workers
+            for i, gf in enumerate(gest_files):
+                wid = i % num_workers
+                gest_assignments.setdefault(wid, []).append(gf)
+
+            stories_per_vm = max(len(v) for v in gest_assignments.values()) if gest_assignments else 0
 
         print(f"\n{'='*70}")
         print(f"VMware Autonomous Worker Orchestration")
         print(f"{'='*70}")
         print(f"Workers: {num_workers}")
-        print(f"Stories per worker: {stories_per_vm}")
-        print(f"Total stories: {num_workers * stories_per_vm}")
+        if from_existing:
+            total_gests = sum(len(v) for v in gest_assignments.values())
+            print(f"Mode: Simulate existing GESTs ({total_gests} graphs)")
+            for wid in range(num_workers):
+                count = len(gest_assignments.get(wid, []))
+                if count > 0:
+                    print(f"  Worker {wid + 1}: {count} GESTs")
+        else:
+            print(f"Stories per worker: {stories_per_vm}")
+            print(f"Total stories: {num_workers * stories_per_vm}")
         print(f"Mode: Autonomous (file-based job config)")
         print(f"{'='*70}\n")
 
@@ -1803,9 +1852,30 @@ class VMWareOrchestrator:
             job_dir = self.batch_dir / f"worker{worker_id + 1}_job"
             job_dir.mkdir(parents=True, exist_ok=True)
 
+            # Copy GESTs for this worker (from-existing mode)
+            worker_from_existing_path = None
+            if from_existing and worker_id in gest_assignments:
+                gest_dir = job_dir / "existing_stories"
+                gest_dir.mkdir(exist_ok=True)
+                for gf in gest_assignments[worker_id]:
+                    # Use parent dir name for uniqueness (e.g. story_955106e1)
+                    story_name = gf.parent.name
+                    if story_name in ('take1', 'detailed_graph'):
+                        # Navigate up to story dir
+                        story_name = gf.parents[2].name if 'detailed_graph' in str(gf) else gf.parent.name
+                    dest = gest_dir / story_name
+                    dest.mkdir(exist_ok=True)
+                    shutil.copy2(str(gf), str(dest / "detail_gest.json"))
+                worker_from_existing_path = r"\\vmware-host\Shared Folders\job\existing_stories"
+                worker_stories = len(gest_assignments[worker_id])
+            else:
+                worker_stories = stories_per_vm
+
             # Generate job config
             print(f"  Generating job config...", end="", flush=True)
-            if not self._generate_worker_job_yaml(worker_id, job_dir, stories_per_vm, batch_params):
+            if not self._generate_worker_job_yaml(
+                    worker_id, job_dir, worker_stories, batch_params,
+                    from_existing_stories_path=worker_from_existing_path):
                 print(" [X]")
                 return 1
             print(" [OK]")
@@ -2466,6 +2536,8 @@ Examples:
     # Batch generation mode arguments
     parser.add_argument("--stories-per-vm", type=int,
                        help="Number of stories to generate per VM (required with --num-vms)")
+    parser.add_argument("--from-existing-stories", type=str, default=None, metavar="PATH",
+                       help="Path to folder with existing GEST files to simulate (splits across VMs, mutually exclusive with --stories-per-vm)")
 
     # Common arguments
     parser.add_argument("--config", type=str, default="vmware_config.yaml",
@@ -2550,8 +2622,10 @@ Examples:
     args = parser.parse_args()
 
     # Validate arguments based on mode
-    if args.num_vms and not args.stories_per_vm:
-        parser.error("--stories-per-vm is required when using --num-vms")
+    if args.num_vms and not args.stories_per_vm and not args.from_existing_stories:
+        parser.error("--stories-per-vm or --from-existing-stories is required when using --num-vms")
+    if args.from_existing_stories and args.stories_per_vm:
+        parser.error("--stories-per-vm and --from-existing-stories are mutually exclusive")
 
     # Initialize orchestrator
     try:

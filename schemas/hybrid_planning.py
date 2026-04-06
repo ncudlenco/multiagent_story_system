@@ -18,15 +18,15 @@ class GenerationConfig(BaseModel):
         default=None,
         description="Optional story seed text for prompt alignment"
     )
-    num_scenes: int = Field(
-        default=3,
+    num_scenes: Optional[int] = Field(
+        default=None,
         ge=1, le=10,
-        description="Target number of scenes"
+        description="Target number of scenes (None = infer from seed text)"
     )
-    num_protagonists: int = Field(
-        default=2,
+    num_protagonists: Optional[int] = Field(
+        default=None,
         ge=1, le=10,
-        description="Number of main characters"
+        description="Number of main characters (None = infer from seed text)"
     )
     include_extras: bool = Field(
         default=False,
@@ -47,8 +47,8 @@ class GenerationConfig(BaseModel):
     )
     max_chains_per_actor: int = Field(
         default=3,
-        ge=1, le=20,
-        description="Maximum action chains (POI visits) per actor per scene"
+        ge=0, le=20,
+        description="Maximum action chains (POI visits) per actor per scene (0 = unlimited)"
     )
     enable_concept_events: bool = Field(
         default=True,

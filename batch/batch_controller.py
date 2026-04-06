@@ -2735,8 +2735,8 @@ class BatchController:
         seed_text = "\n".join(narrative_seeds)
         gen_config = GenerationConfig(
             seed_text=seed_text,
-            num_scenes=self.batch_config.scene_number or 3,
-            num_protagonists=self.batch_config.max_num_protagonists or 2,
+            num_scenes=self.batch_config.scene_number or None,
+            num_protagonists=self.batch_config.max_num_protagonists or None,
             include_extras=self.batch_config.max_num_extras > 0,
             max_chains_per_actor=self.batch_config.random_chains_per_actor,
         ).model_dump()
