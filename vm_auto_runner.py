@@ -301,9 +301,12 @@ def build_batch_command(job_config: Dict[str, Any], logger: logging.Logger) -> L
     output_folder = job_config.get("output_folder", r"\\vmware-host\Shared Folders\output")
     args.extend(["--output-folder", output_folder])
 
-    # Required: story number
-    story_number = job_config.get("story_number", 1)
-    args.extend(["--story-number", str(story_number)])
+    # Mode: either from-existing-stories or story-number (mutually exclusive)
+    if job_config.get("from_existing_stories_path"):
+        args.extend(["--from-existing-stories", job_config["from_existing_stories_path"]])
+    else:
+        story_number = job_config.get("story_number", 1)
+        args.extend(["--story-number", str(story_number)])
 
     # Optional: actor configuration
     if job_config.get("num_actors"):

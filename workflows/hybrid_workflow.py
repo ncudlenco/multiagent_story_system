@@ -203,8 +203,15 @@ def _build_constraints_text(gen_config: Dict[str, Any]) -> str:
     parts = []
     config = GenerationConfig(**gen_config) if gen_config else GenerationConfig()
 
-    parts.append(f"Target scenes: {config.num_scenes}")
-    parts.append(f"Number of protagonists: {config.num_protagonists}")
+    if config.num_scenes is not None:
+        parts.append(f"Target scenes: {config.num_scenes}")
+    else:
+        parts.append("Number of scenes: infer from the story seed (use as few as needed)")
+
+    if config.num_protagonists is not None:
+        parts.append(f"Number of protagonists: {config.num_protagonists}")
+    else:
+        parts.append("Number of protagonists: infer from the story seed")
 
     if config.include_extras:
         parts.append("Include background extras doing routines")
