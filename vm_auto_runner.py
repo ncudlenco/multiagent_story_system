@@ -380,6 +380,10 @@ def build_batch_command(job_config: Dict[str, Any], logger: logging.Logger) -> L
     if job_config.get("generate_description"):
         args.extend(["--generate-description", job_config["generate_description"]])
 
+    # Seed text for hybrid generation (passed as a single narrative seed)
+    if job_config.get("seed_text"):
+        args.extend(["--seeds", str(job_config["seed_text"])])
+
     logger.info(f"Built command: {' '.join(args)}")
     return args
 
