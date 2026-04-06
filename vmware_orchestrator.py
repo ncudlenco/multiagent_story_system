@@ -2607,7 +2607,7 @@ Examples:
                        help="Keep generating stories until the target number of successful stories is reached")
 
     # Simple random generator parameters
-    parser.add_argument("--generator-type", type=str, choices=['llm', 'simple_random'],
+    parser.add_argument("--generator-type", type=str, choices=['llm', 'simple_random', 'hybrid'],
                        default='llm', help="Story generator type (default: llm)")
     parser.add_argument("--random-chains-per-actor", type=int, default=None,
                        help="Action chains per actor for simple_random generator")
