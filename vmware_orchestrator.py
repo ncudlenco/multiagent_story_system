@@ -1752,7 +1752,8 @@ class VMWareOrchestrator:
         self.no_restart = getattr(args, 'no_restart', False)
 
         # Scan and distribute existing GESTs across workers
-        gest_assignments: Dict[int, List[Path]] = {}  # worker_id -> [gest_paths]
+        # Each worker gets a set of (gest_file, sims_to_run) assignments
+        gest_assignments: Dict[int, List[tuple]] = {}  # worker_id -> [(gest_path, num_sims)]
         if from_existing:
             source_path = Path(from_existing)
             # Find GESTs: prefer top-level detail_gest.json per story dir, deduplicate
@@ -1760,7 +1761,6 @@ class VMWareOrchestrator:
             seen_stories = set()
             gest_files = []
             for gf in all_gests:
-                # Find the story dir (parent named story_*)
                 story_dir = gf.parent
                 while story_dir != source_path and not story_dir.name.startswith('story_'):
                     story_dir = story_dir.parent
@@ -1772,27 +1772,46 @@ class VMWareOrchestrator:
                 print(f"[ERROR] No detail_gest.json files found in {from_existing}")
                 return 1
 
-            # Distribute GESTs across VMs, balancing the load
-            # Each GEST needs N simulation variations, so total work = len(gest_files) * sim_variations
+            # Build work units: each (gest, 1 sim) is one unit
             sim_variations = getattr(args, 'same_story_simulation_variations', 1) or 1
-            # Round-robin: spread GESTs evenly across workers
-            for i, gf in enumerate(gest_files):
+            work_units = []  # [(gest_path, sim_index)]
+            for gf in gest_files:
+                for sim_idx in range(sim_variations):
+                    work_units.append((gf, sim_idx))
+
+            # Round-robin work units across workers
+            worker_units: Dict[int, List[tuple]] = {}
+            for i, (gf, sim_idx) in enumerate(work_units):
                 wid = i % num_workers
-                gest_assignments.setdefault(wid, []).append(gf)
+                worker_units.setdefault(wid, []).append((gf, sim_idx))
+
+            # Collapse: group by GEST per worker, count sims
+            for wid, units in worker_units.items():
+                gest_sims: Dict[Path, int] = {}
+                for gf, _ in units:
+                    gest_sims[gf] = gest_sims.get(gf, 0) + 1
+                gest_assignments[wid] = [(gf, count) for gf, count in gest_sims.items()]
 
             stories_per_vm = max(len(v) for v in gest_assignments.values()) if gest_assignments else 0
+
+        total_work = sum(sims for assigns in gest_assignments.values() for _, sims in assigns) if gest_assignments else 0
 
         print(f"\n{'='*70}")
         print(f"VMware Autonomous Worker Orchestration")
         print(f"{'='*70}")
         print(f"Workers: {num_workers}")
         if from_existing:
-            total_gests = sum(len(v) for v in gest_assignments.values())
-            print(f"Mode: Simulate existing GESTs ({total_gests} graphs)")
+            total_gests = len(gest_files)
+            active_workers = sum(1 for v in gest_assignments.values() if v)
+            print(f"Mode: Simulate existing GESTs")
+            print(f"GESTs: {total_gests} | Sims per GEST: {sim_variations} | Total sims: {total_work}")
+            print(f"Active workers: {active_workers}/{num_workers}")
             for wid in range(num_workers):
-                count = len(gest_assignments.get(wid, []))
-                if count > 0:
-                    print(f"  Worker {wid + 1}: {count} GESTs")
+                assigns = gest_assignments.get(wid, [])
+                if assigns:
+                    detail = ", ".join(f"{gf.parent.name}x{sims}" for gf, sims in assigns)
+                    total_sims = sum(s for _, s in assigns)
+                    print(f"  Worker {wid + 1}: {len(assigns)} GESTs, {total_sims} sims [{detail}]")
         else:
             print(f"Stories per worker: {stories_per_vm}")
             print(f"Total stories: {num_workers * stories_per_vm}")
@@ -1854,27 +1873,33 @@ class VMWareOrchestrator:
 
             # Copy GESTs for this worker (from-existing mode)
             worker_from_existing_path = None
+            worker_sim_variations = None
             if from_existing and worker_id in gest_assignments:
                 gest_dir = job_dir / "existing_stories"
                 gest_dir.mkdir(exist_ok=True)
-                for gf in gest_assignments[worker_id]:
+                for gf, num_sims in gest_assignments[worker_id]:
                     # Use parent dir name for uniqueness (e.g. story_955106e1)
                     story_name = gf.parent.name
                     if story_name in ('take1', 'detailed_graph'):
-                        # Navigate up to story dir
                         story_name = gf.parents[2].name if 'detailed_graph' in str(gf) else gf.parent.name
                     dest = gest_dir / story_name
                     dest.mkdir(exist_ok=True)
                     shutil.copy2(str(gf), str(dest / "detail_gest.json"))
                 worker_from_existing_path = r"\\vmware-host\Shared Folders\job\existing_stories"
                 worker_stories = len(gest_assignments[worker_id])
+                # Use the max sims assigned to any single GEST on this worker
+                worker_sim_variations = max(s for _, s in gest_assignments[worker_id])
             else:
                 worker_stories = stories_per_vm
 
-            # Generate job config
+            # Generate job config — override sim variations per worker in from-existing mode
+            worker_batch_params = batch_params
+            if worker_sim_variations is not None:
+                worker_batch_params = {**batch_params, "same_story_simulation_variations": worker_sim_variations}
+
             print(f"  Generating job config...", end="", flush=True)
             if not self._generate_worker_job_yaml(
-                    worker_id, job_dir, worker_stories, batch_params,
+                    worker_id, job_dir, worker_stories, worker_batch_params,
                     from_existing_stories_path=worker_from_existing_path):
                 print(" [X]")
                 return 1
