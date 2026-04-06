@@ -1657,6 +1657,10 @@ class VMWareOrchestrator:
             if batch_params.get("ensure_target"):
                 job_config["ensure_target"] = True
 
+            # Add seed text for hybrid generation
+            if batch_params.get("seed_text"):
+                job_config["seed_text"] = batch_params["seed_text"]
+
             # Write YAML file
             job_yaml_path = job_dir / "worker_job.yaml"
 
@@ -1855,6 +1859,7 @@ class VMWareOrchestrator:
             "simulation_retries": getattr(args, 'simulation_retries', None),
             "capture_segmentations": getattr(args, 'capture_segmentations', True),
             "no_monitor": getattr(args, 'no_monitor', False),
+            "seed_text": getattr(args, 'seed_text', None),
         }
 
         # Clone workers and setup job configs
@@ -2606,9 +2611,11 @@ Examples:
     parser.add_argument("--ensure-target", action="store_true",
                        help="Keep generating stories until the target number of successful stories is reached")
 
-    # Simple random generator parameters
+    # Generator parameters
     parser.add_argument("--generator-type", type=str, choices=['llm', 'simple_random', 'hybrid'],
                        default='llm', help="Story generator type (default: llm)")
+    parser.add_argument("--seed-text", type=str, default=None,
+                       help="Story seed text for hybrid generation (all VMs use the same seed)")
     parser.add_argument("--random-chains-per-actor", type=int, default=None,
                        help="Action chains per actor for simple_random generator")
     parser.add_argument("--random-max-actors-per-region", type=int, default=None,
