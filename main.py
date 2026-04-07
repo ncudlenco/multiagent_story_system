@@ -78,6 +78,10 @@ def copy_gest_to_mta(
     )
     shutil.copy2(source_path, dest_path)
 
+    # Ensure the destination file is writable (VMware shared folders copy as read-only)
+    import stat
+    dest_path.chmod(dest_path.stat().st_mode | stat.S_IWRITE)
+
     # Return relative path for MTA config.json
     relative_path = f"input_graphs/{dest_filename}"
     return relative_path
