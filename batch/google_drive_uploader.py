@@ -92,7 +92,7 @@ class GoogleDriveUploader:
             raise FileNotFoundError(f"Credentials not found: {self.credentials_path}")
 
         # Scopes for Google Drive API
-        self.SCOPES = ['https://www.googleapis.com/auth/drive.file']
+        self.SCOPES = ['https://www.googleapis.com/auth/drive']
 
         # Authenticate and build service
         self.service = self._authenticate()
