@@ -1597,11 +1597,11 @@ class VMWareOrchestrator:
                 job_config["story_number"] = stories_per_vm
 
             job_config.update({
-                # Actor configuration
-                "num_actors": batch_params.get("num_actors", 2),
-                "num_extras": batch_params.get("num_extras", 1),
-                "num_actions": batch_params.get("num_actions", 5),
-                "scene_number": batch_params.get("scene_number", 4),
+                # Actor configuration (None = let batch_generate.py use its defaults)
+                "num_actors": batch_params.get("num_actors"),
+                "num_extras": batch_params.get("num_extras"),
+                "num_actions": batch_params.get("num_actions"),
+                "scene_number": batch_params.get("scene_number"),
 
                 # Variations
                 "same_story_generation_variations": batch_params.get(
