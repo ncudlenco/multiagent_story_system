@@ -1,0 +1,504 @@
+{
+  "summary": {
+    "total_batches": 1,
+    "total_stories": 1008,
+    "total_events": 29631,
+    "total_temporal_relations": 12482,
+    "unique_actions": 37,
+    "unique_object_types": 15,
+    "unique_regions": 9,
+    "total_rgb_frames": 2708031,
+    "total_segmented_frames": 3165769,
+    "total_spatial_relations": 1448124,
+    "stories_with_artifacts": 1008,
+    "total_movies": 1007,
+    "total_movie_duration_seconds": 45133.85,
+    "total_movie_duration_hours": 12.54,
+    "total_clips": 29392,
+    "total_clip_duration_seconds": 61133.43,
+    "total_clip_duration_hours": 16.98,
+    "total_object_relations": 0
+  },
+  "per_story_averages": {
+    "actors_per_story": {
+      "mean": 3.43,
+      "median": 3.0,
+      "min": 2,
+      "max": 6,
+      "std": 1.01
+    },
+    "events_per_story": {
+      "mean": 29.4,
+      "median": 29.0,
+      "min": 7,
+      "max": 65,
+      "std": 10.4
+    },
+    "temporal_relations_per_story": {
+      "mean": 12.38,
+      "median": 11.0,
+      "min": 0,
+      "max": 65,
+      "std": 13.23
+    },
+    "rgb_frames_per_story": {
+      "mean": 2686.54,
+      "median": 2710.5,
+      "min": 0,
+      "max": 7560,
+      "std": 1594.68
+    },
+    "segmented_frames_per_story": {
+      "mean": 3140.64,
+      "median": 2957.5,
+      "min": 1,
+      "max": 7854,
+      "std": 1480.6
+    },
+    "spatial_relations_per_story": {
+      "mean": 1436.63,
+      "median": 1299.5,
+      "min": 0,
+      "max": 4588,
+      "std": 795.72
+    },
+    "movies_per_story": {
+      "mean": 1.0,
+      "median": 1.0,
+      "min": 0,
+      "max": 1,
+      "std": 0.03
+    },
+    "movie_duration_seconds": {
+      "mean": 44.82,
+      "median": 45.23,
+      "min": 0.0,
+      "max": 126.0,
+      "std": 26.55
+    },
+    "clips_per_story": {
+      "mean": 29.16,
+      "median": 29.0,
+      "min": 0,
+      "max": 65,
+      "std": 10.31
+    },
+    "clip_duration_seconds": {
+      "mean": 2.2,
+      "median": 1.32,
+      "min": 0.0,
+      "max": 55.68,
+      "std": 2.58
+    },
+    "object_relations_per_story": {
+      "mean": 0,
+      "median": 0.0,
+      "min": 0,
+      "max": 0,
+      "std": 0.0
+    }
+  },
+  "distributions": {
+    "regions": {
+      "classroom": {
+        "count": 289,
+        "percentage": 17.59
+      },
+      "garden": {
+        "count": 222,
+        "percentage": 13.51
+      },
+      "driveway": {
+        "count": 222,
+        "percentage": 13.51
+      },
+      "kitchen": {
+        "count": 215,
+        "percentage": 13.09
+      },
+      "bedroom": {
+        "count": 215,
+        "percentage": 13.09
+      },
+      "gym main room": {
+        "count": 164,
+        "percentage": 9.98
+      },
+      "right part of the gym room": {
+        "count": 118,
+        "percentage": 7.18
+      },
+      "left part of the gym room": {
+        "count": 118,
+        "percentage": 7.18
+      },
+      "gym backroom": {
+        "count": 80,
+        "percentage": 4.87
+      }
+    },
+    "episodes": {
+      "garden": {
+        "count": 444,
+        "percentage": 27.02
+      },
+      "classroom1": {
+        "count": 289,
+        "percentage": 17.59
+      },
+      "gym3": {
+        "count": 236,
+        "percentage": 14.36
+      },
+      "house9": {
+        "count": 215,
+        "percentage": 13.09
+      },
+      "common": {
+        "count": 215,
+        "percentage": 13.09
+      },
+      "gym1_a": {
+        "count": 164,
+        "percentage": 9.98
+      },
+      "gym2_a": {
+        "count": 80,
+        "percentage": 4.87
+      }
+    },
+    "actions": {
+      "TakeOut": {
+        "count": 2527,
+        "percentage": 8.53
+      },
+      "Stash": {
+        "count": 2527,
+        "percentage": 8.53
+      },
+      "PickUp": {
+        "count": 1682,
+        "percentage": 5.68
+      },
+      "SitDown": {
+        "count": 1431,
+        "percentage": 4.83
+      },
+      "StandUp": {
+        "count": 1431,
+        "percentage": 4.83
+      },
+      "AnswerPhone": {
+        "count": 1332,
+        "percentage": 4.5
+      },
+      "TalkPhone": {
+        "count": 1332,
+        "percentage": 4.5
+      },
+      "HangUp": {
+        "count": 1332,
+        "percentage": 4.5
+      },
+      "GetOn": {
+        "count": 1300,
+        "percentage": 4.39
+      },
+      "GetOff": {
+        "count": 1300,
+        "percentage": 4.39
+      },
+      "SmokeIn": {
+        "count": 1195,
+        "percentage": 4.03
+      },
+      "Smoke": {
+        "count": 1195,
+        "percentage": 4.03
+      },
+      "SmokeOut": {
+        "count": 1195,
+        "percentage": 4.03
+      },
+      "PutDown": {
+        "count": 1140,
+        "percentage": 3.85
+      },
+      "Laugh": {
+        "count": 1096,
+        "percentage": 3.7
+      },
+      "Move": {
+        "count": 1046,
+        "percentage": 3.53
+      },
+      "Talk": {
+        "count": 1030,
+        "percentage": 3.48
+      },
+      "TaiChi": {
+        "count": 811,
+        "percentage": 2.74
+      },
+      "Eat": {
+        "count": 536,
+        "percentage": 1.81
+      },
+      "PedalGymBike": {
+        "count": 472,
+        "percentage": 1.59
+      },
+      "Drink": {
+        "count": 448,
+        "percentage": 1.51
+      },
+      "DumbbellsWorkOut": {
+        "count": 421,
+        "percentage": 1.42
+      },
+      "BenchpressWorkOut": {
+        "count": 352,
+        "percentage": 1.19
+      },
+      "Hug": {
+        "count": 348,
+        "percentage": 1.17
+      },
+      "Kiss": {
+        "count": 318,
+        "percentage": 1.07
+      },
+      "JogTreadmill": {
+        "count": 274,
+        "percentage": 0.92
+      },
+      "Punch": {
+        "count": 228,
+        "percentage": 0.77
+      },
+      "Give": {
+        "count": 206,
+        "percentage": 0.7
+      },
+      "INV-Give": {
+        "count": 206,
+        "percentage": 0.7
+      },
+      "Sleep": {
+        "count": 202,
+        "percentage": 0.68
+      },
+      "OpenLaptop": {
+        "count": 145,
+        "percentage": 0.49
+      },
+      "PunchDesk": {
+        "count": 116,
+        "percentage": 0.39
+      },
+      "LayOnElbow": {
+        "count": 105,
+        "percentage": 0.35
+      },
+      "LookAtTheWatch": {
+        "count": 96,
+        "percentage": 0.32
+      },
+      "CloseLaptop": {
+        "count": 88,
+        "percentage": 0.3
+      },
+      "TypeOnKeyboard": {
+        "count": 84,
+        "percentage": 0.28
+      },
+      "WashHands": {
+        "count": 84,
+        "percentage": 0.28
+      }
+    },
+    "action_categories": {
+      "interaction": {
+        "count": 27774,
+        "percentage": 93.73
+      },
+      "simple_action": {
+        "count": 1857,
+        "percentage": 6.27
+      }
+    },
+    "genders": {
+      "male": {
+        "count": 1768,
+        "percentage": 51.13
+      },
+      "female": {
+        "count": 1690,
+        "percentage": 48.87
+      }
+    },
+    "object_types": {
+      "MobilePhone": {
+        "count": 1261,
+        "percentage": 16.61
+      },
+      "Chair": {
+        "count": 1250,
+        "percentage": 16.46
+      },
+      "Cigarette": {
+        "count": 1127,
+        "percentage": 14.84
+      },
+      "Drinks": {
+        "count": 725,
+        "percentage": 9.55
+      },
+      "Food": {
+        "count": 536,
+        "percentage": 7.06
+      },
+      "GymBike": {
+        "count": 472,
+        "percentage": 6.22
+      },
+      "TwoDumbbells": {
+        "count": 421,
+        "percentage": 5.55
+      },
+      "BenchPress": {
+        "count": 352,
+        "percentage": 4.64
+      },
+      "BenchPressBar": {
+        "count": 352,
+        "percentage": 4.64
+      },
+      "Treadmill": {
+        "count": 274,
+        "percentage": 3.61
+      },
+      "PunchingBag": {
+        "count": 228,
+        "percentage": 3.0
+      },
+      "Bed": {
+        "count": 202,
+        "percentage": 2.66
+      },
+      "ArmChair": {
+        "count": 181,
+        "percentage": 2.38
+      },
+      "Laptop": {
+        "count": 127,
+        "percentage": 1.67
+      },
+      "Sink": {
+        "count": 84,
+        "percentage": 1.11
+      }
+    },
+    "temporal_relation_types": {
+      "before": {
+        "count": 5440,
+        "percentage": 43.58
+      },
+      "after": {
+        "count": 5440,
+        "percentage": 43.58
+      },
+      "starts_with": {
+        "count": 1602,
+        "percentage": 12.83
+      }
+    },
+    "global_categories": {
+      "classroom": {
+        "count": 289,
+        "percentage": 28.67
+      },
+      "gym": {
+        "count": 282,
+        "percentage": 27.98
+      },
+      "garden": {
+        "count": 222,
+        "percentage": 22.02
+      },
+      "house": {
+        "count": 215,
+        "percentage": 21.33
+      }
+    }
+  },
+  "unique_values": {
+    "actions": [
+      "AnswerPhone",
+      "BenchpressWorkOut",
+      "CloseLaptop",
+      "Drink",
+      "DumbbellsWorkOut",
+      "Eat",
+      "GetOff",
+      "GetOn",
+      "Give",
+      "HangUp",
+      "Hug",
+      "INV-Give",
+      "JogTreadmill",
+      "Kiss",
+      "Laugh",
+      "LayOnElbow",
+      "LookAtTheWatch",
+      "Move",
+      "OpenLaptop",
+      "PedalGymBike",
+      "PickUp",
+      "Punch",
+      "PunchDesk",
+      "PutDown",
+      "SitDown",
+      "Sleep",
+      "Smoke",
+      "SmokeIn",
+      "SmokeOut",
+      "StandUp",
+      "Stash",
+      "TaiChi",
+      "TakeOut",
+      "Talk",
+      "TalkPhone",
+      "TypeOnKeyboard",
+      "WashHands"
+    ],
+    "object_types": [
+      "ArmChair",
+      "Bed",
+      "BenchPress",
+      "BenchPressBar",
+      "Chair",
+      "Cigarette",
+      "Drinks",
+      "Food",
+      "GymBike",
+      "Laptop",
+      "MobilePhone",
+      "PunchingBag",
+      "Sink",
+      "Treadmill",
+      "TwoDumbbells"
+    ],
+    "regions": [
+      "bedroom",
+      "classroom",
+      "driveway",
+      "garden",
+      "gym backroom",
+      "gym main room",
+      "kitchen",
+      "left part of the gym room",
+      "right part of the gym room"
+    ]
+  }
+}

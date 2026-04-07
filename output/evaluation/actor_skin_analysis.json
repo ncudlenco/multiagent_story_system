@@ -1,0 +1,403 @@
+{
+  "groups": [
+    {
+      "gest_group": 1,
+      "worker_id": 1,
+      "narrative": "Two old friends, Marcus and Sarah, reunite at a house for an afternoon hangout. Marcus arrives at the living room where Sarah is waiting. The two share a warm moment together: Marcus heads to the kitchen to grab drinks, and upon returning, he offers one to Sarah. They sit together on the sofa, chat and laugh. Later, Marcus takes a moment to smoke a cigarette while Sarah makes a phone call to catch up with another friend. Before parting ways, they share a warm hug and laugh together, cherishing their friendship.",
+      "actors": [
+        {
+          "actor_key": "a0",
+          "actor_name": "Marcus",
+          "skin_id": 0,
+          "skin_description": "A young black man in a black sleeveless t-shirt and blue jeans",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 2,
+              "reason": "The appearance clearly matches Marcus’s implied male gender, the age is uncertain because 'old friends' could imply either long-time friends or older adults, and the casual sleeveless tee and jeans fit a relaxed house hangout setting."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 1,
+              "attire": 2,
+              "reason": "The male gender and casual attire perfectly match the character Marcus and the relaxed afternoon hangout setting, while the young age is acceptable since 'old friends' typically refers to the duration of the friendship rather than the characters' actual ages."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 1,
+              "attire": 2,
+              "reason": "Marcus is described as male matching the appearance's gender, but the narrative calls them 'old friends' which could imply they are older rather than young, and the casual attire of a sleeveless t-shirt and jeans fits a relaxed afternoon hangout at a house."
+            }
+          }
+        },
+        {
+          "actor_key": "a1",
+          "actor_name": "Sarah",
+          "skin_id": 12,
+          "skin_description": "A young white woman in a black dress",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "Sarah is implied to be female, but while a young adult could plausibly be an old friend, a black dress may be a bit formal for a casual afternoon hangout at home."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "The female gender matches the character Sarah perfectly, but her young age is somewhat ambiguous against the phrase 'old friends', and a black dress leans slightly formal for a casual afternoon house hangout."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "Sarah is a female name matching the woman's appearance, but the story describes 'old friends' suggesting a possibly older age than 'young,' and a black dress is somewhat formal for a casual afternoon hangout at a house."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "gest_group": 2,
+      "worker_id": 6,
+      "narrative": "Marcus, a successful young professional, returns home after a long day at the office. There he encounters Sarah, an old friend he hasn't seen in years. What begins as a casual reunion at home evolves into a meaningful conversation about their lives, their dreams, and the paths they've taken. The next day, Marcus receives an unexpected call from Sarah requesting a professional meeting at his office. What started as nostalgia transforms into an opportunity—Sarah is considering a major career change and wants Marcus's guidance. Their reconnection becomes the catalyst for both of them to reconsider what matters most.",
+      "actors": [
+        {
+          "actor_key": "a0",
+          "actor_name": "Marcus",
+          "skin_id": 0,
+          "skin_description": "A young black man in a black sleeveless t-shirt and blue jeans",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 2,
+              "attire": 1,
+              "reason": "Marcus is implied to be a young adult man, which matches, but a black sleeveless t-shirt feels somewhat casual for a successful professional returning from the office, though it could fit if he has changed into casual clothes at home."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 2,
+              "attire": 0,
+              "reason": "While the gender and age perfectly match the young male character, the highly casual sleeveless t-shirt is a mismatch for a successful professional who has just returned from a long day at the office."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 2,
+              "attire": 1,
+              "reason": "The gender and age match well as Marcus is described as a young male professional, but a sleeveless t-shirt and jeans are too casual for a successful professional returning from the office, though they could work for a relaxed at-home scene."
+            }
+          }
+        },
+        {
+          "actor_key": "a1",
+          "actor_name": "Sarah",
+          "skin_id": 12,
+          "skin_description": "A young white woman in a black dress",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 2,
+              "attire": 1,
+              "reason": "Sarah is implied to be a woman and likely a young adult peer of Marcus, but a black dress is only a neutral fit since the story spans a casual home reunion and a professional office meeting where business attire would be clearer."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 2,
+              "attire": 2,
+              "reason": "The appearance of a young woman perfectly matches Sarah's gender and age as a peer to the young professional Marcus, and a black dress is versatile enough for both their casual reunion and subsequent professional meeting."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 2,
+              "attire": 1,
+              "reason": "Sarah is described as an old friend of a successful young professional, so a young woman fits well; a black dress is plausible but not specifically indicated by the casual-home-then-office settings described in the narrative."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "gest_group": 3,
+      "worker_id": 11,
+      "narrative": "Andrei receives an unexpected phone call while in his bedroom. He answers the phone and begins talking, then exits the room to continue the conversation in the hallway. As he walks and talks, Iulia arrives at the house and enters the hallway, looking for Andrei. She approaches a door and knocks, waiting for a response.",
+      "actors": [
+        {
+          "actor_key": "a0",
+          "actor_name": "Iulia",
+          "skin_id": 12,
+          "skin_description": "A young white woman in a black dress",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 2,
+              "attire": 1,
+              "reason": "Iulia is implied to be a woman and likely a young adult, which matches, but a black dress is plausible yet not clearly motivated by the brief hallway-arrival context."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "The female gender matches the pronoun 'she', while the young age and black dress are plausible but not specifically implied by the narrative."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "Iulia is a female name matching the woman's appearance, the age is plausible but unspecified in the narrative, and a black dress is neither particularly fitting nor unfitting for visiting someone's house."
+            }
+          }
+        },
+        {
+          "actor_key": "a1",
+          "actor_name": "Andrei",
+          "skin_id": 2,
+          "skin_description": "A young white man in a white hoody, blue jeans and with a white hat",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 2,
+              "reason": "Andrei is implied to be male, the young age is plausible though not specified, and casual indoor clothing like a hoodie and jeans fits a bedroom/hallway phone-call scene."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 1,
+              "attire": 2,
+              "reason": "The male gender matches the pronoun 'he', the casual attire of a hoodie and jeans is appropriate for relaxing at home, and the young age is a plausible but unconstrained fit for the narrative."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 2,
+              "attire": 1,
+              "reason": "Andrei is a male name matching the young man's gender, the age fits a casual home setting, and while the casual hoody and jeans are plausible for someone at home, the white hat indoors is slightly unusual but not a mismatch."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "gest_group": 4,
+      "worker_id": 16,
+      "narrative": "Five old friends haven't seen each other in years. They reunite at a house for an evening gathering to catch up over drinks and reminisce about old times. The next day, they head to the gym to relive their glory days of training together, realizing how much they've missed each other and recommitting to their friendship.",
+      "actors": [
+        {
+          "actor_key": "a0",
+          "actor_name": "James",
+          "skin_id": 2,
+          "skin_description": "A young white man in a white hoody, blue jeans and with a white hat",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "James is typically male so gender fits, but a distinctly young look is only loosely supported by the 'old friends' reunion, and casual streetwear works for hanging out at a house though it doesn't specifically match gym attire."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 0,
+              "attire": 1,
+              "reason": "While the male gender matches the name James and the casual attire is acceptable for a house gathering though less ideal for the gym, the 'young' age directly contradicts the narrative's implication of older friends reuniting to relive their glory days."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 0,
+              "attire": 1,
+              "reason": "James is a male name matching the male appearance, but the story describes 'old friends' reuniting after years apart implying older adults rather than a young man, and the casual hoody and jeans attire is somewhat neutral for an evening gathering and gym outing."
+            }
+          }
+        },
+        {
+          "actor_key": "a1",
+          "actor_name": "Marcus",
+          "skin_id": 0,
+          "skin_description": "A young black man in a black sleeveless t-shirt and blue jeans",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "Marcus is implied male and a 'young man' could plausibly be an old friend, but while a sleeveless shirt fits casual/gym vibes, blue jeans are less suited for training at the gym."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 0,
+              "attire": 1,
+              "reason": "The male gender matches the name Marcus, and the casual attire is somewhat fitting for drinks and the gym, but the 'young' age contradicts the story's premise of old friends reliving their glory days."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 0,
+              "attire": 2,
+              "reason": "Marcus is described as a young man, but the story specifies the five friends are old friends who haven't seen each other in years and are reliving their 'glory days,' implying they are middle-aged or older, not young."
+            }
+          }
+        },
+        {
+          "actor_key": "a2",
+          "actor_name": "David",
+          "skin_id": 17,
+          "skin_description": "A middle-aged black man in a black suit",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 2,
+              "attire": 1,
+              "reason": "David is plausibly male and middle-aged for an old-friends reunion, but a black suit fits the house gathering more than the gym setting the next day."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 2,
+              "attire": 0,
+              "reason": "While the gender and age perfectly match the character David and the premise of old friends reuniting, a black suit is too formal for a casual house gathering and completely inappropriate for a gym workout."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 2,
+              "attire": 1,
+              "reason": "David is a male name fitting the middle-aged man appearance, the age fits old friends reuniting after years, but a black suit is somewhat formal for a casual evening gathering with friends and doesn't suit the gym setting the next day."
+            }
+          }
+        },
+        {
+          "actor_key": "a3",
+          "actor_name": "Lisa",
+          "skin_id": 13,
+          "skin_description": "A young black woman in a purple t-shirt, blue jeans and with a beige hat",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "Lisa is implied female and the appearance matches, but the story only suggests adult longtime friends (not necessarily 'young'), and casual jeans/t-shirt fit the house gathering but not the gym portion without a change of clothes."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 0,
+              "attire": 1,
+              "reason": "While the gender matches the character's name and the casual attire is fine for the house gathering but less ideal for the gym, the 'young' age contradicts the premise of 'old friends' reliving past glory days."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 0,
+              "attire": 2,
+              "reason": "Lisa is a female name matching the woman's appearance, and the casual attire suits a friendly reunion and gym outing, but the character is described as a young woman whereas the story specifies old friends who haven't seen each other in years, implying they are older/middle-aged."
+            }
+          }
+        },
+        {
+          "actor_key": "a4",
+          "actor_name": "Sarah",
+          "skin_id": 12,
+          "skin_description": "A young white woman in a black dress",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "A young woman fits the implied female role of Sarah, but her age is uncertain for longtime friends revisiting past training, and a black dress suits the evening gathering more than the gym setting."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 0,
+              "attire": 1,
+              "reason": "The gender matches the character's name, but the 'young' age contradicts the implication of older friends reliving their glory days, and a black dress fits the evening gathering but is inappropriate for the gym."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 0,
+              "attire": 1,
+              "reason": "Sarah is a female name matching the woman's appearance, but the story describes 'old friends' reuniting after years implying a more mature age rather than a young woman, and a black dress is suitable for an evening gathering but not for the gym scene the next day."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "gest_group": 5,
+      "worker_id": 21,
+      "narrative": "Andrei is in his bedroom when his phone rings. He answers the call and begins a conversation. As he talks, he decides to leave the bedroom and walk into the hallway, continuing his phone conversation while moving through the house. Meanwhile, Iulia enters the hallway from outside and walks toward a door. She arrives at the entrance and knocks, interrupting Andrei's private moment.",
+      "actors": [
+        {
+          "actor_key": "a0",
+          "actor_name": "Andrei",
+          "skin_id": 17,
+          "skin_description": "A middle-aged black man in a black suit",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 0,
+              "reason": "Andrei is implied male so the gender fits, the story doesn’t indicate a specific age so middle-aged is uncertain, and wearing a black suit while in his bedroom at home feels mismatched to the casual setting."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 1,
+              "attire": 0,
+              "reason": "The male gender matches the pronouns used for Andrei, and while his age is unspecified in the narrative, a black suit is overly formal and mismatched for a casual setting like hanging out in a bedroom."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 1,
+              "attire": 1,
+              "reason": "The name Andrei implies a male character which matches, the age is not specified in the story so middle-aged is neutral, and wearing a black suit at home while on the phone is neither a clear match nor mismatch but slightly formal for a bedroom setting."
+            }
+          }
+        },
+        {
+          "actor_key": "a1",
+          "actor_name": "Iulia",
+          "skin_id": 31,
+          "skin_description": "A middle-aged white woman in a white t-shirt, blue jeans and with a white hat",
+          "judges": {
+            "gpt-5.2-pro": {
+              "gender": 2,
+              "age": 1,
+              "attire": 2,
+              "reason": "Iulia is implied to be female and her casual outfit fits someone arriving from outside to knock on a door, though the story provides no clear age cues so middle-aged is uncertain."
+            },
+            "gemini": {
+              "gender": 2,
+              "age": 1,
+              "attire": 2,
+              "reason": "The female gender matches the character's pronouns, the casual attire with a hat perfectly suits someone arriving from outside, and the middle age is plausible though unspecified."
+            },
+            "claude": {
+              "gender": 2,
+              "age": 1,
+              "attire": 2,
+              "reason": "Iulia is a female name matching the woman's appearance, the story doesn't specify age so middle-aged is neutral, and casual clothing with a hat suits someone arriving from outside to knock on a door."
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "num_groups": 5,
+    "num_actors": 13,
+    "overall": {
+      "gender": 2.0,
+      "age": 1.077,
+      "attire": 1.179
+    },
+    "per_judge": {
+      "gpt-5.2-pro": {
+        "gender": 2.0,
+        "age": 1.308,
+        "attire": 1.154
+      },
+      "gemini": {
+        "gender": 2.0,
+        "age": 0.923,
+        "attire": 1.077
+      },
+      "claude": {
+        "gender": 2.0,
+        "age": 1.0,
+        "attire": 1.308
+      }
+    }
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "groups": [
+    {
+      "gest_group": 1,
+      "worker_id": 1,
+      "narrative": "Two old friends, Marcus and Sarah, reunite at a house for an afternoon hangout. Marcus arrives at the living room where Sarah is waiting. The two share a warm moment together: Marcus heads to the kitchen to grab drinks, and upon returning, he offers one to Sarah. They sit together on the sofa, chat and laugh. Later, Marcus takes a moment to smoke a cigarette while Sarah makes a phone call to catch up with another friend. Before parting ways, they share a warm hug and laugh together, cherishing their friendship.",
+      "vdg": "In the living room, a man takes out his mobile phone, answers a call, has a brief conversation, and then hangs up and puts the phone away. He chats with a woman before going to the kitchen to grab a drink. The woman then takes out her mobile phone, answers a call, talks for a moment, hangs up, and puts the phone away. The man hands a drink to Sarah and sits down on the sofa, then stands up again to smoke a cigarette, which he eventually finishes and puts away. He gives another drink to Sarah and exchanges a hug before he sits back down.The woman also stands and talks to the man, then retrieves her phone again to answer another call and puts it away once more. She offers a drink to Marcus and has a sip herself. She sits on the sofa, stands again, and hands a drink to Marcus. After repeating several steps with her phone, including another call, she shares a hug with the man. She sits and stands, all while they share a laugh together.",
+      "judges": {
+        "gpt-5.2-pro": {
+          "event_coverage": 4,
+          "character_intent": 3,
+          "causal_structure": 3,
+          "reason": "The VDG includes the main beats (drinks from kitchen, sofa chatting/laughing, Marcus smoking, Sarah taking calls, and a hug), but adds many extra/repeated phone/drink actions, slightly muddles who does what, and weakens the clear reunion-to-parting flow."
+        },
+        "gemini": {
+          "event_coverage": 4,
+          "character_intent": 2,
+          "causal_structure": 1,
+          "reason": "While most key events are technically present, the logical flow and character roles are severely disrupted by erratic, repetitive NPC behaviors like constantly sitting, standing, and exchanging multiple drinks and phone calls."
+        },
+        "claude": {
+          "event_coverage": 3,
+          "character_intent": 2,
+          "causal_structure": 1,
+          "reason": "While key events like grabbing drinks, smoking, phone calls, hugging, and laughing are present, the VDG adds many extraneous and repetitive actions (multiple phone calls, redundant drink handoffs), misattributes actions (Marcus makes a phone call instead of Sarah; Sarah offers drinks to Marcus), and the logical flow of a warm reunion is lost in a chaotic sequence of standing, sitting, and repeated phone interactions."
+        }
+      }
+    },
+    {
+      "gest_group": 2,
+      "worker_id": 6,
+      "narrative": "Marcus, a successful young professional, returns home after a long day at the office. There he encounters Sarah, an old friend he hasn't seen in years. What begins as a casual reunion at home evolves into a meaningful conversation about their lives, their dreams, and the paths they've taken. The next day, Marcus receives an unexpected call from Sarah requesting a professional meeting at his office. What started as nostalgia transforms into an opportunity—Sarah is considering a major career change and wants Marcus's guidance. Their reconnection becomes the catalyst for both of them to reconsider what matters most.",
+      "vdg": "In the office, a man sits on the sofa, stands up, and then hugs a woman. He sits down again, stands up, and talks to her. The woman then sits, stands, and hugs the man, making him laugh. They continue the cycle of sitting and standing, with the man giving her a kiss. He checks his mobile phone, makes a call, and then puts it away. After shaking hands with the woman, he takes out a cigarette, smokes it, and disposes of it. They chat some more, and the process repeats: the man makes another phone call and smokes another cigarette before giving the woman another hug.Meanwhile, the woman also moves between the sofa and her phone. She sits, stands, laughs, and kisses the man, then takes a phone call and smokes a cigarette. They chat again before she repeats the process: handling her mobile phone and smoking another cigarette. Finally, she exchanges a hug with the man.",
+      "judges": {
+        "gpt-5.2-pro": {
+          "event_coverage": 1,
+          "character_intent": 0,
+          "causal_structure": 0,
+          "reason": "The VDG only shows generic office interactions (hugging/kissing, repeated sitting/standing, phone calls, smoking) and omits the home reunion, their meaningful life discussion, Sarah’s career-change motivation, and the next-day call leading to a guidance meeting, so the narrative intent and causal flow are not preserved."
+        },
+        "gemini": {
+          "event_coverage": 0,
+          "character_intent": 0,
+          "causal_structure": 0,
+          "reason": "The VDG completely loses the original narrative, replacing a meaningful two-part story about career guidance with a nonsensical, repetitive loop of random animations like sitting, kissing, and smoking in a single room."
+        },
+        "claude": {
+          "event_coverage": 1,
+          "character_intent": 0,
+          "causal_structure": 0,
+          "reason": "The VDG captures only a vague sense of two people meeting and interacting (hugging, talking, phone calls), but misses the two-location structure (home then office), the reunion after years apart, the meaningful conversation about life paths, the next-day professional meeting request, Sarah's career change, and the mutual reconsideration of priorities—reducing the narrative to repetitive mechanical actions with no preserved motivations or causal logic."
+        }
+      }
+    },
+    {
+      "gest_group": 3,
+      "worker_id": 11,
+      "narrative": "Andrei receives an unexpected phone call while in his bedroom. He answers the phone and begins talking, then exits the room to continue the conversation in the hallway. As he walks and talks, Iulia arrives at the house and enters the hallway, looking for Andrei. She approaches a door and knocks, waiting for a response.",
+      "vdg": "In the hallway, the man took out his mobile phone, answered a call, and talked briefly before hanging up and putting the phone away. He then moved down the hallway and repeated this process. Meanwhile, the woman moved from the bedroom to the hallway, where she lit a cigarette. She smoked it while moving between rooms before extinguishing and stashing it away. After the man finished his call in the hallway, he put his phone away again. He then sat down in an armchair, only to stand up shortly after.",
+      "judges": {
+        "gpt-5.2-pro": {
+          "event_coverage": 1,
+          "character_intent": 0,
+          "causal_structure": 1,
+          "reason": "The VDG only partially matches the phone-call-in-hallway element while omitting the bedroom-to-hallway continuation, Iulia’s arrival/search/knock, and introduces unrelated actions (smoking, repeated calls, sitting), breaking intended motivations and flow."
+        },
+        "gemini": {
+          "event_coverage": 1,
+          "character_intent": 1,
+          "causal_structure": 1,
+          "reason": "The VDG fails to capture most key events, completely loses Iulia's intent to find Andrei, and replaces the logical narrative flow with disconnected, repetitive simulation behaviors like smoking and sitting."
+        },
+        "claude": {
+          "event_coverage": 2,
+          "character_intent": 1,
+          "causal_structure": 1,
+          "reason": "The phone call and hallway movement are partially present but key events like Andrei starting in the bedroom, Iulia arriving at the house, approaching a door, and knocking are missing or replaced with unrelated actions (smoking, sitting in armchair), and character motivations (Iulia looking for Andrei) are entirely lost."
+        }
+      }
+    },
+    {
+      "gest_group": 4,
+      "worker_id": 16,
+      "narrative": "Five old friends haven't seen each other in years. They reunite at a house for an evening gathering to catch up over drinks and reminisce about old times. The next day, they head to the gym to relive their glory days of training together, realizing how much they've missed each other and recommitting to their friendship.",
+      "vdg": "In the living room, a man sat down on the sofa, then stood up. Another man took his place on the sofa, then got up as well. The two men shook hands. A third man sat in a chair, picked up some food, ate, and then stood up.Later, a woman sat down in a chair, had some food, and got up. Meanwhile, people were taking turns using the gym equipment nearby. The man got on the treadmill for a jog and then used the bench press. Others followed suit, each exercising briefly on the treadmill and bench press in turn.Back in the living room, another woman sat down with some food, ate, and stood up. She, too, eventually went to use the treadmill and bench press for a quick workout before returning.",
+      "judges": {
+        "gpt-5.2-pro": {
+          "event_coverage": 2,
+          "character_intent": 1,
+          "causal_structure": 1,
+          "reason": "The VDG captures a generic living-room gathering and some gym exercise, but it omits the key framing of five old friends reuniting after years, drinking/reminiscing, the next-day transition, and the emotional recommitment that motivates the gym visit, leaving only a weak chronological flow without the intended causal/social meaning."
+        },
+        "gemini": {
+          "event_coverage": 2,
+          "character_intent": 1,
+          "causal_structure": 1,
+          "reason": "Although the VDG captures the basic physical settings of a gathering and exercising, it completely strips away the characters' shared history, emotional motivations, and the chronological progression from the evening reunion to the next day's gym visit."
+        },
+        "claude": {
+          "event_coverage": 2,
+          "character_intent": 0,
+          "causal_structure": 1,
+          "reason": "The VDG captures some surface-level actions like sitting, eating, and using gym equipment, but completely loses the narrative's core elements: the reunion of five old friends, reminiscing, drinking together, the emotional realization of missing each other, and recommitting to friendship, reducing the story to disconnected mechanical actions with no relationships or motivations."
+        }
+      }
+    },
+    {
+      "gest_group": 5,
+      "worker_id": 21,
+      "narrative": "Andrei is in his bedroom when his phone rings. He answers the call and begins a conversation. As he talks, he decides to leave the bedroom and walk into the hallway, continuing his phone conversation while moving through the house. Meanwhile, Iulia enters the hallway from outside and walks toward a door. She arrives at the entrance and knocks, interrupting Andrei's private moment.",
+      "vdg": "In the bedroom, the man takes out his mobile phone to answer a call. After speaking for a while, he hangs up and puts the phone away. He then moves to the hallway, where he repeats the process: taking out his phone, answering another call, talking briefly, and then storing it again. Meanwhile, the woman moves around first in the bedroom and then into the hallway.",
+      "judges": {
+        "gpt-5.2-pro": {
+          "event_coverage": 2,
+          "character_intent": 1,
+          "causal_structure": 1,
+          "reason": "The VDG captures Andrei answering a call in the bedroom and moving to the hallway but changes it into two separate calls and omits Iulia entering from outside, approaching a door, and knocking to interrupt, breaking the intended motivations and causal flow."
+        },
+        "gemini": {
+          "event_coverage": 2,
+          "character_intent": 1,
+          "causal_structure": 1,
+          "reason": "The VDG breaks the continuous phone call into two separate events, changes Iulia's starting location, and completely omits the crucial knocking and interruption events, destroying the original narrative's causal flow and character intents."
+        },
+        "claude": {
+          "event_coverage": 2,
+          "character_intent": 1,
+          "causal_structure": 1,
+          "reason": "The VDG incorrectly splits the continuous phone call into two separate calls with hang-ups, omits Iulia's entrance from outside and her knocking on the door (the key interruption), misidentifies the woman's movements (she moves from bedroom to hallway instead of entering from outside), and loses the central narrative tension of Iulia interrupting Andrei's private conversation."
+        }
+      }
+    }
+  ],
+  "summary": {
+    "num_groups": 5,
+    "overall": {
+      "event_coverage": 1.93,
+      "character_intent": 0.93,
+      "causal_structure": 0.93
+    },
+    "per_judge": {
+      "gpt-5.2-pro": {
+        "event_coverage": 2.0,
+        "character_intent": 1.0,
+        "causal_structure": 1.2
+      },
+      "gemini": {
+        "event_coverage": 1.8,
+        "character_intent": 1.0,
+        "causal_structure": 0.8
+      },
+      "claude": {
+        "event_coverage": 2.0,
+        "character_intent": 0.8,
+        "causal_structure": 0.8
+      }
+    }
+  }
+}
