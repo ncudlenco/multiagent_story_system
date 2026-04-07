@@ -1,0 +1,870 @@
+{
+  "metadata": {
+    "experiment": "narrative-vs-vdg",
+    "judges": [
+      "gpt-5.2-pro",
+      "gemini",
+      "claude"
+    ],
+    "seed": 42,
+    "timestamp": "2026-04-07T13:47:02"
+  },
+  "pairs": [
+    {
+      "pair_id": "g1_vs_classroom_max2actors_max",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 1,
+      "agentic_worker": 1,
+      "agentic_actor_count": 2,
+      "procedural_story": "classroom_max2actors_max1regions_2action_chains_f01c8dd4",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 86,
+            "agentic": 42
+          },
+          "anonymized_scores": {
+            "Story A": 86,
+            "Story B": 42
+          },
+          "raw_response": "{\"Story A\": 86, \"Story B\": 42}",
+          "latency_s": 27.04,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 45,
+            "agentic": 85
+          },
+          "anonymized_scores": {
+            "Story A": 45,
+            "Story B": 85
+          },
+          "raw_response": "{\"Story A\": 45, \"Story B\": 85}",
+          "latency_s": 7.06,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 38,
+            "agentic": 62
+          },
+          "anonymized_scores": {
+            "Story A": 38,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 38, \"Story B\": 62}",
+          "latency_s": 2.26,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g1_vs_house_garden_max2actors_",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 1,
+      "agentic_worker": 1,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_garden_max2actors_max2regions_2action_chains_2eef4443",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 78,
+            "procedural": 71
+          },
+          "anonymized_scores": {
+            "Story A": 78,
+            "Story B": 71
+          },
+          "raw_response": "{\"Story A\": 78, \"Story B\": 71}",
+          "latency_s": 27.78,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 88,
+            "procedural": 42
+          },
+          "anonymized_scores": {
+            "Story A": 88,
+            "Story B": 42
+          },
+          "raw_response": "```json\n{\"Story A\": 88, \"Story B\": 42}\n```",
+          "latency_s": 7.29,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 52,
+            "procedural": 60
+          },
+          "anonymized_scores": {
+            "Story A": 52,
+            "Story B": 60
+          },
+          "raw_response": "{\"Story A\": 52, \"Story B\": 60}",
+          "latency_s": 1.93,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g1_vs_house_max2actors_max2reg",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 1,
+      "agentic_worker": 1,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_max2actors_max2regions_2action_chains_631cd083",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 82,
+            "procedural": 68
+          },
+          "anonymized_scores": {
+            "Story A": 82,
+            "Story B": 68
+          },
+          "raw_response": "{\"Story A\": 82, \"Story B\": 68}",
+          "latency_s": 25.49,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 85,
+            "procedural": 35
+          },
+          "anonymized_scores": {
+            "Story A": 85,
+            "Story B": 35
+          },
+          "raw_response": "```json\n{\"Story A\": 85, \"Story B\": 35}\n```",
+          "latency_s": 6.16,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 62,
+            "procedural": 55
+          },
+          "anonymized_scores": {
+            "Story A": 62,
+            "Story B": 55
+          },
+          "raw_response": "{\"Story A\": 62, \"Story B\": 55}",
+          "latency_s": 2.26,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g2_vs_classroom_max2actors_max",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 2,
+      "agentic_worker": 6,
+      "agentic_actor_count": 2,
+      "procedural_story": "classroom_max2actors_max1regions_2action_chains_f01c8dd4",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 47,
+            "procedural": 82
+          },
+          "anonymized_scores": {
+            "Story A": 47,
+            "Story B": 82
+          },
+          "raw_response": "{\"Story A\": 47, \"Story B\": 82}",
+          "latency_s": 23.87,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 92,
+            "procedural": 35
+          },
+          "anonymized_scores": {
+            "Story A": 92,
+            "Story B": 35
+          },
+          "raw_response": "{\"Story A\": 92, \"Story B\": 35}",
+          "latency_s": 4.89,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 42,
+            "procedural": 55
+          },
+          "anonymized_scores": {
+            "Story A": 42,
+            "Story B": 55
+          },
+          "raw_response": "{\"Story A\": 42, \"Story B\": 55}",
+          "latency_s": 2.66,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g2_vs_house_garden_max2actors_",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 2,
+      "agentic_worker": 6,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_garden_max2actors_max2regions_2action_chains_2eef4443",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 34,
+            "procedural": 89
+          },
+          "anonymized_scores": {
+            "Story A": 34,
+            "Story B": 89
+          },
+          "raw_response": "{\"Story A\": 34, \"Story B\": 89}",
+          "latency_s": 22.91,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 88,
+            "procedural": 42
+          },
+          "anonymized_scores": {
+            "Story A": 88,
+            "Story B": 42
+          },
+          "raw_response": "{\"Story A\": 88, \"Story B\": 42}",
+          "latency_s": 9.26,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 40,
+            "procedural": 62
+          },
+          "anonymized_scores": {
+            "Story A": 40,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 40, \"Story B\": 62}",
+          "latency_s": 1.8,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g2_vs_house_max2actors_max2reg",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 2,
+      "agentic_worker": 6,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_max2actors_max2regions_2action_chains_631cd083",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 87,
+            "procedural": 73
+          },
+          "anonymized_scores": {
+            "Story A": 87,
+            "Story B": 73
+          },
+          "raw_response": "{\"Story A\": 87, \"Story B\": 73}",
+          "latency_s": 26.85,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 92,
+            "procedural": 45
+          },
+          "anonymized_scores": {
+            "Story A": 92,
+            "Story B": 45
+          },
+          "raw_response": "{\"Story A\": 92, \"Story B\": 45}",
+          "latency_s": 10.04,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 62,
+            "procedural": 65
+          },
+          "anonymized_scores": {
+            "Story A": 62,
+            "Story B": 65
+          },
+          "raw_response": "{\"Story A\": 62, \"Story B\": 65}",
+          "latency_s": 1.7,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g3_vs_classroom_max2actors_max",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 3,
+      "agentic_worker": 11,
+      "agentic_actor_count": 2,
+      "procedural_story": "classroom_max2actors_max1regions_2action_chains_f01c8dd4",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 68,
+            "agentic": 82
+          },
+          "anonymized_scores": {
+            "Story A": 68,
+            "Story B": 82
+          },
+          "raw_response": "{\"Story A\": 68, \"Story B\": 82}",
+          "latency_s": 24.93,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 45,
+            "agentic": 85
+          },
+          "anonymized_scores": {
+            "Story A": 45,
+            "Story B": 85
+          },
+          "raw_response": "```json\n{\"Story A\": 45, \"Story B\": 85}\n```",
+          "latency_s": 26.84,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 38,
+            "agentic": 62
+          },
+          "anonymized_scores": {
+            "Story A": 38,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 38, \"Story B\": 62}",
+          "latency_s": 2.4,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g3_vs_house_garden_max2actors_",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 3,
+      "agentic_worker": 11,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_garden_max2actors_max2regions_2action_chains_2eef4443",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 78,
+            "agentic": 71
+          },
+          "anonymized_scores": {
+            "Story A": 78,
+            "Story B": 71
+          },
+          "raw_response": "{\"Story A\": 78, \"Story B\": 71}",
+          "latency_s": 56.95,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 74,
+            "agentic": 92
+          },
+          "anonymized_scores": {
+            "Story A": 74,
+            "Story B": 92
+          },
+          "raw_response": "{\"Story A\": 74, \"Story B\": 92}",
+          "latency_s": 9.09,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 42,
+            "agentic": 58
+          },
+          "anonymized_scores": {
+            "Story A": 42,
+            "Story B": 58
+          },
+          "raw_response": "{\"Story A\": 42, \"Story B\": 58}",
+          "latency_s": 1.77,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g3_vs_house_max2actors_max2reg",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 3,
+      "agentic_worker": 11,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_max2actors_max2regions_2action_chains_631cd083",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 78,
+            "agentic": 86
+          },
+          "anonymized_scores": {
+            "Story A": 78,
+            "Story B": 86
+          },
+          "raw_response": "{\"Story A\": 78, \"Story B\": 86}",
+          "latency_s": 22.75,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 45,
+            "agentic": 88
+          },
+          "anonymized_scores": {
+            "Story A": 45,
+            "Story B": 88
+          },
+          "raw_response": "```json\n{\"Story A\": 45, \"Story B\": 88}\n```",
+          "latency_s": 9.53,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 52,
+            "agentic": 61
+          },
+          "anonymized_scores": {
+            "Story A": 52,
+            "Story B": 61
+          },
+          "raw_response": "{\"Story A\": 52, \"Story B\": 61}",
+          "latency_s": 1.74,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g4_vs_house_max5actors_max2reg",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 4,
+      "agentic_worker": 16,
+      "agentic_actor_count": 5,
+      "procedural_story": "house_max5actors_max2regions_2action_chains_328850cb",
+      "procedural_actor_count": 5,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 82,
+            "agentic": 37
+          },
+          "anonymized_scores": {
+            "Story A": 82,
+            "Story B": 37
+          },
+          "raw_response": "{\"Story A\": 82, \"Story B\": 37}",
+          "latency_s": 26.82,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 35,
+            "agentic": 90
+          },
+          "anonymized_scores": {
+            "Story A": 35,
+            "Story B": 90
+          },
+          "raw_response": "{\"Story A\": 35, \"Story B\": 90}",
+          "latency_s": 7.6,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 52,
+            "agentic": 55
+          },
+          "anonymized_scores": {
+            "Story A": 52,
+            "Story B": 55
+          },
+          "raw_response": "{\"Story A\": 52, \"Story B\": 55}",
+          "latency_s": 1.65,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g5_vs_classroom_max2actors_max",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 5,
+      "agentic_worker": 21,
+      "agentic_actor_count": 2,
+      "procedural_story": "classroom_max2actors_max1regions_2action_chains_f01c8dd4",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 86,
+            "procedural": 72
+          },
+          "anonymized_scores": {
+            "Story A": 86,
+            "Story B": 72
+          },
+          "raw_response": "{\"Story A\": 86, \"Story B\": 72}",
+          "latency_s": 25.81,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 85,
+            "procedural": 45
+          },
+          "anonymized_scores": {
+            "Story A": 85,
+            "Story B": 45
+          },
+          "raw_response": "```json\n{\"Story A\": 85, \"Story B\": 45}\n```",
+          "latency_s": 7.58,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 62,
+            "procedural": 48
+          },
+          "anonymized_scores": {
+            "Story A": 62,
+            "Story B": 48
+          },
+          "raw_response": "{\"Story A\": 62, \"Story B\": 48}",
+          "latency_s": 2.62,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g5_vs_house_garden_max2actors_",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 5,
+      "agentic_worker": 21,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_garden_max2actors_max2regions_2action_chains_2eef4443",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 78,
+            "procedural": 72
+          },
+          "anonymized_scores": {
+            "Story A": 78,
+            "Story B": 72
+          },
+          "raw_response": "{\"Story A\": 78, \"Story B\": 72}",
+          "latency_s": 29.57,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 95,
+            "procedural": 70
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 70
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 70}\n```",
+          "latency_s": 9.99,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 42,
+            "procedural": 68
+          },
+          "anonymized_scores": {
+            "Story A": 42,
+            "Story B": 68
+          },
+          "raw_response": "{\"Story A\": 42, \"Story B\": 68}",
+          "latency_s": 2.0,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g5_vs_house_max2actors_max2reg",
+      "experiment": "narrative-vs-vdg",
+      "agentic_group": 5,
+      "agentic_worker": 21,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_max2actors_max2regions_2action_chains_631cd083",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 86,
+            "procedural": 78
+          },
+          "anonymized_scores": {
+            "Story A": 86,
+            "Story B": 78
+          },
+          "raw_response": "{\"Story A\": 86, \"Story B\": 78}",
+          "latency_s": 31.32,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 85,
+            "procedural": 35
+          },
+          "anonymized_scores": {
+            "Story A": 85,
+            "Story B": 35
+          },
+          "raw_response": "```json\n{\"Story A\": 85, \"Story B\": 35}\n```",
+          "latency_s": 8.25,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 62,
+            "procedural": 55
+          },
+          "anonymized_scores": {
+            "Story A": 62,
+            "Story B": 55
+          },
+          "raw_response": "{\"Story A\": 62, \"Story B\": 55}",
+          "latency_s": 2.52,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    }
+  ],
+  "summary": {
+    "num_pairs": 13,
+    "wins": {
+      "procedural": 10,
+      "agentic": 29
+    },
+    "avg_scores": {
+      "agentic": 70.97,
+      "procedural": 58.46
+    }
+  }
+}

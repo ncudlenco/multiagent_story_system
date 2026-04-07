@@ -1,0 +1,828 @@
+{
+  "metadata": {
+    "experiment": "video-only",
+    "judges": [
+      "gpt-5.2-pro",
+      "gemini",
+      "claude"
+    ],
+    "seed": 42,
+    "timestamp": "2026-04-07T13:41:54"
+  },
+  "pairs": [
+    {
+      "pair_id": "g1_vs_classroom_max2actors_max",
+      "experiment": "video-only",
+      "agentic_group": 1,
+      "agentic_worker": 1,
+      "agentic_actor_count": 2,
+      "procedural_story": "classroom_max2actors_max1regions_2action_chains_f01c8dd4",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": null,
+          "raw_response": "Please provide the video frames for Story A and Story B (with their labels). I can\u2019t score narrative coherence, motivation, or temporal logic without seeing the sequences.",
+          "latency_s": 16.49,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 85,
+            "procedural": 75
+          },
+          "anonymized_scores": {
+            "Story A": 85,
+            "Story B": 75
+          },
+          "raw_response": "{\"Story A\": 85, \"Story B\": 75}",
+          "latency_s": 6.51,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 55,
+            "procedural": 62
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 62}",
+          "latency_s": 1.82,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g1_vs_house_garden_max2actors_",
+      "experiment": "video-only",
+      "agentic_group": 1,
+      "agentic_worker": 1,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_garden_max2actors_max2regions_2action_chains_2eef4443",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": null,
+          "raw_response": "Please provide the video frames for Story A and Story B (with their labels). I can\u2019t score the stories without seeing the frames.",
+          "latency_s": 17.76,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 85,
+            "procedural": 75
+          },
+          "anonymized_scores": {
+            "Story A": 85,
+            "Story B": 75
+          },
+          "raw_response": "{\"Story A\": 85, \"Story B\": 75}",
+          "latency_s": 6.84,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 55,
+            "procedural": 60
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 60
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 60}",
+          "latency_s": 1.93,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g1_vs_house_max2actors_max2reg",
+      "experiment": "video-only",
+      "agentic_group": 1,
+      "agentic_worker": 1,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_max2actors_max2regions_2action_chains_631cd083",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": null,
+          "raw_response": "Please provide the labelled video frames for Story A and Story B so I can score them.",
+          "latency_s": 18.71,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 85,
+            "procedural": 75
+          },
+          "anonymized_scores": {
+            "Story A": 85,
+            "Story B": 75
+          },
+          "raw_response": "{\"Story A\": 85, \"Story B\": 75}",
+          "latency_s": 6.65,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 55,
+            "procedural": 60
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 60
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 60}",
+          "latency_s": 1.82,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g2_vs_classroom_max2actors_max",
+      "experiment": "video-only",
+      "agentic_group": 2,
+      "agentic_worker": 6,
+      "agentic_actor_count": 2,
+      "procedural_story": "classroom_max2actors_max1regions_2action_chains_f01c8dd4",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 50,
+            "agentic": 49
+          },
+          "anonymized_scores": {
+            "Story A": 50,
+            "Story B": 49
+          },
+          "raw_response": "{\"Story A\": 50, \"Story B\": 49}",
+          "latency_s": 19.41,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 95,
+            "agentic": 30
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 30
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 30}\n```",
+          "latency_s": 11.83,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 55,
+            "agentic": 62
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 62}",
+          "latency_s": 2.11,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g2_vs_house_garden_max2actors_",
+      "experiment": "video-only",
+      "agentic_group": 2,
+      "agentic_worker": 6,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_garden_max2actors_max2regions_2action_chains_2eef4443",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": null,
+          "raw_response": "Please provide the labelled video frames for Story A and Story B (images). Once I have them, I\u2019ll return the required JSON scores with no ties.",
+          "latency_s": 19.96,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 95,
+            "agentic": 30
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 30
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 30}\n```",
+          "latency_s": 16.55,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 55,
+            "agentic": 62
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 62}",
+          "latency_s": 1.81,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g2_vs_house_max2actors_max2reg",
+      "experiment": "video-only",
+      "agentic_group": 2,
+      "agentic_worker": 6,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_max2actors_max2regions_2action_chains_631cd083",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 0,
+            "procedural": 1
+          },
+          "anonymized_scores": {
+            "Story A": 0,
+            "Story B": 1
+          },
+          "raw_response": "{\"Story A\": 0, \"Story B\": 1}",
+          "latency_s": 20.93,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 85,
+            "procedural": 75
+          },
+          "anonymized_scores": {
+            "Story A": 85,
+            "Story B": 75
+          },
+          "raw_response": "{\"Story A\": 85, \"Story B\": 75}",
+          "latency_s": 7.64,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 55,
+            "procedural": 60
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 60
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 60}",
+          "latency_s": 2.29,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g3_vs_classroom_max2actors_max",
+      "experiment": "video-only",
+      "agentic_group": 3,
+      "agentic_worker": 11,
+      "agentic_actor_count": 2,
+      "procedural_story": "classroom_max2actors_max1regions_2action_chains_f01c8dd4",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 0,
+            "procedural": 1
+          },
+          "anonymized_scores": {
+            "Story A": 0,
+            "Story B": 1
+          },
+          "raw_response": "{\"Story A\": 0, \"Story B\": 1}",
+          "latency_s": 15.04,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 95,
+            "procedural": 30
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 30
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 30}\n```",
+          "latency_s": 10.79,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 55,
+            "procedural": 62
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 62}",
+          "latency_s": 2.05,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g3_vs_house_garden_max2actors_",
+      "experiment": "video-only",
+      "agentic_group": 3,
+      "agentic_worker": 11,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_garden_max2actors_max2regions_2action_chains_2eef4443",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 0,
+            "agentic": 1
+          },
+          "anonymized_scores": {
+            "Story A": 0,
+            "Story B": 1
+          },
+          "raw_response": "{\"Story A\": 0, \"Story B\": 1}",
+          "latency_s": 23.06,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 95,
+            "agentic": 30
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 30
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 30}\n```",
+          "latency_s": 10.99,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 55,
+            "agentic": 60
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 60
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 60}",
+          "latency_s": 1.83,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g3_vs_house_max2actors_max2reg",
+      "experiment": "video-only",
+      "agentic_group": 3,
+      "agentic_worker": 11,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_max2actors_max2regions_2action_chains_631cd083",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 0,
+            "agentic": 1
+          },
+          "anonymized_scores": {
+            "Story A": 0,
+            "Story B": 1
+          },
+          "raw_response": "{\"Story A\": 0, \"Story B\": 1}",
+          "latency_s": 19.26,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 95,
+            "agentic": 30
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 30
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 30}\n```",
+          "latency_s": 11.79,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 55,
+            "agentic": 62
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 62}",
+          "latency_s": 1.82,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g4_vs_house_max5actors_max2reg",
+      "experiment": "video-only",
+      "agentic_group": 4,
+      "agentic_worker": 16,
+      "agentic_actor_count": 5,
+      "procedural_story": "house_max5actors_max2regions_2action_chains_328850cb",
+      "procedural_actor_count": 5,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": null,
+          "raw_response": "Please provide the labeled video frames for Story A and Story B (images). Once I can see both sequences, I\u2019ll score each story 0\u2013100 with no ties and return exactly the required JSON.",
+          "latency_s": 21.3,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 95,
+            "agentic": 30
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 30
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 30}\n```",
+          "latency_s": 12.5,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 55,
+            "agentic": 60
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 60
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 60}",
+          "latency_s": 1.91,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g5_vs_classroom_max2actors_max",
+      "experiment": "video-only",
+      "agentic_group": 5,
+      "agentic_worker": 21,
+      "agentic_actor_count": 2,
+      "procedural_story": "classroom_max2actors_max1regions_2action_chains_f01c8dd4",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": null,
+          "raw_response": "Please provide the labelled video frames for Story A and Story B (images). Once I can see both sequences, I\u2019ll return the required JSON scores.",
+          "latency_s": 25.68,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 95,
+            "procedural": 30
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 30
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 30}\n```",
+          "latency_s": 11.38,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 55,
+            "procedural": 60
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 60
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 60}",
+          "latency_s": 1.93,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g5_vs_house_garden_max2actors_",
+      "experiment": "video-only",
+      "agentic_group": 5,
+      "agentic_worker": 21,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_garden_max2actors_max2regions_2action_chains_2eef4443",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "agentic": 78,
+            "procedural": 63
+          },
+          "anonymized_scores": {
+            "Story A": 78,
+            "Story B": 63
+          },
+          "raw_response": "{\"Story A\": 78, \"Story B\": 63}",
+          "latency_s": 24.7,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "agentic": 85,
+            "procedural": 75
+          },
+          "anonymized_scores": {
+            "Story A": 85,
+            "Story B": 75
+          },
+          "raw_response": "{\"Story A\": 85, \"Story B\": 75}",
+          "latency_s": 6.25,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "agentic": 55,
+            "procedural": 60
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 60
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 60}",
+          "latency_s": 1.67,
+          "mapping": {
+            "Story A": "agentic",
+            "Story B": "procedural"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    },
+    {
+      "pair_id": "g5_vs_house_max2actors_max2reg",
+      "experiment": "video-only",
+      "agentic_group": 5,
+      "agentic_worker": 21,
+      "agentic_actor_count": 2,
+      "procedural_story": "house_max2actors_max2regions_2action_chains_631cd083",
+      "procedural_actor_count": 2,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "procedural": 0,
+            "agentic": 1
+          },
+          "anonymized_scores": {
+            "Story A": 0,
+            "Story B": 1
+          },
+          "raw_response": "{\"Story A\": 0, \"Story B\": 1}",
+          "latency_s": 20.59,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "gemini": {
+          "scores": {
+            "procedural": 95,
+            "agentic": 30
+          },
+          "anonymized_scores": {
+            "Story A": 95,
+            "Story B": 30
+          },
+          "raw_response": "```json\n{\"Story A\": 95, \"Story B\": 30}\n```",
+          "latency_s": 15.96,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        },
+        "claude": {
+          "scores": {
+            "procedural": 55,
+            "agentic": 62
+          },
+          "anonymized_scores": {
+            "Story A": 55,
+            "Story B": 62
+          },
+          "raw_response": "{\"Story A\": 55, \"Story B\": 62}",
+          "latency_s": 2.21,
+          "mapping": {
+            "Story A": "procedural",
+            "Story B": "agentic"
+          },
+          "num_frames_a": 0,
+          "num_frames_b": 0
+        }
+      }
+    }
+  ],
+  "summary": {
+    "num_pairs": 13,
+    "wins": {
+      "agentic": 17,
+      "procedural": 16
+    },
+    "avg_scores": {
+      "agentic": 50.85,
+      "procedural": 56.79
+    }
+  }
+}

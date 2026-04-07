@@ -1,0 +1,319 @@
+{
+  "metadata": {
+    "experiment": "narrative-vs-own-vdg",
+    "judges": [
+      "gpt-5.2-pro",
+      "gemini",
+      "claude"
+    ],
+    "seed": 42,
+    "timestamp": "2026-04-07T13:32:42"
+  },
+  "pairs": [
+    {
+      "pair_id": "g1_internal",
+      "experiment": "narrative-vs-own-vdg",
+      "agentic_group": 1,
+      "agentic_worker": 1,
+      "agentic_actor_count": 2,
+      "procedural_story": null,
+      "procedural_actor_count": null,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "vdg": 68,
+            "narrative": 84
+          },
+          "anonymized_scores": {
+            "Text A": 68,
+            "Text B": 84
+          },
+          "raw_response": "{\"Text A\": 68, \"Text B\": 84}",
+          "latency_s": 13.89,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        },
+        "gemini": {
+          "scores": {
+            "vdg": 35,
+            "narrative": 92
+          },
+          "anonymized_scores": {
+            "Text A": 35,
+            "Text B": 92
+          },
+          "raw_response": "{\"Text A\": 35, \"Text B\": 92}",
+          "latency_s": 8.96,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        },
+        "claude": {
+          "scores": {
+            "vdg": 38,
+            "narrative": 72
+          },
+          "anonymized_scores": {
+            "Text A": 38,
+            "Text B": 72
+          },
+          "raw_response": "{\"Text A\": 38, \"Text B\": 72}",
+          "latency_s": 2.28,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        }
+      }
+    },
+    {
+      "pair_id": "g2_internal",
+      "experiment": "narrative-vs-own-vdg",
+      "agentic_group": 2,
+      "agentic_worker": 6,
+      "agentic_actor_count": 2,
+      "procedural_story": null,
+      "procedural_actor_count": null,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "vdg": 54,
+            "narrative": 79
+          },
+          "anonymized_scores": {
+            "Text A": 54,
+            "Text B": 79
+          },
+          "raw_response": "{\"Text A\": 54, \"Text B\": 79}",
+          "latency_s": 21.49,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        },
+        "gemini": {
+          "scores": {
+            "vdg": 25,
+            "narrative": 90
+          },
+          "anonymized_scores": {
+            "Text A": 25,
+            "Text B": 90
+          },
+          "raw_response": "{\"Text A\": 25, \"Text B\": 90}",
+          "latency_s": 6.05,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        },
+        "claude": {
+          "scores": {
+            "vdg": 25,
+            "narrative": 62
+          },
+          "anonymized_scores": {
+            "Text A": 25,
+            "Text B": 62
+          },
+          "raw_response": "{\"Text A\": 25, \"Text B\": 62}",
+          "latency_s": 1.96,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        }
+      }
+    },
+    {
+      "pair_id": "g3_internal",
+      "experiment": "narrative-vs-own-vdg",
+      "agentic_group": 3,
+      "agentic_worker": 11,
+      "agentic_actor_count": 2,
+      "procedural_story": null,
+      "procedural_actor_count": null,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "narrative": 78,
+            "vdg": 56
+          },
+          "anonymized_scores": {
+            "Text A": 78,
+            "Text B": 56
+          },
+          "raw_response": "{\"Text A\": 78, \"Text B\": 56}",
+          "latency_s": 16.67,
+          "mapping": {
+            "Text A": "narrative",
+            "Text B": "vdg"
+          }
+        },
+        "gemini": {
+          "scores": {
+            "narrative": 88,
+            "vdg": 35
+          },
+          "anonymized_scores": {
+            "Text A": 88,
+            "Text B": 35
+          },
+          "raw_response": "{\"Text A\": 88, \"Text B\": 35}",
+          "latency_s": 6.07,
+          "mapping": {
+            "Text A": "narrative",
+            "Text B": "vdg"
+          }
+        },
+        "claude": {
+          "scores": {
+            "narrative": 68,
+            "vdg": 35
+          },
+          "anonymized_scores": {
+            "Text A": 68,
+            "Text B": 35
+          },
+          "raw_response": "{\"Text A\": 68, \"Text B\": 35}",
+          "latency_s": 1.79,
+          "mapping": {
+            "Text A": "narrative",
+            "Text B": "vdg"
+          }
+        }
+      }
+    },
+    {
+      "pair_id": "g4_internal",
+      "experiment": "narrative-vs-own-vdg",
+      "agentic_group": 4,
+      "agentic_worker": 16,
+      "agentic_actor_count": 5,
+      "procedural_story": null,
+      "procedural_actor_count": null,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "vdg": 63,
+            "narrative": 78
+          },
+          "anonymized_scores": {
+            "Text A": 63,
+            "Text B": 78
+          },
+          "raw_response": "{\"Text A\": 63, \"Text B\": 78}",
+          "latency_s": 16.93,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        },
+        "gemini": {
+          "scores": {
+            "vdg": 45,
+            "narrative": 85
+          },
+          "anonymized_scores": {
+            "Text A": 45,
+            "Text B": 85
+          },
+          "raw_response": "{\"Text A\": 45, \"Text B\": 85}",
+          "latency_s": 10.65,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        },
+        "claude": {
+          "scores": {
+            "vdg": 38,
+            "narrative": 52
+          },
+          "anonymized_scores": {
+            "Text A": 38,
+            "Text B": 52
+          },
+          "raw_response": "{\"Text A\": 38, \"Text B\": 52}",
+          "latency_s": 2.05,
+          "mapping": {
+            "Text A": "vdg",
+            "Text B": "narrative"
+          }
+        }
+      }
+    },
+    {
+      "pair_id": "g5_internal",
+      "experiment": "narrative-vs-own-vdg",
+      "agentic_group": 5,
+      "agentic_worker": 21,
+      "agentic_actor_count": 2,
+      "procedural_story": null,
+      "procedural_actor_count": null,
+      "judges": {
+        "gpt-5.2-pro": {
+          "scores": {
+            "narrative": 78,
+            "vdg": 55
+          },
+          "anonymized_scores": {
+            "Text A": 78,
+            "Text B": 55
+          },
+          "raw_response": "{\"Text A\": 78, \"Text B\": 55}",
+          "latency_s": 14.45,
+          "mapping": {
+            "Text A": "narrative",
+            "Text B": "vdg"
+          }
+        },
+        "gemini": {
+          "scores": {
+            "narrative": 85,
+            "vdg": 45
+          },
+          "anonymized_scores": {
+            "Text A": 85,
+            "Text B": 45
+          },
+          "raw_response": "{\"Text A\": 85, \"Text B\": 45}",
+          "latency_s": 5.36,
+          "mapping": {
+            "Text A": "narrative",
+            "Text B": "vdg"
+          }
+        },
+        "claude": {
+          "scores": {
+            "narrative": 72,
+            "vdg": 41
+          },
+          "anonymized_scores": {
+            "Text A": 72,
+            "Text B": 41
+          },
+          "raw_response": "{\"Text A\": 72, \"Text B\": 41}",
+          "latency_s": 1.7,
+          "mapping": {
+            "Text A": "narrative",
+            "Text B": "vdg"
+          }
+        }
+      }
+    }
+  ],
+  "summary": {
+    "num_pairs": 5,
+    "wins": {
+      "narrative": 15
+    },
+    "avg_scores": {
+      "narrative": 77.53,
+      "vdg": 43.87
+    }
+  }
+}
