@@ -2565,6 +2565,38 @@ class BatchController:
             simulation_variations=self.batch_config.same_story_simulation_variations
         )
 
+        # Initialize Google Drive uploader (if enabled)
+        gdrive_uploader = None
+        if self.batch_config.upload_to_drive and self.batch_config.drive_folder_id:
+            try:
+                from batch.google_drive_uploader import GoogleDriveUploader
+
+                logger.info("initializing_google_drive_uploader")
+                gdrive_uploader = GoogleDriveUploader(
+                    self.config.google_drive.credentials_path
+                )
+
+                # Create batch folder on Google Drive
+                batch_drive_folder_id = gdrive_uploader.create_folder(
+                    name=batch_id,
+                    parent_folder_id=self.batch_config.drive_folder_id
+                )
+                self.batch_state.drive_folder_id = batch_drive_folder_id
+
+                logger.info(
+                    "batch_folder_created_on_drive",
+                    folder_id=batch_drive_folder_id
+                )
+                self._save_state()
+
+            except Exception as e:
+                logger.error(
+                    "gdrive_initialization_failed",
+                    error=str(e),
+                    exc_info=True
+                )
+                gdrive_uploader = None
+
         # Process each existing story
         for story_idx, story_info in enumerate(existing_stories):
             story_id = story_info['story_id']
@@ -2669,6 +2701,43 @@ class BatchController:
                     story_status.status = 'success'
                     self.batch_state.success_count += 1
                     print(f"  [SUCCESS] {successful_simulations} simulations succeeded")
+
+                    # Upload to Google Drive if enabled
+                    if gdrive_uploader and self.batch_state.drive_folder_id:
+                        try:
+                            logger.info(
+                                "uploading_story_to_drive",
+                                story_id=story_id,
+                                output_dir=str(story_output_dir)
+                            )
+                            upload_result = gdrive_uploader.upload_directory(
+                                local_dir=str(story_output_dir),
+                                parent_folder_id=self.batch_state.drive_folder_id,
+                                folder_name=story_output_dir.name
+                            )
+                            story_status.gdrive_folder_id = upload_result.get('folder_id')
+                            story_status.gdrive_link = upload_result.get('link')
+                            story_status.upload_timestamp = datetime.now().isoformat()
+
+                            logger.info(
+                                "story_uploaded_to_drive",
+                                story_id=story_id,
+                                folder_id=story_status.gdrive_folder_id
+                            )
+
+                            # Remove local copy if not keeping
+                            if not self.batch_config.keep_local:
+                                import shutil
+                                shutil.rmtree(str(story_output_dir), ignore_errors=True)
+                                logger.info("local_copy_removed", story_id=story_id)
+
+                        except Exception as e:
+                            logger.error(
+                                "gdrive_upload_failed",
+                                story_id=story_id,
+                                error=str(e),
+                                exc_info=True
+                            )
                 else:
                     story_status.status = 'failed'
                     self.batch_state.failure_count += 1
