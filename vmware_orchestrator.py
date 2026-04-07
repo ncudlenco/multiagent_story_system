@@ -1860,7 +1860,51 @@ class VMWareOrchestrator:
             "capture_segmentations": getattr(args, 'capture_segmentations', True),
             "no_monitor": getattr(args, 'no_monitor', False),
             "seed_text": getattr(args, 'seed_text', None),
+            "simulation_timeout": getattr(args, 'simulation_timeout', None),
         }
+
+        # Handle --seed-file: load seeds and distribute across workers
+        seed_assignments: Dict[int, str] = {}  # worker_id -> seed_text
+        seed_labels: Dict[int, str] = {}  # worker_id -> label (for folder naming)
+        seed_file = getattr(args, 'seed_file', None)
+        if seed_file:
+            with open(seed_file, 'r', encoding='utf-8') as f:
+                seed_data = json.load(f)
+
+            # Support list of strings or list of {label: seed} dicts
+            seeds = []
+            if isinstance(seed_data, list):
+                for item in seed_data:
+                    if isinstance(item, str):
+                        # It's a path to a text file — read the content
+                        try:
+                            with open(item, 'r', encoding='utf-8') as sf:
+                                text = sf.read().strip()
+                            label = Path(item).stem
+                            seeds.append((label, text))
+                        except Exception as e:
+                            print(f"[WARNING] Failed to read seed file {item}: {e}")
+                    elif isinstance(item, dict):
+                        label = list(item.keys())[0]
+                        seeds.append((label, item[label]))
+            elif isinstance(seed_data, dict):
+                for label, text in seed_data.items():
+                    seeds.append((label, text))
+
+            if not seeds:
+                print("[ERROR] No seeds found in seed file")
+                return 1
+
+            # Round-robin seeds across workers
+            for i, (label, text) in enumerate(seeds):
+                wid = i % num_workers
+                seed_assignments[wid] = text
+                seed_labels[wid] = label
+
+            print(f"Loaded {len(seeds)} seeds from {seed_file}")
+            for wid in sorted(seed_assignments.keys()):
+                print(f"  Worker {wid + 1}: seed '{seed_labels[wid]}' ({len(seed_assignments[wid])} chars)")
+            print()
 
         # Clone workers and setup job configs
         print(f"Setting up {num_workers} autonomous workers...\n")
@@ -1897,10 +1941,18 @@ class VMWareOrchestrator:
             else:
                 worker_stories = stories_per_vm
 
-            # Generate job config — override sim variations per worker in from-existing mode
-            worker_batch_params = batch_params
+            # Generate job config — override per-worker params
+            worker_batch_params = dict(batch_params)
             if worker_sim_variations is not None:
-                worker_batch_params = {**batch_params, "same_story_simulation_variations": worker_sim_variations}
+                worker_batch_params["same_story_simulation_variations"] = worker_sim_variations
+            # Override seed text per worker if using --seed-file
+            if worker_id in seed_assignments:
+                worker_batch_params["seed_text"] = seed_assignments[worker_id]
+
+            # Skip workers with no assigned work (more VMs than seeds/GESTs)
+            if seed_file and worker_id not in seed_assignments and not from_existing:
+                print(f"  No seed assigned, skipping worker")
+                continue
 
             print(f"  Generating job config...", end="", flush=True)
             if not self._generate_worker_job_yaml(
@@ -2616,6 +2668,9 @@ Examples:
                        default='llm', help="Story generator type (default: llm)")
     parser.add_argument("--seed-text", type=str, default=None,
                        help="Story seed text for hybrid generation (all VMs use the same seed)")
+    parser.add_argument("--seed-file", type=str, default=None, metavar="JSON_FILE",
+                       help="JSON file with list of seed texts or {seed: text, ...} dicts. "
+                            "Each seed is assigned to a VM round-robin. stories-per-vm is per-seed.")
     parser.add_argument("--random-chains-per-actor", type=int, default=None,
                        help="Action chains per actor for simple_random generator")
     parser.add_argument("--random-max-actors-per-region", type=int, default=None,
