@@ -1,9 +1,11 @@
 # multiagent_story_system
 
-[![GitHub stars](https://img.shields.io/github/stars/ncudlenco/multiagent_story_system?style=social)](https://github.com/ncudlenco/multiagent_story_system/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/ncudlenco/multiagent_story_system?style=social)](https://github.com/ncudlenco/multiagent_story_system/network/members)
-[![GitHub watchers](https://img.shields.io/github/watchers/ncudlenco/multiagent_story_system?style=social)](https://github.com/ncudlenco/multiagent_story_system/watchers)
-[![Latest release](https://img.shields.io/github/v/release/ncudlenco/multiagent_story_system?include_prereleases)](https://github.com/ncudlenco/multiagent_story_system/releases)
+<p align="center">
+  <a href="https://github.com/ncudlenco/multiagent_story_system/releases"><img src="https://img.shields.io/github/v/release/ncudlenco/multiagent_story_system?include_prereleases&style=for-the-badge" alt="Latest release"></a>
+  <a href="https://github.com/ncudlenco/multiagent_story_system/stargazers"><img src="https://img.shields.io/github/stars/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub stars"></a>
+  <a href="https://github.com/ncudlenco/multiagent_story_system/network/members"><img src="https://img.shields.io/github/forks/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub forks"></a>
+  <a href="https://github.com/ncudlenco/multiagent_story_system/watchers"><img src="https://img.shields.io/github/watchers/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub watchers"></a>
+</p>
 
 Python tools for procedurally generating Graph of Events in Space and Time (GEST) specifications and executing them deterministically with the [GEST-Engine (mta-sim)](https://github.com/ncudlenco/mta-sim) — either **locally on a single machine** or **in parallel across many VMware Workstation Pro worker VMs**.
 
