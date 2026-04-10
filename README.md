@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/ncudlenco/multiagent_story_system/releases"><img src="https://img.shields.io/github/v/release/ncudlenco/multiagent_story_system?include_prereleases&style=for-the-badge" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="MIT License"></a>
   <a href="https://github.com/ncudlenco/multiagent_story_system/stargazers"><img src="https://img.shields.io/github/stars/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/ncudlenco/multiagent_story_system/network/members"><img src="https://img.shields.io/github/forks/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/ncudlenco/multiagent_story_system/watchers"><img src="https://img.shields.io/github/watchers/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub watchers"></a>
