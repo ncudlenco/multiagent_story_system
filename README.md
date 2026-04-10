@@ -435,6 +435,16 @@ python .\main.py --simulate 22597965 --collect-artifacts
 - **`config.yaml`** — common configuration (paths, logging, optional OpenAI settings).
 - **`data/simulation_environment_capabilities.json`** — pre-generated, manually curated capability registry consumed by the generator.
 
+## Star History
+
+<a href="https://www.star-history.com/#ncudlenco/multiagent_story_system&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ncudlenco/multiagent_story_system&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ncudlenco/multiagent_story_system&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ncudlenco/multiagent_story_system&type=Date" />
+ </picture>
+</a>
+
 ## Citation
 
 If you use this orchestrator in your research, please cite the ICLR 2026 Tiny Paper:
