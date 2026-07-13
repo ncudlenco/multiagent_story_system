@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from catalog import load_agentic_stories, Story
+from catalog import load_agentic_stories, load_stage2_stories, Story
 from vdg_bridge import (
     describe_graph_for_chatgpt,
     generate_gpt_description,
@@ -66,7 +66,8 @@ def generate_texts_for_story(
         print(f"  [SKIP] {story.worker_id} — proto-graph.json not found")
         return True
 
-    print(f"  [GEN]  worker{story.worker_id} (group {story.gest_group}, "
+    group_str = f"group {story.gest_group}, " if story.gest_group else ""
+    print(f"  [GEN]  worker{story.worker_id} ({group_str}"
           f"{story.actor_count} actors, {story.action_count} actions)")
 
     try:
@@ -137,17 +138,46 @@ def generate_all(
     return summary
 
 
+def generate_stage2(
+    model: str = DEFAULT_MODEL,
+    force: bool = False,
+    dry_run: bool = False,
+) -> dict:
+    """Generate texts.json for all Stage 2 agentic stories."""
+    stories = load_stage2_stories()
+    print(f"Processing {len(stories)} Stage 2 stories...")
+    ok = err = skip = 0
+
+    for story in stories:
+        result = generate_texts_for_story(story, model=model, force=force, dry_run=dry_run)
+        if result:
+            if story.texts_json_path.exists() or dry_run:
+                ok += 1
+            else:
+                skip += 1
+        else:
+            err += 1
+
+    summary = {"total": len(stories), "ok": ok, "skipped": skip, "errors": err}
+    print(f"\nDone: {ok} generated, {skip} skipped, {err} errors")
+    return summary
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate texts.json for agentic stories")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="OpenAI model")
     parser.add_argument("--force", action="store_true", help="Overwrite existing texts.json")
     parser.add_argument("--dry-run", action="store_true", help="Build prompts only, no API calls")
-    parser.add_argument("--groups", type=int, nargs="+", help="Only process these GEST groups (1–5)")
+    parser.add_argument("--groups", type=int, nargs="+", help="Only process these GEST groups (1-5)")
+    parser.add_argument("--stage2", action="store_true", help="Generate for Stage 2 stories")
     args = parser.parse_args()
 
-    generate_all(
-        model=args.model,
-        force=args.force,
-        dry_run=args.dry_run,
-        groups=args.groups,
-    )
+    if args.stage2:
+        generate_stage2(model=args.model, force=args.force, dry_run=args.dry_run)
+    else:
+        generate_all(
+            model=args.model,
+            force=args.force,
+            dry_run=args.dry_run,
+            groups=args.groups,
+        )

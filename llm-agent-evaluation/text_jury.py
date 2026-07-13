@@ -40,11 +40,15 @@ if str(_EXPERIMENTS_DIR) not in sys.path:
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from catalog import load_agentic_stories, load_procedural_stories, select_procedural_matches
+from catalog import (
+    load_agentic_stories, load_procedural_stories, select_procedural_matches,
+    load_stage2_pairs,
+)
 
 RESULTS_DIR = Path(__file__).parent.parent / "output" / "evaluation"
 
 EXPERIMENTS = ["vdg-vs-vdg", "narrative-vs-vdg", "narrative-vs-reconstituted", "narrative-vs-own-vdg"]
+STAGE2_EXPERIMENTS = ["stage2-vdg-vs-vdg", "stage2-narrative-vs-vdg"]
 
 # ---------------------------------------------------------------------------
 # Prompt
@@ -329,6 +333,93 @@ def run_text_jury(
     print(f"\nDone -> {output_path}")
 
 
+def run_stage2_text_jury(
+    experiment="stage2-vdg-vs-vdg",
+    judges=("gpt-5.2-pro", "gemini", "claude"),
+    output_path=None,
+    seed=42,
+    resume=False,
+):
+    """Stage 2 text jury: 1:1 matched agentic-stage2 vs procedural pairs."""
+    if experiment == "all":
+        for exp in STAGE2_EXPERIMENTS:
+            run_stage2_text_jury(
+                experiment=exp, judges=judges, output_path=None, seed=seed, resume=resume,
+            )
+        return
+
+    if output_path is None:
+        output_path = RESULTS_DIR / f"text_jury_{experiment}.json"
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"\nExperiment: {experiment}")
+    print("Loading Stage 2 pairs...")
+    stage2_pairs = load_stage2_pairs()
+
+    pairs = []
+    for ag_story, pr_story in stage2_pairs:
+        if experiment == "stage2-vdg-vs-vdg":
+            ag_text, pr_text = ag_story.description, pr_story.description
+        elif experiment == "stage2-narrative-vs-vdg":
+            ag_text, pr_text = ag_story.root_narrative, pr_story.description
+        else:
+            raise ValueError(f"Unknown stage2 experiment: {experiment}")
+
+        if not ag_text or not pr_text:
+            print(f"  [SKIP] worker{ag_story.worker_id}: missing text")
+            continue
+
+        pair_id = f"s2w{ag_story.worker_id}_vs_{pr_story.story_dir.name[:24]}"
+        pairs.append((pair_id, ag_story, pr_story, ag_text, pr_text))
+
+    print(f"  Pairs: {len(pairs)}")
+
+    # Resume
+    existing = {}
+    if resume and output_path.exists():
+        prev = json.loads(output_path.read_text())
+        for r in prev.get("pairs", []):
+            existing[r["pair_id"]] = r
+        print(f"  Resume: {len(existing)} existing pairs loaded")
+
+    results = dict(existing)
+
+    for judge_name in judges:
+        print(f"\n{'='*60}\nJudge: {judge_name}\n{'='*60}")
+        judge = _create_judge(judge_name)
+
+        for i, (pair_id, ag_story, pr_story, ag_text, pr_text) in enumerate(pairs):
+            if pair_id in results and judge_name in results[pair_id].get("judges", {}):
+                print(f"  [{i+1}/{len(pairs)}] SKIP (resume): {pair_id}")
+                continue
+
+            print(f"  [{i+1}/{len(pairs)}] {pair_id}")
+            result = evaluate_pair(judge, ag_text, pr_text, "agentic", "procedural",
+                                   pair_id=pair_id, seed=seed)
+
+            if pair_id not in results:
+                results[pair_id] = {
+                    "pair_id": pair_id,
+                    "experiment": experiment,
+                    "agentic_worker": ag_story.worker_id,
+                    "agentic_actor_count": ag_story.actor_count,
+                    "procedural_story": pr_story.story_dir.name,
+                    "procedural_actor_count": pr_story.actor_count,
+                    "judges": {},
+                }
+
+            if result:
+                results[pair_id]["judges"][judge_name] = result
+
+            _save(output_path, results, judges, seed, experiment)
+
+        judge.cleanup()
+
+    _save(output_path, results, judges, seed, experiment, compute_summary=True)
+    print(f"\nDone -> {output_path}")
+
+
 def _save(output_path, results, judges, seed, experiment, compute_summary=False):
     pairs_list = sorted(results.values(), key=lambda r: r["pair_id"])
     out = {
@@ -371,7 +462,7 @@ def _summarize(pairs_list, judge_names):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Text jury: agentic vs procedural")
     parser.add_argument("--experiment", default="vdg-vs-vdg",
-                        choices=EXPERIMENTS + ["all"])
+                        choices=EXPERIMENTS + STAGE2_EXPERIMENTS + ["all", "stage2-all"])
     parser.add_argument("--judges", nargs="+",
                         default=["gpt-5.2-pro", "gemini", "claude"])
     parser.add_argument("--n-matches", type=int, default=5)
@@ -380,11 +471,20 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
-    run_text_jury(
-        experiment=args.experiment,
-        judges=args.judges,
-        n_matches=args.n_matches,
-        output_path=args.output,
-        seed=args.seed,
-        resume=args.resume,
-    )
+    if args.experiment.startswith("stage2"):
+        run_stage2_text_jury(
+            experiment="all" if args.experiment == "stage2-all" else args.experiment,
+            judges=args.judges,
+            output_path=args.output,
+            seed=args.seed,
+            resume=args.resume,
+        )
+    else:
+        run_text_jury(
+            experiment=args.experiment,
+            judges=args.judges,
+            n_matches=args.n_matches,
+            output_path=args.output,
+            seed=args.seed,
+            resume=args.resume,
+        )

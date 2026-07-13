@@ -38,7 +38,7 @@ if str(_EXPERIMENTS_DIR) not in sys.path:
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from catalog import load_agentic_stories
+from catalog import load_agentic_stories, load_stage2_stories
 
 LUA_PATH = Path("c:/nick/PhD/repos/mta-sim/src/story/Actions/SetPlayerSkin.lua")
 RESULTS_DIR = Path(__file__).parent.parent / "output" / "evaluation"
@@ -132,27 +132,39 @@ def run_actor_skin_analysis(
     if output_path.exists() and not force:
         prev = json.loads(output_path.read_text(encoding="utf-8"))
         for g in prev.get("groups", []):
-            existing[g["gest_group"]] = g
-        print(f"Resume: {len(existing)} groups already evaluated")
+            existing[g.get("entry_key", f"stage1_w{g.get('worker_id')}")] = g
+        print(f"Resume: {len(existing)} entries already evaluated")
 
     skins = load_skins(LUA_PATH)
     print(f"Loaded {len(skins)} skins")
 
-    stories = load_agentic_stories()
+    # Collect stories from Stage 1 (one per GEST group) and Stage 2 (all workers)
+    stage1_stories = load_agentic_stories()
+    stage2_stories = load_stage2_stories()
 
-    # Collect unique groups with their actors
+    all_stories = []
+
+    # Stage 1: one representative per GEST group
     seen_groups = set()
-    groups_to_eval = []
-    for story in sorted(stories, key=lambda s: s.worker_id):
+    for story in sorted(stage1_stories, key=lambda s: s.worker_id):
         if story.gest_group in seen_groups:
             continue
         seen_groups.add(story.gest_group)
+        all_stories.append(("stage1", story))
 
+    # Stage 2: all workers
+    for story in stage2_stories:
+        all_stories.append(("stage2", story))
+
+    groups_to_eval = []
+    for stage, story in all_stories:
         narrative = story.root_narrative
         if not narrative:
             continue
 
         gest_file = story.story_dir / "detailed_graph" / "take1" / "detail_gest.json"
+        if not gest_file.exists():
+            continue
         g = json.loads(gest_file.read_text(encoding="utf-8"))
 
         actors = []
@@ -173,19 +185,23 @@ def run_actor_skin_analysis(
                 "judges": {},
             })
 
+        # Unique key: stage + worker_id (avoids collisions between stages)
+        entry_key = f"{stage}_w{story.worker_id}"
         groups_to_eval.append({
+            "entry_key": entry_key,
+            "stage": stage,
             "gest_group": story.gest_group,
             "worker_id": story.worker_id,
             "narrative": narrative,
             "actors": actors,
         })
 
-    results = {g["gest_group"]: g for g in groups_to_eval}
+    results = {g["entry_key"]: g for g in groups_to_eval}
     # Restore already-completed judge results
-    for group_id, prev_group in existing.items():
-        if group_id in results:
+    for entry_key, prev_group in existing.items():
+        if entry_key in results:
             for prev_actor in prev_group.get("actors", []):
-                for cur_actor in results[group_id]["actors"]:
+                for cur_actor in results[entry_key]["actors"]:
                     if cur_actor["actor_key"] == prev_actor["actor_key"]:
                         cur_actor["judges"] = prev_actor.get("judges", {})
 
@@ -194,8 +210,8 @@ def run_actor_skin_analysis(
         print(f"\n{'='*60}\nJudge: {judge_name}\n{'='*60}")
         judge = _create_judge(judge_name)
 
-        for group in sorted(results.values(), key=lambda g: g["gest_group"]):
-            print(f"\n  Group {group['gest_group']}: {group['narrative'][:80]}...")
+        for group in sorted(results.values(), key=lambda g: g["entry_key"]):
+            print(f"\n  [{group['stage']}] worker{group['worker_id']}: {group['narrative'][:80]}...")
 
             for actor in group["actors"]:
                 if judge_name in actor["judges"]:
@@ -234,7 +250,7 @@ def run_actor_skin_analysis(
 
 
 def _save(output_path, results, judges, compute_summary=False):
-    groups_list = sorted(results.values(), key=lambda g: g["gest_group"])
+    groups_list = sorted(results.values(), key=lambda g: g["entry_key"])
     out = {"groups": groups_list}
     if compute_summary:
         out["summary"] = _summarize(groups_list, judges)
@@ -284,7 +300,7 @@ def _summarize(groups_list, judge_names):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--judges", nargs="+", default=DEFAULT_JUDGES,
-                        choices=["gpt-5.2-pro", "gemini", "claude"])
+                        choices=["gpt-5.2-pro", "gemini", "gemini-2.5-pro", "claude"])
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()

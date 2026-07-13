@@ -15,6 +15,7 @@ from typing import List, Optional
 
 GDRIVE_BASE = Path("G:/My Drive/Archive - PhD/sa_video_story_engine")
 AGENTIC_BASE = GDRIVE_BASE / "llm_agentic_stories"
+STAGE2_BASE = GDRIVE_BASE / "llm_agentic_stories_out_of_10"
 PROCEDURAL_BASES = [
     GDRIVE_BASE / "segmentations_balanced_1",
     GDRIVE_BASE / "segmentations_balanced_2",
@@ -238,6 +239,113 @@ def select_procedural_matches(
             selected.append(p)
 
     return selected
+
+
+SEED_FILE = Path(__file__).parent.parent / "stage2_seeds" / "seed_file.json"
+
+
+def load_stage2_stories() -> List[Story]:
+    """Load Stage 2 agentic stories from llm_agentic_stories_out_of_10.
+
+    Worker N used seed N from seed_file.json. Folders may have retry
+    suffixes like 'worker1 (3)' — we extract the worker index from the
+    leading digits.
+    """
+    import re
+    stories = []
+
+    if not STAGE2_BASE.exists():
+        return stories
+
+    worker_dirs = [d for d in STAGE2_BASE.iterdir()
+                   if d.is_dir() and d.name.startswith("worker")]
+
+    for worker_dir in worker_dirs:
+        if worker_dir.name == "old":
+            continue
+        m = re.match(r"worker(\d+)", worker_dir.name)
+        if not m:
+            continue
+        worker_id = int(m.group(1))
+
+        batch_dirs = [d for d in worker_dir.iterdir()
+                      if d.is_dir() and d.name.startswith("batch_")]
+        if not batch_dirs:
+            continue
+        batch_dir = batch_dirs[0]
+
+        # Story folder is the first story_* dir inside the batch
+        story_dirs = [d for d in batch_dir.iterdir()
+                      if d.is_dir() and d.name.startswith("story_")]
+        if not story_dirs:
+            continue
+        story_dir = story_dirs[0]
+
+        gest_file = story_dir / "detailed_graph" / "take1" / "detail_gest.json"
+        proto_graph = story_dir / "detailed_graph" / "take1" / "proto-graph.json"
+        video = story_dir / "simulations" / "take1_sim1" / "camera1" / "raw.mp4"
+        efm = story_dir / "simulations" / "take1_sim1" / "event_frame_mapping.json"
+        texts = story_dir / "texts.json"
+
+        if not gest_file.exists() or not video.exists():
+            continue
+
+        actors, actions = _count_actors_actions(gest_file)
+
+        stories.append(Story(
+            story_dir=story_dir,
+            story_type="agentic_stage2",
+            proto_graph_path=proto_graph,
+            video_path=video,
+            event_frame_mapping_path=efm,
+            texts_json_path=texts,
+            actor_count=actors,
+            action_count=actions,
+            worker_id=worker_id,
+        ))
+
+    return sorted(stories, key=lambda s: s.worker_id)
+
+
+def load_stage2_pairs() -> List[tuple]:
+    """Load Stage 2 1:1 pairs: (agentic_story, procedural_story).
+
+    Uses seed_file.json to map worker N -> seed file -> procedural story
+    via the 8-char hash suffix in the seed filename.
+    """
+    import re
+
+    if not SEED_FILE.exists():
+        raise FileNotFoundError(f"Seed file not found: {SEED_FILE}")
+
+    seed_paths = json.loads(SEED_FILE.read_text(encoding="utf-8"))
+    # Extract hash suffix from each seed filename: e.g. "01_classroom_a2_b9c65129.txt" -> "b9c65129"
+    seed_hashes = {}
+    for i, p in enumerate(seed_paths):
+        fname = Path(p).stem
+        h = fname.split("_")[-1]
+        seed_hashes[i + 1] = h  # worker_id (1-indexed)
+
+    # Load all procedural stories and index by hash suffix
+    procedural = load_procedural_stories()
+    proc_by_hash = {}
+    for s in procedural:
+        h = s.story_dir.name.split("_")[-1]
+        proc_by_hash[h] = s
+
+    # Load Stage 2 agentic stories
+    stage2 = load_stage2_stories()
+    stage2_by_worker = {s.worker_id: s for s in stage2}
+
+    pairs = []
+    for worker_id in sorted(seed_hashes.keys()):
+        h = seed_hashes[worker_id]
+        ag = stage2_by_worker.get(worker_id)
+        pr = proc_by_hash.get(h)
+        if ag and pr:
+            pairs.append((ag, pr))
+
+    return pairs
 
 
 if __name__ == "__main__":

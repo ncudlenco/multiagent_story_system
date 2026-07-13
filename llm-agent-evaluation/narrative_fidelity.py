@@ -38,7 +38,7 @@ if str(_EXPERIMENTS_DIR) not in sys.path:
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from catalog import load_agentic_stories
+from catalog import load_agentic_stories, load_stage2_stories
 
 RESULTS_DIR = Path(__file__).parent.parent / "output" / "evaluation"
 DEFAULT_JUDGES = ["gpt-5.2-pro", "gemini", "claude"]
@@ -126,25 +126,31 @@ def run_narrative_fidelity(
     if output_path.exists() and not force:
         prev = json.loads(output_path.read_text(encoding="utf-8"))
         for g in prev.get("groups", []):
-            existing[g["gest_group"]] = g
-        print(f"Resume: {len(existing)} groups already evaluated")
+            existing[g.get("entry_key", f"stage1_w{g.get('worker_id')}")] = g
+        print(f"Resume: {len(existing)} entries already evaluated")
 
-    stories = load_agentic_stories()
-
-    # One representative per GEST group
+    # Stage 1: one representative per GEST group
+    stage1_stories = load_agentic_stories()
     group_rep = {}
-    for s in sorted(stories, key=lambda s: s.worker_id):
+    for s in sorted(stage1_stories, key=lambda s: s.worker_id):
         if s.gest_group not in group_rep:
             group_rep[s.gest_group] = s
 
+    # Stage 2: all workers
+    stage2_stories = load_stage2_stories()
+
     groups_to_eval = []
+
     for group, story in sorted(group_rep.items()):
         narrative = story.root_narrative
         vdg = story.description
         if not narrative or not vdg:
-            print(f"  [SKIP] Group {group}: missing narrative or VDG")
+            print(f"  [SKIP] Stage 1 group {group}: missing narrative or VDG")
             continue
+        entry_key = f"stage1_w{story.worker_id}"
         groups_to_eval.append({
+            "entry_key": entry_key,
+            "stage": "stage1",
             "gest_group": group,
             "worker_id": story.worker_id,
             "narrative": narrative,
@@ -152,24 +158,41 @@ def run_narrative_fidelity(
             "judges": {},
         })
 
-    results = {g["gest_group"]: g for g in groups_to_eval}
-    # Restore already-completed judge results
-    for group_id, prev_group in existing.items():
-        if group_id in results:
-            results[group_id]["judges"] = prev_group.get("judges", {})
+    for story in stage2_stories:
+        narrative = story.root_narrative
+        vdg = story.description
+        if not narrative or not vdg:
+            print(f"  [SKIP] Stage 2 worker{story.worker_id}: missing narrative or VDG")
+            continue
+        entry_key = f"stage2_w{story.worker_id}"
+        groups_to_eval.append({
+            "entry_key": entry_key,
+            "stage": "stage2",
+            "gest_group": story.gest_group,
+            "worker_id": story.worker_id,
+            "narrative": narrative,
+            "vdg": vdg,
+            "judges": {},
+        })
 
-    print(f"Groups to evaluate: {len(results)}")
+    results = {g["entry_key"]: g for g in groups_to_eval}
+    # Restore already-completed judge results
+    for entry_key, prev_group in existing.items():
+        if entry_key in results:
+            results[entry_key]["judges"] = prev_group.get("judges", {})
+
+    print(f"Entries to evaluate: {len(results)} (Stage 1: {sum(1 for g in groups_to_eval if g['stage']=='stage1')}, Stage 2: {sum(1 for g in groups_to_eval if g['stage']=='stage2')})")
 
     for judge_name in judges:
         print(f"\n{'='*60}\nJudge: {judge_name}\n{'='*60}")
         judge = _create_judge(judge_name)
 
-        for group in sorted(results.values(), key=lambda g: g["gest_group"]):
+        for group in sorted(results.values(), key=lambda g: g["entry_key"]):
             if judge_name in group["judges"]:
-                print(f"  [SKIP] Group {group['gest_group']} — already judged by {judge_name}")
+                print(f"  [SKIP] [{group['stage']}] worker{group['worker_id']} — already judged by {judge_name}")
                 continue
 
-            print(f"\n  Group {group['gest_group']}: {group['narrative'][:80]}...")
+            print(f"\n  [{group['stage']}] worker{group['worker_id']}: {group['narrative'][:80]}...")
 
             prompt = PROMPT.format(
                 narrative=group["narrative"],
@@ -201,7 +224,7 @@ def run_narrative_fidelity(
 
 
 def _save(output_path, results, judges, compute_summary=False):
-    groups_list = sorted(results.values(), key=lambda g: g["gest_group"])
+    groups_list = sorted(results.values(), key=lambda g: g.get("entry_key", ""))
     out = {"groups": groups_list}
     if compute_summary:
         out["summary"] = _summarize(groups_list, judges)
@@ -248,7 +271,7 @@ def _summarize(groups_list, judge_names):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--judges", nargs="+", default=DEFAULT_JUDGES,
-                        choices=["gpt-5.2-pro", "gemini", "claude"])
+                        choices=["gpt-5.2-pro", "gemini", "gemini-2.5-pro", "claude"])
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
