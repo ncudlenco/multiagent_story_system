@@ -99,3 +99,8 @@ test_*.json
 
 # Claude temporary files
 tmpclaude-*
+
+# Paper figure assets and local scratch
+CVPR_workshop/
+examples/cache/
+test_gdrive.py
