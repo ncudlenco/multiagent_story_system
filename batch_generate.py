@@ -86,8 +86,11 @@ def load_existing_stories(folder_path: str) -> List[Dict[str, Any]]:
                 with open(json_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
 
-                # Try to parse as GEST (will raise exception if invalid)
-                gest = GEST(**data)
+                # Check for GEST structure: must be a dict with 'temporal' key
+                # (lightweight check — full Pydantic validation is too strict
+                # for hybrid-generated GESTs that may have null optional fields)
+                if not isinstance(data, dict) or 'temporal' not in data:
+                    raise ValueError("Missing 'temporal' key — not a GEST file")
 
                 # Valid GEST found
                 story_id = json_file.stem
@@ -309,9 +312,9 @@ Examples:
     parser.add_argument(
         '--generator-type',
         type=str,
-        choices=['llm', 'simple_random'],
+        choices=['llm', 'simple_random', 'hybrid'],
         default='llm',
-        help='Story generator type: "llm" for LLM-based generation, "simple_random" for random generator (default: llm)'
+        help='Story generator type: "llm" for old LLM-based generation, "simple_random" for random generator, "hybrid" for LLM-directed reactive generation (default: llm)'
     )
     parser.add_argument(
         '--random-chains-per-actor',

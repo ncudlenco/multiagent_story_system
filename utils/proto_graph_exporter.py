@@ -169,7 +169,7 @@ def build_id_mappings(gest: Dict[str, Any]) -> tuple:
             # Object Exists event: has Type in Properties (no Name)
             elif "Type" in props:
                 # Collect both obj_* and spawn_* for unified indexing
-                if event_id.startswith('obj_') or event_id.startswith('spawn_'):
+                if event_id.startswith('obj_') or event_id.startswith('spawn'):
                     all_object_ids.append(event_id)
         else:
             # Action event: format a0_1, a1_2, etc. → action0_1, action1_2

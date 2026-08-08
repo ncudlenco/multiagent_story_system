@@ -3,201 +3,31 @@
     "action_chains": {
         "general_instructions": {
             "rules": [
-                "Actions MUST follow defined sequences.",
-                "ONLY ONE PickUp ed object at a time is allowed",
-                "Standing PickUp can ONLY be done for objects that can be PickedUp while standing (exclude seated pickupables)",
-                "The exact concrete possible actions that can be performed in a POI are defined in that POI's actions list.",
-                "Each action from a POI has a list of possible next actions that can be performed after it. If there is more than one possible next action, any of them can be chosen. The additional option is ALWAYS to NOT perform a next action, leaving the actor in the current state until the story ends. Otherwise, if a next action MUST be executed, it can only be from the list of possible actions.",
-                "Actions that put actors in a state that does something (e.g., SitDown, TypeOnKeyboard, Sleep, TaiChi) leave the actor with an animation looping in that state (no need for additional actions of same time to make the animation longer). The animation stops when the next valid action is performed or the story ends.",
-                "Interactions can ONLY happen while both actors are standing",
-                "In addition to the POI-defined possible next actions, the system automatically inserts Move actions as needed when an actor changes location to perform an action in a different region.",
-                "In addition to the POI-defined actions, ALWAYS is an option to perform interactions, actions with spawnable objects, or observation_actions. (See below for a foll list of interactions and observation_actions)",
-                "The schema for an action event is \"event_id\": {\"Action\": \"$action_name\",\"Entities\": [$performer_id,$target_entity_id,$second_target_entity_id],\"Location\": [$region],\"Timeframe\": null|$time_frame,\"Properties\": {$additional_properties|nothing}}",
-                "The $target_entity_id can be the Exists event_id of the object being acted upon or of the actor being interacted with.",
-                "Give/INV-Give actions has $performer_id, $(receiver|giver)_actor_id, $object_id in Entities array respectively.",
-                "Optional actions are indicated with [Optional] prefix and can be skipped.",
-                "Variations provide alternative sequences for specific object types or contexts.",
-                "Actors MUST adhere to movement requirements when changing locations.",
-                "Multi-actor interactions require same location for both actors.",
-                "Other interactions can creatively be simulated (e.g. sit down all actors on chairs in the same region (e.g. kitchen, same table), answer phone for actor1 followed by answer phone for actor2 - simulates one calling the other).",
-                "Other interactions can creatively be simulated with creative temporal chains: e.g., actor0 performs TaiChi, actor1 and actor2 move to porch from bedroom, actor1 waves at actor0 in goodbye, actor2 and actor0 move to street same time, actor1 goes back inside - complex interaction simulated",
-                "Story within story can be simulated with creative temporal chains: e.g., actor0 answers phone (main story), then, in another episode with another timeframe illustrate the conversation it has (story within the story), then hang up and stash phone (end of story)",
-                "The spawnable objects cannot be given or put down.",
-                "CRITICAL: After PickUp you must insert another action (e.g. use it or give it) before PutDown.",
-                "After Receiving you must insert another action (e.g. use it or sit down or move) before giving it back.",
-                "No two of the same actions in a row or after looking at something are allowed except for Move."
+                "Interactions (Talk, Hug, Kiss, Handshake, Laugh) can ONLY happen while both actors are standing",
+                "Hug and Kiss ONLY between opposite genders",
+                "Actions that loop (SitDown, TypeOnKeyboard, Sleep, TaiChi) leave the actor in that animation until the next action or story end",
+                "Spawnable objects (phone, cigarette) cannot be given or put down -- only TakeOut and Stash",
+                "No spawnable object actions while sitting or on equipment (breaks animation)",
+                "No two identical actions in a row (except Move)",
+                "LookAt performs no visible animation -- use sparingly",
+                "Phone is a 90s mobile phone -- only for talking",
+                "Creative simulation: sit actors on chairs in same region to simulate a meeting",
+                "Creative simulation: actor1 answers phone then actor2 answers phone simulates a phone call between them",
+                "Story within story: answer phone (main story), switch to another episode/timeframe to illustrate the conversation, then hang up"
             ],
-            "description": "General rules for action sequencing",
-            "note": "These rules represent a guide in generating valid action sequences that respect object lifecycles, location constraints, and interaction requirements."
+            "description": "Creative rules for story planning. Structural rules (event ordering, temporal relations, entity IDs) are enforced by the tools automatically."
         },
         "sitting": {
-            "always_available": [
-                "TakeOut",
-                "Stash"
-            ],
-            "description": "Sitting at location with POI-specific middle actions",
-            "note": "While sitting: TakeOut, and Stash are ALWAYS available. Other actions (eat, laptop usage, etc.) are ONLY available if defined in that specific POI's allActions. The actual available actions are indicated in individual POI definitions, not as a generic list. Note that Drink is not available while sitting. Note that food actions are ONLY available on chairs with food (not laptop, sofa or armchair).\n\n Actors CAN be left in any seated state before standing up. Context switches (moving between linked episodes of other actors) while some actors are left looping in a state cause bugs on context switch back. BEST PRACTICE: Don't leave actors looping during context switches. Re-sit and follow with previously seated action off camera (include actions in graph but don't record them).",
-            "variations": {
-                "sofa": [
-                    "SitDown",
-                    "[Optional]TakeOut",
-                    "[Optional]Stash",
-                    "StandUp"
-                ],
-                "armchair": [
-                    "SitDown",
-                    "[Optional]TakeOut",
-                    "[Optional]Stash",
-                    "StandUp"
-                ],
-                "chair_eating": [
-                    "SitDown",
-                    "[Optional]Eat",
-                    "StandUp"
-                ],
-                "chair_laptop": [
-                    "SitDown",
-                    "[Optional]OpenLaptop",
-                    "[Optional]TypeOnKeyboard",
-                    "[Optional]PunchDesk",
-                    "[Optional]CloseLaptop",
-                    "[Optional]LayOnElbow",
-                    "[Optional]LookAtWatch",
-                    "StandUp"
-                ]
-            },
-            "poi_specific_actions": [
-                "Eat",
-                "OpenLaptop",
-                "TypeOnKeyboard",
-                "PunchDesk",
-                "LookAtWatch",
-                "LayOnElbow",
-                "CloseLaptop"
-            ],
-            "sequence": [
-                "SitDown",
-                "POI-SpecificActions",
-                "StandUp"
-            ]
+            "description": "Sitting at location with POI-specific actions available while seated",
+            "note": "Drink is not available while sitting. Food actions ONLY on chairs with food (not laptop, sofa or armchair). Don't leave actors looping in seated state during context switches between episodes."
         },
         "observation_actions": {
-            "note": "LookAt can be directed ONLY at actors but it must be used rarely since it performs no animation. Wave is typically a gesture. These actions can be performed standalone. LookAt can be performed while sitting/standing. LookAt is already a part of interaction animations.",
-            "description": "Actions for observing and gesturing.",
-            "actions": [
-                "LookAt",
-                "Wave"
-            ]
+            "description": "Standalone gestures. LookAt has no animation -- use sparingly.",
+            "actions": ["LookAt", "Wave"]
         },
         "pick_upable_interaction": {
-            "note": "Picked-up objects can also be: Given to others, Received, Used (Drink/Eat) - this does not destroy/consume them, Given back. These form flexible interaction patterns beyond simple linear sequences. The picked up object MUST be put back down by the same actor.",
-            "variations": {
-                "remote_control": [
-                    "PickUp",
-                    "Give",
-                    "Receive (back, the other actor must first receive then give)",
-                    "PutDown"
-                ],
-                "drink": [
-                    "PickUp",
-                    "Drink",
-                    "PutDown"
-                ],
-                "food": [
-                    "PickUp",
-                    "Eat",
-                    "PutDown"
-                ]
-            },
-            "description": "Object interaction patterns - not strictly linear. ALWAYS do something before putting back down.",
-            "base_sequence": [
-                "PickUp",
-                "Use",
-                "PutDown"
-            ]
+            "description": "Objects can be picked up, given to others, and put back down. Eat is terminal (object consumed). Must do something with object before putting it down."
         },
-        "ordering_rules": [
-            {
-                "rule": "Exists events must come first",
-                "description": "All actors and objects must have Exists events before being used"
-            },
-            {
-                "rule": "Move before action in new location",
-                "description": "Actor must Move to location before performing actions there"
-            },
-            {
-                "rule": "PickUp before use",
-                "description": "Must PickUp object before Eat/Drink/etc"
-            },
-            {
-                "rule": "Use after PickUp",
-                "description": "Must first do something with the picked up object before putting it back down."
-            },
-            {
-                "rule": "TakeOut before spawnable use",
-                "description": "Must TakeOut spawnable object before using it"
-            },
-            {
-                "rule": "SitDown before seated actions",
-                "description": "Must SitDown before actions that require sitting (OpenLaptop, Eat at table, etc)"
-            },
-            {
-                "rule": "StandUp before moving from seated",
-                "description": "Must StandUp before moving from seated actions"
-            },
-            {
-                "rule": "GetOn before gym equipment use",
-                "description": "Must GetOn equipment (treadmill, gym bike, bench press) before performing exercise actions"
-            },
-            {
-                "rule": "GetOff before moving from equipment",
-                "description": "Must GetOff gym equipment before actor can move to different location"
-            },
-            {
-                "rule": "GetOn before Sleep",
-                "description": "Must GetOn before Sleep action"
-            },
-            {
-                "rule": "GetOff before moving from bed",
-                "description": "Must GetOff if actor needs to Move after sleeping"
-            },
-            {
-                "rule": "PickUp before dumbbells workout",
-                "description": "Must PickUp dumbbells before DumbbellsWorkOut action"
-            },
-            {
-                "rule": "PutDown before moving from dumbbells",
-                "description": "Must PutDown dumbbells before actor can move to different location"
-            },
-            {
-                "rule": "TurnOff before moving from music player",
-                "description": "Must TurnOff music player/turntable before actor can move to different location"
-            },
-            {
-                "rule": "Give must be paired with INV-Give",
-                "description": "Give interaction must have corresponding INV-Give for receiver, with starts_with temporal relation"
-            },
-            {
-                "rule": "Interactions must be synchronized",
-                "description": "All multi-actor interactions must have same starts_with temporal relation to ensure proper synchronization"
-            },
-            {
-                "rule": "Talk, Hug, Kiss, Handshake must be duplicated by the other actor involved (ONLY supports 2 actors)",
-                "description": "All these actions require a corresponding response from the other actor"
-            },
-            {
-                "rule": "ONLY allowed actions while sitting or sleeping",
-                "description": "When the actor sat down or got on bed, ONLY allowed actions are those defined in sitting or bed usage action chains respectively, plus observation_actions and TakeOut/Stash. HOWEVER, no actions with the SPAWNABLE objects are allowed. IT WILL BREAK THE ANIMATION."
-            },
-            {
-                "rule": "No overlapping animations can occur",
-                "description": "The environment does not support 2 overlapping animations: e.g. talking on the phone while sitting. If an animation is designed to keep the actor in the same state (e.g. eating while seated) it will be part of that action chain."
-            },
-            {
-                "rule": "The phone can ONLY be used to talk at it.",
-                "description": "The phone can ONLY be used to talk at it - this is a 90s style mobile phone, not a smart phone."
-            }
-        ],
         "hygiene_actions": {
             "note": "Performed at sink or bathroom POIs. No special sequencing required. Sinks usually exist in the kitchen or bathroom.",
             "description": "Personal hygiene actions",
@@ -232,20 +62,15 @@
             ]
         },
         "interactions": {
-            "requirement": "Both actors must have same location for the interaction Action to be valid.",
-            "description": "Multi-actor interactions requiring both actors in same location",
-            "note": "Give requires INV-Give for receiver, Handshake/Hug/Kiss/Talk requires to be duplicated for both actors to perform action. The starts_with constraint between the two interaction events is a MUST to coordinate them.",
+            "description": "Multi-actor interactions. Both actors must be standing and in same region.",
             "actions": [
                 "Handshake",
                 "Talk",
                 "Kiss",
                 "Hug",
                 "Laugh",
-                "Give",
-                "INV-Give",
-                "Receive"
-            ],
-            "temporal_requirement": "CRITICAL: ALL interactions MUST have the same 'starts_with' temporal relation between the actors involved to ensure proper synchronization. Each interaction has a different starts_with relation."
+                "Give"
+            ]
         },
         "laptop_usage": {
             "sequence": [

@@ -78,6 +78,10 @@ def copy_gest_to_mta(
     )
     shutil.copy2(source_path, dest_path)
 
+    # Ensure the destination file is writable (VMware shared folders copy as read-only)
+    import stat
+    dest_path.chmod(dest_path.stat().st_mode | stat.S_IWRITE)
+
     # Return relative path for MTA config.json
     relative_path = f"input_graphs/{dest_filename}"
     return relative_path
@@ -926,6 +930,12 @@ Examples:
     )
 
     parser.add_argument(
+        '--generate-hybrid',
+        action='store_true',
+        help='Generate story using hybrid LLM-directed reactive pipeline (LangGraph + tools)'
+    )
+
+    parser.add_argument(
         '--max-num-protagonists',
         type=int,
         default=2,
@@ -1050,6 +1060,19 @@ Examples:
     )
 
     parser.add_argument(
+        '--logical-relations',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Enable logical relations subagent (default: enabled, use --no-logical-relations)'
+    )
+    parser.add_argument(
+        '--semantic-relations',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Enable semantic relations subagent (default: enabled, use --no-semantic-relations)'
+    )
+
+    parser.add_argument(
         '--save-prompts',
         action='store_true',
         help='Save all LLM prompts and responses during story generation'
@@ -1121,6 +1144,67 @@ Examples:
                 capture_segmentations=args.capture_segmentations
             )
             sys.exit(0 if success else 1)
+
+        elif getattr(args, 'generate_hybrid', False):
+            # Hybrid LLM-directed reactive generation
+            from workflows.hybrid_workflow import run_hybrid_generation
+            from schemas.hybrid_planning import GenerationConfig
+
+            print("\n" + "=" * 70)
+            print("HYBRID GENERATION: LLM-directed reactive pipeline")
+            print("=" * 70)
+
+            # Load narrative seeds from file if provided
+            seed_text = None
+            if getattr(args, 'from_text_file', None):
+                text_file_path = Path(args.from_text_file)
+                if text_file_path.exists():
+                    seed_text = text_file_path.read_text(encoding='utf-8').strip()
+                    print(f"Loaded seed text from {args.from_text_file}")
+            elif getattr(args, 'seeds', None):
+                seed_text = ' '.join(args.seeds)
+
+            gen_config = GenerationConfig(
+                seed_text=seed_text,
+                num_scenes=getattr(args, 'scene_number', 3) or 3,
+                num_protagonists=getattr(args, 'max_num_protagonists', 2) or 2,
+                include_extras=getattr(args, 'max_num_extras', 0) > 0,
+                enable_logical_relations=getattr(args, 'logical_relations', True),
+                enable_semantic_relations=getattr(args, 'semantic_relations', True),
+            ).model_dump()
+
+            try:
+                import uuid
+                story_id = uuid.uuid4().hex[:8]
+                output_dir = Path(config.paths.output_dir) / f"story_{story_id}"
+
+                gest_dict, metadata = run_hybrid_generation(
+                    seed_text=seed_text,
+                    generation_config=gen_config,
+                    output_dir=str(output_dir)
+                )
+
+                if gest_dict:
+                    meta_keys = {'temporal', 'spatial', 'semantic', 'logical', 'camera'}
+                    event_count = sum(1 for k in gest_dict.keys() if k not in meta_keys)
+                    concept = metadata.get('story_concept', {})
+
+                    print(f"\nGeneration complete!")
+                    print(f"  Story ID: {story_id}")
+                    print(f"  Title: {concept.get('title', 'untitled')}")
+                    print(f"  Events: {event_count}")
+                    print(f"  Actors: {metadata.get('num_actors', 0)}")
+                    print(f"  Output: {output_dir}")
+                    sys.exit(0)
+                else:
+                    print("\n[ERROR] Hybrid generation produced empty GEST")
+                    sys.exit(1)
+
+            except Exception as e:
+                print(f"\n[ERROR] Hybrid generation failed: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
 
         elif args.generate or args.resume:
             # Generate fresh story or resume existing story from checkpoint

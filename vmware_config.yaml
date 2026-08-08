@@ -3,7 +3,7 @@
 
 vmware:
   # Path to master VM (base for cloning)
-  master_vm_path: "W:\\VMs\\2\\Windows 10 and later x64.vmx"
+  master_vm_path: "C:\\VMs\\2\\Windows 10 and later x64.vmx"
 
   # Snapshot name to use for linked clones (must exist)
   # Create with: vmrun snapshot "master.vmx" Ready
@@ -11,7 +11,7 @@ vmware:
 
   # Directory where worker VMs will be created
   # Each batch creates: {workers_dir}/vm_batch_{timestamp}/worker{N}/
-  workers_dir: "W:\\VMs\\workers"
+  workers_dir: "C:\\VMs\\workers"
 
   # Paths to search for vmrun.exe (in order)
   vmrun_paths:

@@ -1566,15 +1566,17 @@ class VMWareOrchestrator:
             return False
 
     def _generate_worker_job_yaml(self, worker_id: int, job_dir: Path,
-                                  stories_per_vm: int, batch_params: Dict) -> bool:
+                                  stories_per_vm: int, batch_params: Dict,
+                                  from_existing_stories_path: str = None) -> bool:
         """
         Generate worker_job.yaml configuration file for autonomous worker.
 
         Args:
             worker_id: Worker identifier (0-indexed)
             job_dir: Directory to write worker_job.yaml
-            stories_per_vm: Number of stories to generate
+            stories_per_vm: Number of stories to generate (ignored in from-existing mode)
             batch_params: Additional batch parameters
+            from_existing_stories_path: Path to existing stories folder on VM (simulation-only mode)
 
         Returns:
             True if successful, False otherwise
@@ -1586,13 +1588,20 @@ class VMWareOrchestrator:
                 # Use local temp folder on VM to avoid UNC path escaping issues
                 # Results are uploaded to Google Drive, completion marker goes to shared folder
                 "output_folder": r"C:\temp\batches",
-                "story_number": stories_per_vm,
+            }
 
-                # Actor configuration
-                "num_actors": batch_params.get("num_actors", 2),
-                "num_extras": batch_params.get("num_extras", 1),
-                "num_actions": batch_params.get("num_actions", 5),
-                "scene_number": batch_params.get("scene_number", 4),
+            # Mode: from-existing-stories (simulation-only) or story-number (generate + simulate)
+            if from_existing_stories_path:
+                job_config["from_existing_stories_path"] = from_existing_stories_path
+            else:
+                job_config["story_number"] = stories_per_vm
+
+            job_config.update({
+                # Actor configuration (None = let batch_generate.py use its defaults)
+                "num_actors": batch_params.get("num_actors"),
+                "num_extras": batch_params.get("num_extras"),
+                "num_actions": batch_params.get("num_actions"),
+                "scene_number": batch_params.get("scene_number"),
 
                 # Variations
                 "same_story_generation_variations": batch_params.get(
@@ -1621,7 +1630,7 @@ class VMWareOrchestrator:
                 # Copy batch_state.json to shared folder for host monitoring
                 # Disabled when orchestrator runs in --no-monitor mode
                 "copy_state_to_shared": not batch_params.get("no_monitor", False),
-            }
+            })
 
             # Generate description mode
             if batch_params.get("generate_description"):
@@ -1647,6 +1656,10 @@ class VMWareOrchestrator:
             # Add ensure_target if specified
             if batch_params.get("ensure_target"):
                 job_config["ensure_target"] = True
+
+            # Add seed text for hybrid generation
+            if batch_params.get("seed_text"):
+                job_config["seed_text"] = batch_params["seed_text"]
 
             # Write YAML file
             job_yaml_path = job_dir / "worker_job.yaml"
@@ -1738,15 +1751,74 @@ class VMWareOrchestrator:
             0 on success, 1 on failure
         """
         num_workers = args.num_vms
-        stories_per_vm = args.stories_per_vm
+        stories_per_vm = args.stories_per_vm or 0
+        from_existing = getattr(args, 'from_existing_stories', None)
         self.no_restart = getattr(args, 'no_restart', False)
+
+        # Scan and distribute existing GESTs across workers
+        # Each worker gets a set of (gest_file, sims_to_run) assignments
+        gest_assignments: Dict[int, List[tuple]] = {}  # worker_id -> [(gest_path, num_sims)]
+        if from_existing:
+            source_path = Path(from_existing)
+            # Find GESTs: prefer top-level detail_gest.json per story dir, deduplicate
+            all_gests = sorted(source_path.glob("**/detail_gest.json"))
+            seen_stories = set()
+            gest_files = []
+            for gf in all_gests:
+                story_dir = gf.parent
+                while story_dir != source_path and not story_dir.name.startswith('story_'):
+                    story_dir = story_dir.parent
+                story_name = story_dir.name
+                if story_name not in seen_stories:
+                    seen_stories.add(story_name)
+                    gest_files.append(gf)
+            if not gest_files:
+                print(f"[ERROR] No detail_gest.json files found in {from_existing}")
+                return 1
+
+            # Build work units: each (gest, 1 sim) is one unit
+            sim_variations = getattr(args, 'same_story_simulation_variations', 1) or 1
+            work_units = []  # [(gest_path, sim_index)]
+            for gf in gest_files:
+                for sim_idx in range(sim_variations):
+                    work_units.append((gf, sim_idx))
+
+            # Round-robin work units across workers
+            worker_units: Dict[int, List[tuple]] = {}
+            for i, (gf, sim_idx) in enumerate(work_units):
+                wid = i % num_workers
+                worker_units.setdefault(wid, []).append((gf, sim_idx))
+
+            # Collapse: group by GEST per worker, count sims
+            for wid, units in worker_units.items():
+                gest_sims: Dict[Path, int] = {}
+                for gf, _ in units:
+                    gest_sims[gf] = gest_sims.get(gf, 0) + 1
+                gest_assignments[wid] = [(gf, count) for gf, count in gest_sims.items()]
+
+            stories_per_vm = max(len(v) for v in gest_assignments.values()) if gest_assignments else 0
+
+        total_work = sum(sims for assigns in gest_assignments.values() for _, sims in assigns) if gest_assignments else 0
 
         print(f"\n{'='*70}")
         print(f"VMware Autonomous Worker Orchestration")
         print(f"{'='*70}")
         print(f"Workers: {num_workers}")
-        print(f"Stories per worker: {stories_per_vm}")
-        print(f"Total stories: {num_workers * stories_per_vm}")
+        if from_existing:
+            total_gests = len(gest_files)
+            active_workers = sum(1 for v in gest_assignments.values() if v)
+            print(f"Mode: Simulate existing GESTs")
+            print(f"GESTs: {total_gests} | Sims per GEST: {sim_variations} | Total sims: {total_work}")
+            print(f"Active workers: {active_workers}/{num_workers}")
+            for wid in range(num_workers):
+                assigns = gest_assignments.get(wid, [])
+                if assigns:
+                    detail = ", ".join(f"{gf.parent.name}x{sims}" for gf, sims in assigns)
+                    total_sims = sum(s for _, s in assigns)
+                    print(f"  Worker {wid + 1}: {len(assigns)} GESTs, {total_sims} sims [{detail}]")
+        else:
+            print(f"Stories per worker: {stories_per_vm}")
+            print(f"Total stories: {num_workers * stories_per_vm}")
         print(f"Mode: Autonomous (file-based job config)")
         print(f"{'='*70}\n")
 
@@ -1787,7 +1859,52 @@ class VMWareOrchestrator:
             "simulation_retries": getattr(args, 'simulation_retries', None),
             "capture_segmentations": getattr(args, 'capture_segmentations', True),
             "no_monitor": getattr(args, 'no_monitor', False),
+            "seed_text": getattr(args, 'seed_text', None),
+            "simulation_timeout": getattr(args, 'simulation_timeout', None),
         }
+
+        # Handle --seed-file: load seeds and distribute across workers
+        seed_assignments: Dict[int, str] = {}  # worker_id -> seed_text
+        seed_labels: Dict[int, str] = {}  # worker_id -> label (for folder naming)
+        seed_file = getattr(args, 'seed_file', None)
+        if seed_file:
+            with open(seed_file, 'r', encoding='utf-8') as f:
+                seed_data = json.load(f)
+
+            # Support list of strings or list of {label: seed} dicts
+            seeds = []
+            if isinstance(seed_data, list):
+                for item in seed_data:
+                    if isinstance(item, str):
+                        # It's a path to a text file — read the content
+                        try:
+                            with open(item, 'r', encoding='utf-8') as sf:
+                                text = sf.read().strip()
+                            label = Path(item).stem
+                            seeds.append((label, text))
+                        except Exception as e:
+                            print(f"[WARNING] Failed to read seed file {item}: {e}")
+                    elif isinstance(item, dict):
+                        label = list(item.keys())[0]
+                        seeds.append((label, item[label]))
+            elif isinstance(seed_data, dict):
+                for label, text in seed_data.items():
+                    seeds.append((label, text))
+
+            if not seeds:
+                print("[ERROR] No seeds found in seed file")
+                return 1
+
+            # Round-robin seeds across workers
+            for i, (label, text) in enumerate(seeds):
+                wid = i % num_workers
+                seed_assignments[wid] = text
+                seed_labels[wid] = label
+
+            print(f"Loaded {len(seeds)} seeds from {seed_file}")
+            for wid in sorted(seed_assignments.keys()):
+                print(f"  Worker {wid + 1}: seed '{seed_labels[wid]}' ({len(seed_assignments[wid])} chars)")
+            print()
 
         # Clone workers and setup job configs
         print(f"Setting up {num_workers} autonomous workers...\n")
@@ -1803,9 +1920,44 @@ class VMWareOrchestrator:
             job_dir = self.batch_dir / f"worker{worker_id + 1}_job"
             job_dir.mkdir(parents=True, exist_ok=True)
 
-            # Generate job config
+            # Copy GESTs for this worker (from-existing mode)
+            worker_from_existing_path = None
+            worker_sim_variations = None
+            if from_existing and worker_id in gest_assignments:
+                gest_dir = job_dir / "existing_stories"
+                gest_dir.mkdir(exist_ok=True)
+                for gf, num_sims in gest_assignments[worker_id]:
+                    # Use parent dir name for uniqueness (e.g. story_955106e1)
+                    story_name = gf.parent.name
+                    if story_name in ('take1', 'detailed_graph'):
+                        story_name = gf.parents[2].name if 'detailed_graph' in str(gf) else gf.parent.name
+                    dest = gest_dir / story_name
+                    dest.mkdir(exist_ok=True)
+                    shutil.copy2(str(gf), str(dest / "detail_gest.json"))
+                worker_from_existing_path = r"\\vmware-host\Shared Folders\job\existing_stories"
+                worker_stories = len(gest_assignments[worker_id])
+                # Use the max sims assigned to any single GEST on this worker
+                worker_sim_variations = max(s for _, s in gest_assignments[worker_id])
+            else:
+                worker_stories = stories_per_vm
+
+            # Generate job config — override per-worker params
+            worker_batch_params = dict(batch_params)
+            if worker_sim_variations is not None:
+                worker_batch_params["same_story_simulation_variations"] = worker_sim_variations
+            # Override seed text per worker if using --seed-file
+            if worker_id in seed_assignments:
+                worker_batch_params["seed_text"] = seed_assignments[worker_id]
+
+            # Skip workers with no assigned work (more VMs than seeds/GESTs)
+            if seed_file and worker_id not in seed_assignments and not from_existing:
+                print(f"  No seed assigned, skipping worker")
+                continue
+
             print(f"  Generating job config...", end="", flush=True)
-            if not self._generate_worker_job_yaml(worker_id, job_dir, stories_per_vm, batch_params):
+            if not self._generate_worker_job_yaml(
+                    worker_id, job_dir, worker_stories, worker_batch_params,
+                    from_existing_stories_path=worker_from_existing_path):
                 print(" [X]")
                 return 1
             print(" [OK]")
@@ -2466,6 +2618,8 @@ Examples:
     # Batch generation mode arguments
     parser.add_argument("--stories-per-vm", type=int,
                        help="Number of stories to generate per VM (required with --num-vms)")
+    parser.add_argument("--from-existing-stories", type=str, default=None, metavar="PATH",
+                       help="Path to folder with existing GEST files to simulate (splits across VMs, mutually exclusive with --stories-per-vm)")
 
     # Common arguments
     parser.add_argument("--config", type=str, default="vmware_config.yaml",
@@ -2509,9 +2663,14 @@ Examples:
     parser.add_argument("--ensure-target", action="store_true",
                        help="Keep generating stories until the target number of successful stories is reached")
 
-    # Simple random generator parameters
-    parser.add_argument("--generator-type", type=str, choices=['llm', 'simple_random'],
+    # Generator parameters
+    parser.add_argument("--generator-type", type=str, choices=['llm', 'simple_random', 'hybrid'],
                        default='llm', help="Story generator type (default: llm)")
+    parser.add_argument("--seed-text", type=str, default=None,
+                       help="Story seed text for hybrid generation (all VMs use the same seed)")
+    parser.add_argument("--seed-file", type=str, default=None, metavar="JSON_FILE",
+                       help="JSON file with list of seed texts or {seed: text, ...} dicts. "
+                            "Each seed is assigned to a VM round-robin. stories-per-vm is per-seed.")
     parser.add_argument("--random-chains-per-actor", type=int, default=None,
                        help="Action chains per actor for simple_random generator")
     parser.add_argument("--random-max-actors-per-region", type=int, default=None,
@@ -2550,8 +2709,10 @@ Examples:
     args = parser.parse_args()
 
     # Validate arguments based on mode
-    if args.num_vms and not args.stories_per_vm:
-        parser.error("--stories-per-vm is required when using --num-vms")
+    if args.num_vms and not args.stories_per_vm and not args.from_existing_stories:
+        parser.error("--stories-per-vm or --from-existing-stories is required when using --num-vms")
+    if args.from_existing_stories and args.stories_per_vm:
+        parser.error("--stories-per-vm and --from-existing-stories are mutually exclusive")
 
     # Initialize orchestrator
     try:

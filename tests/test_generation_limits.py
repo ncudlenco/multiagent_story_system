@@ -30,7 +30,7 @@ def create_generator_with_seed(seed: int) -> SimpleGESTRandomGenerator:
 def count_unique_regions(gest_data: Dict[str, Any]) -> Set[str]:
     """Extract unique regions from GEST events."""
     regions = set()
-    meta_keys = {"temporal", "spatial", "semantic", "camera", "title", "narrative"}
+    meta_keys = {"temporal", "spatial", "semantic", "logical", "camera", "title", "narrative"}
 
     for event_id, event_data in gest_data.items():
         if event_id in meta_keys:
@@ -49,7 +49,7 @@ def count_unique_regions(gest_data: Dict[str, Any]) -> Set[str]:
 def count_actors(gest_data: Dict[str, Any]) -> Set[str]:
     """Extract unique actor IDs from GEST."""
     actors = set()
-    meta_keys = {"temporal", "spatial", "semantic", "camera", "title", "narrative"}
+    meta_keys = {"temporal", "spatial", "semantic", "logical", "camera", "title", "narrative"}
 
     for event_id, event_data in gest_data.items():
         if event_id in meta_keys:
@@ -66,7 +66,7 @@ def count_actors(gest_data: Dict[str, Any]) -> Set[str]:
 def get_actors_per_region(gest_data: Dict[str, Any]) -> Dict[str, Set[str]]:
     """Get actors that appear in each region."""
     actors_per_region = {}
-    meta_keys = {"temporal", "spatial", "semantic", "camera", "title", "narrative"}
+    meta_keys = {"temporal", "spatial", "semantic", "logical", "camera", "title", "narrative"}
 
     for event_id, event_data in gest_data.items():
         if event_id in meta_keys:
@@ -100,7 +100,7 @@ def count_chains_per_actor(gest_data: Dict[str, Any]) -> Dict[str, int]:
     This is an approximation based on counting non-Exists events per actor.
     """
     chains_per_actor = {}
-    meta_keys = {"temporal", "spatial", "semantic", "camera", "title", "narrative"}
+    meta_keys = {"temporal", "spatial", "semantic", "logical", "camera", "title", "narrative"}
 
     for event_id, event_data in gest_data.items():
         if event_id in meta_keys:
@@ -142,7 +142,7 @@ class TestMaxRegionsParameter:
     ):
         """Verify max_regions limits the number of regions visited."""
         generator = create_generator_with_seed(seed)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=2,
             max_regions=max_regions
         )
@@ -160,7 +160,7 @@ class TestMaxRegionsParameter:
         """Verify max_regions=None allows natural region count."""
         # Use a seed known to generate multiple regions
         generator = create_generator_with_seed(104)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=3,
             max_regions=None  # No limit
         )
@@ -192,7 +192,7 @@ class TestMaxActorsPerRegionParameter:
     ):
         """Verify max_actors_per_region limits initial actor count."""
         generator = create_generator_with_seed(seed)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=2,
             max_actors_per_region=max_actors,
             max_regions=1  # Single region to simplify test
@@ -215,7 +215,7 @@ class TestMaxActorsPerRegionParameter:
     ):
         """Verify max_actors_per_region limits actors in each region."""
         generator = create_generator_with_seed(seed)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=2,
             max_actors_per_region=max_actors,
             max_regions=2
@@ -230,7 +230,7 @@ class TestMaxActorsPerRegionParameter:
     def test_max_actors_none_allows_natural_count(self, random_graph_output_dir):
         """Verify max_actors_per_region=None allows natural actor distribution."""
         generator = create_generator_with_seed(42)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=2,
             max_actors_per_region=None,
             max_regions=1
@@ -264,7 +264,7 @@ class TestCombinedLimitParameters:
     ):
         """Verify all limit parameters work together correctly."""
         generator = create_generator_with_seed(seed)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=chains,
             max_actors_per_region=max_actors,
             max_regions=max_regions
@@ -285,7 +285,7 @@ class TestCombinedLimitParameters:
     def test_minimal_generation(self, random_graph_output_dir):
         """Test minimal generation with strictest limits."""
         generator = create_generator_with_seed(42)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=1,
             max_actors_per_region=1,
             max_regions=1
@@ -310,7 +310,7 @@ class TestEdgeCases:
     def test_zero_chains_per_actor(self, random_graph_output_dir):
         """Test behavior with 0 chains per actor."""
         generator = create_generator_with_seed(42)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=0,
             max_actors_per_region=2,
             max_regions=1
@@ -323,7 +323,7 @@ class TestEdgeCases:
     def test_high_actor_limit_doesnt_exceed_natural(self, random_graph_output_dir):
         """Test that high actor limit doesn't artificially increase actor count."""
         generator = create_generator_with_seed(42)
-        gest_data = generator.generate(
+        gest_data, _metadata = generator.generate(
             chains_per_actor=2,
             max_actors_per_region=100,  # Very high limit
             max_regions=1
@@ -340,14 +340,14 @@ class TestEdgeCases:
 
         # Generate twice with same seed
         generator1 = create_generator_with_seed(seed)
-        gest1 = generator1.generate(
+        gest1, _meta1 = generator1.generate(
             chains_per_actor=2,
             max_actors_per_region=2,
             max_regions=1
         )
 
         generator2 = create_generator_with_seed(seed)
-        gest2 = generator2.generate(
+        gest2, _meta2 = generator2.generate(
             chains_per_actor=2,
             max_actors_per_region=2,
             max_regions=1
