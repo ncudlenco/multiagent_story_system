@@ -3,9 +3,6 @@
 <p align="center">
   <a href="https://github.com/ncudlenco/multiagent_story_system/releases"><img src="https://img.shields.io/github/v/release/ncudlenco/multiagent_story_system?include_prereleases&style=for-the-badge" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="MIT License"></a>
-  <a href="https://github.com/ncudlenco/multiagent_story_system/stargazers"><img src="https://img.shields.io/github/stars/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub stars"></a>
-  <a href="https://github.com/ncudlenco/multiagent_story_system/network/members"><img src="https://img.shields.io/github/forks/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub forks"></a>
-  <a href="https://github.com/ncudlenco/multiagent_story_system/watchers"><img src="https://img.shields.io/github/watchers/ncudlenco/multiagent_story_system?style=for-the-badge&logo=github" alt="GitHub watchers"></a>
 </p>
 
 Python tools for procedurally generating Graph of Events in Space and Time (GEST) specifications and executing them deterministically with the [GEST-Engine (mta-sim)](https://github.com/ncudlenco/mta-sim) — either **locally on a single machine** or **in parallel across many VMware Workstation Pro worker VMs**.
@@ -19,19 +16,26 @@ This repository contains:
 
 > **Two generator backends.** The `simple_random` generator produces GESTs that are **executable by construction**: every action is sampled from the engine's capability registry, every chain follows a valid POI sequence, and every story succeeds in the engine (modulo the engine's own bugs). The `llm` generator produces GESTs that are **narratively richer but not simulatable** out of the box — it operates at a higher semantic level, ignoring the engine's exact action vocabulary and constraints. The released ICLR checkpoint and the GTASA-01 corpus were produced exclusively with `simple_random`. Use `llm` only when you want semantically structured graphs for downstream non-simulation purposes.
 
-## Paper
+## Papers
 
-This system is described in the ICLR 2026 Workshop paper:
+This system is described in, and was used for, the following papers:
 
-> N.~Cudlenco, M.~Masala, M.~Leordeanu. **[Tiny Paper] GEST-Engine: Controllable Multi-Actor Video Synthesis with Perfect Spatiotemporal Annotations.** *ICLR 2026 the 2nd Workshop on World Models: Understanding, Modelling and Scaling.* [OpenReview](https://openreview.net/forum?id=uUofPYVMZH)
+| Venue | Paper | Checkpoint |
+|---|---|---|
+| **ICLR 2026**, 2nd Workshop on World Models | N. Cudlenco, M. Masala, M. Leordeanu. **[Tiny Paper] GEST-Engine: Controllable Multi-Actor Video Synthesis with Perfect Spatiotemporal Annotations.** [OpenReview](https://openreview.net/forum?id=uUofPYVMZH) | [`v1.0-iclr2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.0-iclr2026) |
+| **ECCV 2026**, Workshop on Agent in World: Living Worlds with Interactive Agents (AIW) | N. Cudlenco, M. Masala, M. Leordeanu. **Authoring for Living Worlds: Tool-Constrained LLM Agents for Executable Multi-Actor Scenarios.** [OpenReview](https://openreview.net/forum?id=kFK4sVgN9b) | [`v1.1-eccv2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.1-eccv2026) |
+| **ACCV 2026** | N. Cudlenco, M. Masala, M. Leordeanu. **GTASA: Ground Truth Annotations for Spatiotemporal Analysis, Evaluation and Training of Video Models.** [arXiv:2604.10385](https://arxiv.org/abs/2604.10385) | [`v1.0-iclr2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.0-iclr2026) (corpus generation) |
 
-The sample corpus of **398 procedurally generated multi-actor stories** produced with this orchestrator is publicly available on HuggingFace: [**nnc-001/gtasa-01**](https://huggingface.co/datasets/nnc-001/gtasa-01).
+The full system, together with the [GEST-Engine](https://github.com/ncudlenco/mta-sim), is documented in the technical report [*The GEST-Engine: From Event Graphs to Synthetic Video. A Full Technical Report*](https://arxiv.org/abs/2607.12231) (arXiv:2607.12231).
+
+The corpus produced with this orchestrator, **GTASA-01** (1,008 procedurally generated multi-actor stories, including the 938-scenario set reported in the GTASA paper), is publicly available on HuggingFace: [**nnc-001/gtasa-01**](https://huggingface.co/datasets/nnc-001/gtasa-01).
 
 ## Checkpoints
 
 | Tag | Date | Reference |
 |---|---|---|
 | [`v1.0-iclr2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.0-iclr2026) | March 2026 | ICLR 2026 Workshop Tiny Paper — state used to generate the GTASA-01 sample corpus |
+| [`v1.1-eccv2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.1-eccv2026) | August 2026 | ECCV 2026 AIW Workshop paper — adds the agentic authoring layer: a Director agent and a Scene Builder subagent that build executable GESTs exclusively through validated tool calls |
 
 Future checkpoints will be listed here as the system evolves.
 
@@ -438,19 +442,9 @@ python .\main.py --simulate 22597965 --collect-artifacts
 - **`config.yaml`** — common configuration (paths, logging, optional OpenAI settings).
 - **`data/simulation_environment_capabilities.json`** — pre-generated, manually curated capability registry consumed by the generator.
 
-## Star History
-
-<a href="https://www.star-history.com/#ncudlenco/multiagent_story_system&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ncudlenco/multiagent_story_system&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ncudlenco/multiagent_story_system&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ncudlenco/multiagent_story_system&type=Date" />
- </picture>
-</a>
-
 ## Citation
 
-If you use this orchestrator in your research, please cite the ICLR 2026 Tiny Paper:
+If you use this orchestrator in your research, please cite the paper matching the part you use: the ICLR 2026 Tiny Paper for procedural generation and the engine pipeline, the ECCV 2026 AIW paper for the agentic authoring layer, and the ACCV 2026 GTASA paper for the corpus and its evaluation.
 
 ```bibtex
 @inproceedings{cudlenco2026tiny,
@@ -459,6 +453,24 @@ If you use this orchestrator in your research, please cite the ICLR 2026 Tiny Pa
   booktitle={ICLR 2026 the 2nd Workshop on World Models: Understanding, Modelling and Scaling},
   year={2026},
   url={https://openreview.net/forum?id=uUofPYVMZH}
+}
+
+@inproceedings{cudlenco2026authoring,
+  title={Authoring for Living Worlds: Tool-Constrained {LLM} Agents for Executable Multi-Actor Scenarios},
+  author={Nicolae Cudlenco and Mihai Masala and Marius Leordeanu},
+  booktitle={ECCV 2026 Workshop on Agent in World: Living Worlds with Interactive Agents (AIW)},
+  year={2026},
+  url={https://openreview.net/forum?id=kFK4sVgN9b}
+}
+
+@inproceedings{cudlenco2026gtasa,
+  title={{GTASA}: Ground Truth Annotations for Spatiotemporal Analysis, Evaluation and Training of Video Models},
+  author={Nicolae Cudlenco and Mihai Masala and Marius Leordeanu},
+  booktitle={Asian Conference on Computer Vision (ACCV)},
+  year={2026},
+  eprint={2604.10385},
+  archivePrefix={arXiv},
+  url={https://arxiv.org/abs/2604.10385}
 }
 ```
 
