@@ -16,17 +16,17 @@ This repository contains:
 
 > **Two generator backends.** The `simple_random` generator produces GESTs that are **executable by construction**: every action is sampled from the engine's capability registry, every chain follows a valid POI sequence, and every story succeeds in the engine (modulo the engine's own bugs). The `llm` generator produces GESTs that are **narratively richer but not simulatable** out of the box — it operates at a higher semantic level, ignoring the engine's exact action vocabulary and constraints. The released ICLR checkpoint and the GTASA-01 corpus were produced exclusively with `simple_random`. Use `llm` only when you want semantically structured graphs for downstream non-simulation purposes.
 
-## Papers
+## Publications
 
-This system is described in, and was used for, the following papers:
+The GEST line of work, from the formalism to the engine, the agentic authoring layer, and the corpus. Checkpoints of this repository used for a paper are noted.
 
-| Venue | Paper | Checkpoint |
-|---|---|---|
-| **ICLR 2026**, 2nd Workshop on World Models | N. Cudlenco, M. Masala, M. Leordeanu. **[Tiny Paper] GEST-Engine: Controllable Multi-Actor Video Synthesis with Perfect Spatiotemporal Annotations.** [OpenReview](https://openreview.net/forum?id=uUofPYVMZH) | [`v1.0-iclr2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.0-iclr2026) |
-| **ECCV 2026**, Workshop on Agent in World: Living Worlds with Interactive Agents (AIW) | N. Cudlenco, M. Masala, M. Leordeanu. **Authoring for Living Worlds: Tool-Constrained LLM Agents for Executable Multi-Actor Scenarios.** [OpenReview](https://openreview.net/forum?id=kFK4sVgN9b) | [`v1.1-eccv2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.1-eccv2026) |
-| **ACCV 2026** | N. Cudlenco, M. Masala, M. Leordeanu. **GTASA: Ground Truth Annotations for Spatiotemporal Analysis, Evaluation and Training of Video Models.** [arXiv:2604.10385](https://arxiv.org/abs/2604.10385) | [`v1.0-iclr2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.0-iclr2026) (corpus generation) |
-
-The full system, together with the [GEST-Engine](https://github.com/ncudlenco/mta-sim), is documented in the technical report [*The GEST-Engine: From Event Graphs to Synthetic Video. A Full Technical Report*](https://arxiv.org/abs/2607.12231) (arXiv:2607.12231).
+- M. Masala, N. Cudlenco, T. Rebedea, M. Leordeanu. **Explaining Vision and Language through Graphs of Events in Space and Time.** *ICCV 2023 Workshops (CLVL)*, pp. 2818–2823. [CVF Open Access](https://openaccess.thecvf.com/content/ICCV2023W/CLVL/html/Masala_Explaining_Vision_and_Language_Through_Graphs_of_Events_in_Space_ICCVW_2023_paper.html) · [DOI](https://doi.org/10.1109/ICCVW60793.2023.00302) · [arXiv:2309.08612](https://arxiv.org/abs/2309.08612)
+- M. Masala, N. Cudlenco, T. Rebedea, M. Leordeanu. **GEST: the Graph of Events in Space and Time as a Common Representation between Vision and Language.** Preprint, 2023. [arXiv:2305.12940](https://arxiv.org/abs/2305.12940)
+- N. Cudlenco, M. Masala, M. Leordeanu. **[Tiny Paper] GEST-Engine: Controllable Multi-Actor Video Synthesis with Perfect Spatiotemporal Annotations.** *ICLR 2026, 2nd Workshop on World Models.* [OpenReview](https://openreview.net/forum?id=uUofPYVMZH) — checkpoint [`v1.0-iclr2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.0-iclr2026)
+- N. Cudlenco, M. Masala, M. Leordeanu. **Agentic Video Generation: From Text to Executable Event Graphs via Tool-Constrained LLM Planning.** Preprint, 2026. [arXiv:2604.10383](https://arxiv.org/abs/2604.10383)
+- N. Cudlenco, M. Masala, M. Leordeanu. **The GEST-Engine: From Event Graphs to Synthetic Video. A Full Technical Report.** 2026. [arXiv:2607.12231](https://arxiv.org/abs/2607.12231) — documents this system together with the [GEST-Engine](https://github.com/ncudlenco/mta-sim)
+- N. Cudlenco, M. Masala, M. Leordeanu. **Authoring for Living Worlds: Tool-Constrained LLM Agents for Executable Multi-Actor Scenarios.** *ECCV 2026 Workshop on Agent in World: Living Worlds with Interactive Agents (AIW).* [OpenReview](https://openreview.net/forum?id=kFK4sVgN9b) — checkpoint [`v1.1-eccv2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.1-eccv2026)
+- N. Cudlenco, M. Masala, M. Leordeanu. **GTASA: Ground Truth Annotations for Spatiotemporal Analysis, Evaluation and Training of Video Models.** *ACCV 2026.* [arXiv:2604.10385](https://arxiv.org/abs/2604.10385) — corpus generated with checkpoint [`v1.0-iclr2026`](https://github.com/ncudlenco/multiagent_story_system/releases/tag/v1.0-iclr2026)
 
 The corpus produced with this orchestrator, **GTASA-01** (1,008 procedurally generated multi-actor stories, including the 938-scenario set reported in the GTASA paper), is publicly available on HuggingFace: [**nnc-001/gtasa-01**](https://huggingface.co/datasets/nnc-001/gtasa-01).
 
